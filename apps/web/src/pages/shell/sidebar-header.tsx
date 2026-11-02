@@ -44,10 +44,16 @@ export function SidebarHeader({
   const toggleLabel = mini ? t`Show bots` : t`Minimize bots`;
   return (
     <div
-      className={`app-drag flex items-center ${mini ? `flex-col gap-2 px-0 pb-2 ${hasWindowChrome ? "pt-4" : "pt-2"}` : "justify-between px-[18px] pb-3 pt-4"}`}
+      className={`app-drag flex items-center ${mini ? `flex-col gap-2 px-0 pb-2 ${hasWindowChrome ? "pt-4" : "pt-2"}` : "flex-col items-stretch gap-3 px-[18px] pb-3 pt-4"}`}
     >
       {!mini || hasWindowChrome ? <WindowChrome /> : null}
-      <div className={`relative flex items-center ${mini ? "flex-col gap-0.5" : "gap-2.5"}`}>
+      {!mini && !hasWindowChrome ? (
+        <div className="app-no-drag flex w-full items-center gap-3">
+          <img src="/ecomnomics-logo.png" alt="Ecomnomics logo" className="h-20 w-20 shrink-0 object-contain scale-[2]" />
+          <span className="text-[20px] font-semibold tracking-tight text-foreground">Ecomnomics</span>
+        </div>
+      ) : null}
+      <div className={`relative flex items-center ${mini ? "flex-col gap-0.5" : "justify-end gap-2.5"}`}>
         {onSearch ? (
           <IconTooltip label={t`Search`}>
             <Button
