@@ -210,6 +210,10 @@ export function OnboardingPage() {
   useEffect(() => {
     void Promise.all([rpc.me(), rpc.models.list().catch(() => [])])
       .then(([me, models]) => {
+        if (me.needsRestaurantWelcome) {
+          navigate("/restaurant/welcome", { replace: true });
+          return;
+        }
         setBillingEnabled(me.billingEnabled);
         setCatalog(models);
         const next = me.needsModel ? "model" : "bot";

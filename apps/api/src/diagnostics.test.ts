@@ -51,6 +51,7 @@ function input(overrides: Partial<DiagnosticsInput> = {}): DiagnosticsInput {
       mcpStdioAllowedCommands: ["/usr/local/bin/acme-mcp", "npx"],
       mcpAllowPrivateEndpoint: false,
       ticketBoardEnabled: false,
+      restaurantSignupEnabled: false,
       userDevicesEnabled: true,
       phoneCallsEnabled: false,
       secretStore: "encrypted",

@@ -228,8 +228,9 @@ model Organization {
   metadata     String?
   members      Member[]
   invitations  Invitation[]
-  spaces       Space[]
-  billing      BillingAccount?
+  spaces             Space[]
+  restaurantProfile  RestaurantProfile?
+  billing            BillingAccount?
   modelCredits ModelCreditAccount?
   referralCode ReferralCode?
   referredBy   Referral?           @relation("ReferredOrganization")
@@ -412,6 +413,7 @@ model Space {
   connections                 Connection[]
   capabilities                CapabilityInstall[]
   memoryDocuments             MemoryDocument[]
+  restaurantProfile           RestaurantProfile?
   agentHomes                  AgentHome[]
   browserProfiles             BrowserProfile[]
   artifacts                   Artifact[]
@@ -2262,4 +2264,42 @@ model CapabilityInstallSpace {
   @@id([installId, spaceId])
   @@index([spaceId, userId])
   @@map("capability_install_spaces")
+}
+
+/// One restaurant workspace. Written only when restaurant signup is turned on.
+/// Outlets belong to this row; they do not get their own computer.
+model RestaurantProfile {
+  spaceId        String             @id
+  space          Space              @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  organizationId String             @unique
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String             @default("")
+  cuisine        String             @default("")
+  city           String             @default("")
+  contactName    String             @default("")
+  contactEmail   String             @default("")
+  contactPhone   String             @default("")
+  menuText       String             @default("")
+  menuFileName   String?
+  completedAt    DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  outlets        RestaurantOutlet[]
+
+  @@map("restaurant_profiles")
+}
+
+model RestaurantOutlet {
+  id           String            @id
+  spaceId      String
+  profile      RestaurantProfile @relation(fields: [spaceId], references: [spaceId], onDelete: Cascade)
+  name         String
+  address      String
+  openingHours String
+  position     Int
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@unique([spaceId, position])
+  @@map("restaurant_outlets")
 }

@@ -358,6 +358,17 @@ export function createRouterContext(deps: RouterDeps) {
     return next();
   });
 
+  const restaurantEnabled = os
+    .use(async ({ next }) => {
+      if (!deps.env?.restaurantSignupEnabled) throw new ORPCError("NOT_FOUND");
+      return next();
+    })
+    .use(async ({ context, next }) => {
+      const actor = context.actor;
+      if (!actor) throw new ORPCError("UNAUTHORIZED");
+      return asTenant(actor, () => next({ context: { ...context, actor } }));
+    });
+
   const boardEnabled = os
     .use(async ({ next }) => {
       if (!deps.env?.ticketBoardEnabled) throw new ORPCError("NOT_FOUND");
@@ -404,6 +415,7 @@ export function createRouterContext(deps: RouterDeps) {
     agentSkills,
     authed,
     callsEnabled,
+    restaurantEnabled,
     boardEnabled,
     ticketDeps,
   };

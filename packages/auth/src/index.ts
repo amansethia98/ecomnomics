@@ -7,6 +7,7 @@ import {
   isMessagingEmail,
   MAX_PASSWORD_LENGTH,
   MIN_PASSWORD_LENGTH,
+  restaurantVerificationPath,
   signupPolicyFromEnv,
 } from "@rakazo/core";
 import type { PrismaClient, SecurityEventType } from "@rakazo/db";
@@ -71,6 +72,8 @@ export interface AuthEnv {
   webOrigin: string;
   signupsEnabled: string | undefined;
   signupAllowlist: string | undefined;
+  /** When true, a restaurant signup header returns the verification email to welcome. */
+  restaurantSignupEnabled?: boolean;
   extraOrigins?: string[];
   /** SHA-256 signing certificate fingerprints of Android apps allowed to use this server's passkeys. */
   androidAppCertFingerprints?: string[];
@@ -232,7 +235,10 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
             const verificationUrl = new URL(url);
             verificationUrl.searchParams.set(
               "callbackURL",
-              new URL("/sign-in", env.webOrigin).href,
+              new URL(
+                restaurantVerificationPath(request?.headers, env.restaurantSignupEnabled === true),
+                env.webOrigin,
+              ).href,
             );
             const locale = await emailLocaleOf({ id: user.id }, request?.headers);
             await env.email!.send(

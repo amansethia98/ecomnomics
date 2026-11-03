@@ -167,6 +167,9 @@ function SpaceShell() {
     setBootstrapMe,
     refreshBots,
   } = roster;
+  useEffect(() => {
+    if (bootstrapMe?.needsRestaurantWelcome) navigate("/restaurant/welcome", { replace: true });
+  }, [bootstrapMe?.needsRestaurantWelcome, navigate]);
   const { collapsedSidebarSections, toggleSidebarSection } = useSidebarExpansion(userId);
   const [botsSidebarCollapsed, setBotsSidebarCollapsed] = useState(false);
   useEffect(() => {

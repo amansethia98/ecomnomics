@@ -46,6 +46,7 @@ import { memoryRoutes } from "./routes/memory.js";
 import { messagingRoutes } from "./routes/messaging.js";
 import { modelsRoutes } from "./routes/models.js";
 import { paymentWalletRoutes } from "./routes/payment-wallet.js";
+import { restaurantRoutes } from "./routes/restaurant.js";
 import { routinesRoutes } from "./routes/routines.js";
 import { spacesRoutes } from "./routes/spaces.js";
 import { threadsRoutes } from "./routes/threads.js";
@@ -114,6 +115,7 @@ export interface RouterDeps {
   speechSummary?: VoiceDeps["speechSummary"];
   env: {
     ticketBoardEnabled?: boolean;
+    restaurantSignupEnabled?: boolean;
     navLinks?: NavLink[];
     adminEmails?: string[];
     phoneCallsEnabled?: boolean;
@@ -146,6 +148,7 @@ export function createRouter(deps: RouterDeps) {
 
   return os.router({
     ...accountRoutes(ctx),
+    ...restaurantRoutes(ctx),
     ...spacesRoutes(ctx),
     ...modelsRoutes(ctx),
     ...botsRoutes(ctx),
