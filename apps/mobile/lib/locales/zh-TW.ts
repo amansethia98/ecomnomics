@@ -1,4 +1,5 @@
 export const ZH_TW_MESSAGES: Record<string, string> = {
+  "Daily check-ins on unfinished work": "每天追蹤未完成的工作",
   "How other bots see it": "其他機器人如何瞭解它",
   "Share to": "分享到",
   "{count} files": "{count} 個檔案",
@@ -242,6 +243,7 @@ export const ZH_TW_MESSAGES: Record<string, string> = {
   Approve: "核准",
   "Approve this server to let your agent use its tools.": "核准此伺服器，讓代理程式使用它的工具。",
   "Answered: {answer}": "已回答：{answer}",
+  "Only enter a code {host} sent you.": "僅輸入 {host} 傳給你的驗證碼。",
   Archive: "封存",
   "Archive keeps everything and can be undone. Delete is permanent.":
     "封存會保留全部內容，可以復原。刪除不可恢復。",
@@ -375,6 +377,7 @@ export const ZH_TW_MESSAGES: Record<string, string> = {
   "Could not share image": "無法分享圖片",
   "Loading image…": "正在載入圖片…",
   "Open image {name}": "開啟圖片 {name}",
+  "Open {name}": "開啟 {name}",
   "Tap to open": "點按開啟",
   "Could not open message": "無法開啟訊息",
   "Could not play a sample": "無法播放示例",
@@ -455,6 +458,7 @@ export const ZH_TW_MESSAGES: Record<string, string> = {
   "Failed to send message": "傳送訊息失敗",
   "Failed to stop work": "停止工作失敗",
   File: "檔案",
+  "Did you mean {email}?": "你是指 {email} 嗎？",
   "Forgot password?": "忘記密碼？",
   "Find models": "查詢模型",
   "Finding…": "正在查詢…",
@@ -983,6 +987,12 @@ export const ZH_TW_MESSAGES: Record<string, string> = {
     "試用將結束，今天將從你的卡片扣款 {price}。",
   "Your trial ends and your card is charged today.": "試用將結束，今天將從你的卡片扣款。",
   "Start plan": "開始方案",
+  "Switch to yearly": "切換為按年",
+  "Switch to yearly?": "切換為按年付費？",
+  "Your card is charged {price} today, less the unused part of this month.":
+    "今天將從你的卡中扣款 {price}，並抵扣本月未使用的部分。",
+  "Your plan becomes {price} / year when your trial ends.":
+    "試用結束後，你的方案將變為每年 {price}。",
   "Monthly credits": "每月額度",
   "Upgrade now": "立即升級",
   "Downgrade at renewal": "下次續訂時降級",
@@ -1251,6 +1261,19 @@ export const ZH_TW_MESSAGES: Record<string, string> = {
   "Won't do": "不處理",
   "Could not move the ticket": "無法移動工單",
   "No tickets yet.": "還沒有工單。",
+  "Bot models": "機器人模型",
+  "1 bot has its own model:": "1 個機器人使用自己的模型：",
+  "{count} bots have their own model:": "{count} 個機器人使用自己的模型：",
+  "Use space default": "使用空間預設模型",
+  "Switching…": "正在切換…",
+  "Switch 1 bot to the space default?": "將 1 個機器人切換為空間預設模型？",
+  "Switch {count} bots to the space default?": "將 {count} 個機器人切換為空間預設模型？",
+  "Their own model is cleared. You can pick one again in each bot.":
+    "將清除機器人的個別模型設定。你可以隨時為各機器人重新選擇模型。",
+  Switch: "切換",
+  "1 bot now uses the space default.": "1 個機器人已改用空間預設模型。",
+  "{count} bots now use the space default.": "{count} 個機器人已改用空間預設模型。",
+  "Could not switch {failedNames}. Try again.": "無法切換 {failedNames}，請再試一次。",
 };
 
 export const PEER_MESSAGE_FORMS = { other: "與{peer}的 {count} 則訊息" };

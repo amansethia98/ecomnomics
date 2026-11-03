@@ -46,6 +46,7 @@ import {
 } from "./host-screen.js";
 import {
   createLocaleHandler,
+  desktopDirection,
   desktopLocale,
   desktopMessages,
   errorDetail,
@@ -604,7 +605,7 @@ function oauthPopupWindowOptions(partition: string | null) {
     frame: true,
     titleBarStyle: "default" as const,
     autoHideMenuBar: true,
-    backgroundColor: "#161616",
+    backgroundColor: "#0C1324",
     webPreferences: oauthPopupSessionPreferences(partition),
   };
 }
@@ -1627,7 +1628,7 @@ app.whenReady().then(async () => {
   // Synchronous so the setup page has its language before it first paints.
   ipcMain.on("desktop.setup.locale", (event) => {
     event.returnValue = fromSetupWindow(event)
-      ? { lang: desktopLocale(), messages: desktopMessages() }
+      ? { lang: desktopLocale(), dir: desktopDirection(), messages: desktopMessages() }
       : null;
   });
   ipcMain.handle("desktop.setup.state", (event) => {

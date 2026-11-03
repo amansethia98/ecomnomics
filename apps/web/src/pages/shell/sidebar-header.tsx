@@ -49,11 +49,19 @@ export function SidebarHeader({
       {!mini || hasWindowChrome ? <WindowChrome /> : null}
       {!mini && !hasWindowChrome ? (
         <div className="app-no-drag flex w-full items-center gap-3">
-          <img src="/ecomnomics-logo.png" alt="Ecomnomics logo" className="h-20 w-20 shrink-0 object-contain scale-[2]" />
-          <span className="text-[20px] font-semibold tracking-tight text-foreground">Ecomnomics</span>
+          <img
+            src="/ecomnomics-logo.png"
+            alt="Ecomnomics logo"
+            className="h-20 w-20 shrink-0 object-contain scale-[2]"
+          />
+          <span className="text-[20px] font-semibold tracking-tight text-foreground">
+            Ecomnomics
+          </span>
         </div>
       ) : null}
-      <div className={`relative flex items-center ${mini ? "flex-col gap-0.5" : "justify-end gap-2.5"}`}>
+      <div
+        className={`relative flex items-center ${mini ? "flex-col gap-0.5" : "justify-end gap-2.5"}`}
+      >
         {onSearch ? (
           <IconTooltip label={t`Search`}>
             <Button
