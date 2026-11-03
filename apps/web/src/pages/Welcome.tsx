@@ -1,5 +1,7 @@
 import { Trans } from "@lingui/react/macro";
+import { RESTAURANT_SIGNUP_PATH } from "@rakazo/core";
 import { Link, useNavigate } from "react-router-dom";
+import { fetchAuthCapabilities } from "../lib/auth-capabilities";
 import { WindowChrome } from "./WindowChrome";
 
 export function WelcomePage() {
@@ -29,7 +31,15 @@ export function WelcomePage() {
         <div className="flex flex-wrap items-center justify-center gap-2">
           <button
             type="button"
-            onClick={() => navigate("/sign-up")}
+            onClick={() => {
+              void fetchAuthCapabilities()
+                .then((capabilities) => {
+                  navigate(
+                    capabilities.restaurantSignup === true ? RESTAURANT_SIGNUP_PATH : "/sign-up",
+                  );
+                })
+                .catch(() => navigate("/sign-up"));
+            }}
             className="app-no-drag rounded-full bg-accent px-[34px] py-[15px] text-[19px] text-foreground transition hover:scale-[1.04] hover:bg-accent"
           >
             <Trans>Sign up</Trans>

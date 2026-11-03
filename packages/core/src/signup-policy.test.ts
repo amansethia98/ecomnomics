@@ -3,6 +3,8 @@ import {
   emailAllowed,
   isMessagingEmail,
   parseAllowlist,
+  RESTAURANT_SIGNUP_HEADER,
+  restaurantVerificationPath,
   signupPolicyFromEnv,
   signupRequiresEmailVerification,
   signupsOpen,
@@ -22,6 +24,16 @@ describe("signup policy", () => {
       expect(signupRequiresEmailVerification(response)).toBe(false);
     }
   });
+  it("sends restaurant signup back to welcome and leaves every other signup on sign-in", () => {
+    const headers = new Headers({ [RESTAURANT_SIGNUP_HEADER]: "1" });
+    expect(restaurantVerificationPath(headers, true)).toBe(
+      "/sign-in?next=%2Frestaurant%2Fwelcome",
+    );
+    expect(restaurantVerificationPath(headers, false)).toBe("/sign-in");
+    expect(restaurantVerificationPath(new Headers(), true)).toBe("/sign-in");
+    expect(restaurantVerificationPath(undefined, true)).toBe("/sign-in");
+  });
+
   it("allows any email when the list is empty", () => {
     expect(emailAllowed("a@x.com", [])).toBe(true);
   });

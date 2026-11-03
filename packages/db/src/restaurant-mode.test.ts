@@ -6,6 +6,7 @@ import {
   DedicatedComputerDisabledError,
   restaurantComputerEnabled,
   restaurantComputerMode,
+  restaurantSignupEnabled,
   restaurantStarterBotsEnabled,
   SharedMachineSandboxError,
   sandboxSharesOneMachine,
@@ -23,6 +24,9 @@ describe("restaurant settings", () => {
     expect(restaurantComputerEnabled({ RESTAURANT_COMPUTER_ENABLED: "true" })).toBe(true);
     expect(restaurantStarterBotsEnabled({ RESTAURANT_STARTER_BOTS_ENABLED: "true" })).toBe(true);
     expect(restaurantStarterBotsEnabled({})).toBe(false);
+    expect(restaurantSignupEnabled({})).toBe(false);
+    expect(restaurantSignupEnabled({ RESTAURANT_SIGNUP_ENABLED: "false" })).toBe(false);
+    expect(restaurantSignupEnabled({ RESTAURANT_SIGNUP_ENABLED: "true" })).toBe(true);
   });
 
   it("keeps one shared computer when restaurant computers are on", () => {

@@ -54,6 +54,17 @@ describe("loadEnv", () => {
       expect(loadEnv({ ...base, TICKET_BOARD_ENABLED: value }).ticketBoardEnabled).toBe(false);
     expect(loadEnv({ ...base, TICKET_BOARD_ENABLED: "true" }).ticketBoardEnabled).toBe(true);
   });
+  it("keeps restaurant signup off unless it is exactly true", () => {
+    expect(loadEnv(base).restaurantSignupEnabled).toBe(false);
+    for (const value of ["false", "1", ""]) {
+      expect(loadEnv({ ...base, RESTAURANT_SIGNUP_ENABLED: value }).restaurantSignupEnabled).toBe(
+        false,
+      );
+    }
+    expect(loadEnv({ ...base, RESTAURANT_SIGNUP_ENABLED: "true" }).restaurantSignupEnabled).toBe(
+      true,
+    );
+  });
   it("loads operator menu links and refuses to start on a bad value", () => {
     expect(loadEnv(base).navLinks).toEqual([]);
     expect(

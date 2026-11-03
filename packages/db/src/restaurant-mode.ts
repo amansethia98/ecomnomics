@@ -11,6 +11,11 @@ export function restaurantStarterBotsEnabled(env: NodeJS.ProcessEnv = process.en
   return env.RESTAURANT_STARTER_BOTS_ENABLED === "true";
 }
 
+/** Exact `true`. Restaurant signup and welcome stay off for ordinary self-hosting. */
+export function restaurantSignupEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.RESTAURANT_SIGNUP_ENABLED === "true";
+}
+
 /**
  * Kinds that place every workspace on one machine.
  * `none` has no computer. `desktop` is the host. `wuying` is one configured desktop.

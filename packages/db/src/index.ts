@@ -36,6 +36,7 @@ export * from "./model-roles.js";
 export * from "./provider-transactions.js";
 export * from "./repos.js";
 export * from "./restaurant-mode.js";
+export * from "./restaurant-profile.js";
 export * from "./restaurant-starters.js";
 export * from "./restaurant-templates.js";
 export * from "./row-security.js";
