@@ -7,6 +7,7 @@ import {
   findSkillByName,
   formatSkillsCatalogInstruction,
   mergeBuiltinSkills,
+  mergeLockedSkills,
   parseSkillMd,
   renameRoutineSkillMentions,
 } from "./agent-skill.js";
@@ -36,6 +37,14 @@ describe("built-in skill merging", () => {
       expect(expandSkillReferencesInPrompt(prompt, skills)).not.toContain("@Interrogate");
     }
     expect(mergeBuiltinSkills([builtin], [])).toEqual([builtin]);
+  });
+
+  it("keeps a locked skill when a saved skill reuses its name", () => {
+    const locked = { name: "Update menu", content: "locked steps" };
+    const saved = { name: "update menu", content: "customer steps" };
+    const other = { name: "House recipe", content: "keep" };
+    expect(mergeLockedSkills([locked], [saved, other])).toEqual([locked, other]);
+    expect(mergeLockedSkills([], [saved])).toEqual([saved]);
   });
 });
 

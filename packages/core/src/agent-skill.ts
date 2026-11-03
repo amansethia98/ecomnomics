@@ -227,6 +227,18 @@ export function mergeBuiltinSkills<T extends { name: string }>(
   return [...builtins.filter((skill) => !findSkillByName(userSkills, skill.name)), ...userSkills];
 }
 
+/**
+ * Locked skills stay in the catalog when a saved skill reuses their name.
+ * An empty locked list leaves the catalog unchanged.
+ */
+export function mergeLockedSkills<T extends { name: string }>(
+  locked: readonly T[],
+  skills: readonly T[],
+): T[] {
+  if (locked.length === 0) return [...skills];
+  return [...locked, ...skills.filter((skill) => !findSkillByName(locked, skill.name))];
+}
+
 export function findSkillByName<T extends { name: string }>(
   skills: readonly T[],
   name: string,

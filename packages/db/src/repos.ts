@@ -19,6 +19,7 @@ import {
   displayName,
   isBackgroundRunTrigger,
   phoneCallSettings,
+  RESTAURANT_TEMPLATE_SPAWN_PREFIX,
   ringingCall,
   userVisibleMessages,
 } from "@rakazo/core";
@@ -28,6 +29,12 @@ import type { ComputerMode } from "./computers.js";
 import { ensureComputerRecord, parseComputerMode } from "./computers.js";
 import { createThreadMessageInTransaction } from "./messages.js";
 import { withNewestThreadMessages } from "./preview-messages.js";
+import {
+  DedicatedComputerDisabledError,
+  restaurantComputerEnabled,
+  restaurantComputerMode,
+  restaurantStarterBotsEnabled,
+} from "./restaurant-mode.js";
 import { BotSectionNameConflictError, IsolationError } from "./scope.js";
 import { lockSpaceForContentCreation } from "./spaces.js";
 import {
@@ -544,6 +551,21 @@ export function createRepos(
         isolationLevel?: Prisma.TransactionIsolationLevel;
       },
     ): Promise<Bot> {
+      // Onboarding's first bot is Chief. A restaurant that already has its template
+      // bots keeps those and does not gain a third one.
+      if (input.spawnKey === "onboarding:first" && restaurantStarterBotsEnabled()) {
+        const templateBot = await prisma.bot.findFirst({
+          where: {
+            spaceId: actor.spaceId,
+            userId: actor.userId,
+            archivedAt: null,
+            spawnKey: { startsWith: RESTAURANT_TEMPLATE_SPAWN_PREFIX },
+          },
+          include: { thread: true, computer: true },
+          orderBy: { position: "asc" },
+        });
+        if (templateBot?.thread) return mapBot(templateBot);
+      }
       // A reserved preview identity is also an idempotency key if the response is lost.
       const spawnKey = input.spawnKey ?? input.id;
       let modelProvider = input.modelProvider ?? null;
@@ -641,7 +663,7 @@ export function createRepos(
               markUnread: false,
             });
           }
-          if (input.computerMode === "dedicated") {
+          if (restaurantComputerMode(input.computerMode) === "dedicated") {
             const dedicated = await ensureComputerRecord(tx, {
               mode: "dedicated",
               spaceId: actor.spaceId,
@@ -744,6 +766,9 @@ export function createRepos(
     },
 
     async setBotComputer(actor: Actor, botId: string, mode: ComputerMode): Promise<Bot> {
+      if (mode === "dedicated" && restaurantComputerEnabled()) {
+        throw new DedicatedComputerDisabledError();
+      }
       const bot = await prisma.bot.findFirst({
         where: { id: botId, spaceId: actor.spaceId, userId: actor.userId },
         include: { computer: true },

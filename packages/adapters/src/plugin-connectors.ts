@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import type { PluginPreview } from "@rakazo/contracts";
 import { McpServerConfigInput } from "@rakazo/contracts";
 import { buildSkillMd, findSkillByName, parseSkillMd } from "@rakazo/core";
+import { restaurantSkillRecords } from "@rakazo/db";
 import { z } from "zod";
 import { BUILTIN_AGENT_SKILLS } from "./builtin-skills.js";
 import { assertNoSensitiveQuery } from "./connector-http.js";
@@ -562,7 +563,8 @@ export function parsePluginDirectory(input: {
     ...collectCommands(files, names, skipped),
   ]) {
     // A skill named like a built-in one repeats it; every user already has the built-in.
-    if (findSkillByName(BUILTIN_AGENT_SKILLS, skill.name)) builtinNames.push(skill.name);
+    if (findSkillByName([...BUILTIN_AGENT_SKILLS, ...restaurantSkillRecords()], skill.name))
+      builtinNames.push(skill.name);
     else skills.push(skill);
   }
   skills.sort((a, b) => a.name.localeCompare(b.name));

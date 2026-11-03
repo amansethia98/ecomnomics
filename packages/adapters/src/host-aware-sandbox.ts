@@ -15,6 +15,7 @@ import type {
   WorkspaceExportLimits,
 } from "@rakazo/adapter-kit";
 import type { PrismaClient } from "@rakazo/db";
+import { restaurantComputerEnabled, warnIfRestaurantComputerIsShared } from "@rakazo/db";
 import { cancelComputerRunWork } from "./computer-idle.js";
 import { manageComputerWorkspaceDirectories } from "./computer-workspace.js";
 import { assertHostCommandsAllowed, DesktopSandboxProvider } from "./desktop-sandbox.js";
@@ -31,6 +32,13 @@ export async function createRunSandbox(
   kind: string,
   opts: SandboxProviderOptions & { prisma?: PrismaClient },
 ): Promise<SandboxProvider> {
+  warnIfRestaurantComputerIsShared(kind);
+  if (restaurantComputerEnabled() && kind === "docker" && opts.prisma) {
+    const settings = await opts.prisma.deploymentSettings.findUnique({
+      where: { id: "default" },
+    });
+    if (settings?.computerHost === "this-mac") warnIfRestaurantComputerIsShared("desktop");
+  }
   if (kind === "desktop") {
     assertHostCommandsAllowed();
     return new DesktopSandboxProvider({

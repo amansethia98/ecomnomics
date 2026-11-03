@@ -7,6 +7,7 @@ import {
   findSkillByName,
   isSkillReadOnly,
   mergeBuiltinSkills,
+  mergeLockedSkills,
   parseSkillMd,
 } from "@rakazo/core";
 import type { PrismaClient } from "@rakazo/db";
@@ -14,6 +15,7 @@ import {
   AVAILABILITY_SELECT,
   availableInSpace,
   IsolationError,
+  restaurantSkillRecords,
   spaceAvailability,
 } from "@rakazo/db";
 import { assertNameFreeWhereAvailable, userAddedAvailability } from "./availability.js";
@@ -51,17 +53,29 @@ export function mapAgentSkill(row: AgentSkillRow): AgentSkill {
   };
 }
 
-function builtinCatalog(): AgentSkill[] {
-  return BUILTIN_AGENT_SKILLS.map((skill) => ({
+function toBuiltinSkill(skill: { name: string; description: string; content: string }): AgentSkill {
+  return {
     id: `builtin:${skill.name}`,
     name: skill.name,
     description: skill.description,
     content: skill.content,
-    source: "builtin" as const,
+    source: "builtin",
     readOnly: true,
     createdAt: new Date(0).toISOString(),
     updatedAt: new Date(0).toISOString(),
-  }));
+  };
+}
+
+function builtinCatalog(): AgentSkill[] {
+  return BUILTIN_AGENT_SKILLS.map(toBuiltinSkill);
+}
+
+function lockedRestaurantCatalog(): AgentSkill[] {
+  return restaurantSkillRecords().map(toBuiltinSkill);
+}
+
+function readOnlyCatalog(): AgentSkill[] {
+  return [...builtinCatalog(), ...lockedRestaurantCatalog()];
 }
 
 export function resolveSkillContent(input: {
@@ -147,9 +161,10 @@ export function createAgentSkillsService(prisma: PrismaClient) {
         include: { availableIn: AVAILABILITY_SELECT },
         orderBy: [{ name: "asc" }, { id: "asc" }],
       });
-      return mergeBuiltinSkills(builtinCatalog(), rows.map(mapAgentSkill)).map(
-        ({ content: _content, ...entry }) => entry,
-      );
+      return mergeLockedSkills(
+        lockedRestaurantCatalog(),
+        mergeBuiltinSkills(builtinCatalog(), rows.map(mapAgentSkill)),
+      ).map(({ content: _content, ...entry }) => entry);
     },
 
     async listWithContent(actor: Actor): Promise<AgentSkill[]> {
@@ -159,12 +174,15 @@ export function createAgentSkillsService(prisma: PrismaClient) {
         include: { availableIn: AVAILABILITY_SELECT },
         orderBy: [{ name: "asc" }, { id: "asc" }],
       });
-      return mergeBuiltinSkills(builtinCatalog(), rows.map(mapAgentSkill));
+      return mergeLockedSkills(
+        lockedRestaurantCatalog(),
+        mergeBuiltinSkills(builtinCatalog(), rows.map(mapAgentSkill)),
+      );
     },
 
     async get(actor: Actor, input: { skillId?: string; name?: string }): Promise<AgentSkill> {
       if (input.skillId?.startsWith("builtin:")) {
-        const builtin = builtinCatalog().find((skill) => skill.id === input.skillId);
+        const builtin = readOnlyCatalog().find((skill) => skill.id === input.skillId);
         if (!builtin) throw new IsolationError();
         return builtin;
       }
@@ -172,6 +190,8 @@ export function createAgentSkillsService(prisma: PrismaClient) {
         return mapAgentSkill(await owned(actor, input.skillId));
       }
       const name = input.name?.trim() ?? "";
+      const locked = findSkillByName(lockedRestaurantCatalog(), name);
+      if (locked) return locked;
       const rows = await prisma.agentSkill.findMany({
         where: availableInSpace(actor),
         include: { availableIn: AVAILABILITY_SELECT },
@@ -189,7 +209,7 @@ export function createAgentSkillsService(prisma: PrismaClient) {
       input: { content?: string; name?: string; description?: string; body?: string },
     ): Promise<AgentSkill> {
       const resolved = resolveSkillContent(input);
-      if (builtinCatalog().some((s) => s.name.toLowerCase() === resolved.name.toLowerCase())) {
+      if (readOnlyCatalog().some((s) => s.name.toLowerCase() === resolved.name.toLowerCase())) {
         throw new ORPCError("CONFLICT", { message: "A skill with that name already exists." });
       }
       try {
@@ -240,11 +260,14 @@ export function createAgentSkillsService(prisma: PrismaClient) {
       if (isSkillReadOnly(asSource(existing.source) as SkillSource)) {
         throw new ORPCError("BAD_REQUEST", { message: "Builtin and plugin skills are read-only." });
       }
+      if (findSkillByName(lockedRestaurantCatalog(), existing.name)) {
+        throw new ORPCError("BAD_REQUEST", { message: "Builtin and plugin skills are read-only." });
+      }
       const resolved = resolveSkillContent({ ...input, prior: existing });
       const renamed = !findSkillByName([existing], resolved.name);
       if (
         renamed &&
-        builtinCatalog().some((s) => s.name.toLowerCase() === resolved.name.toLowerCase())
+        readOnlyCatalog().some((s) => s.name.toLowerCase() === resolved.name.toLowerCase())
       ) {
         throw new ORPCError("CONFLICT", { message: "A skill with that name already exists." });
       }
@@ -286,7 +309,10 @@ export function createAgentSkillsService(prisma: PrismaClient) {
 
     async remove(actor: Actor, skillId: string): Promise<{ ok: true }> {
       const existing = await owned(actor, skillId);
-      if (isSkillReadOnly(asSource(existing.source) as SkillSource)) {
+      if (
+        isSkillReadOnly(asSource(existing.source) as SkillSource) ||
+        findSkillByName(lockedRestaurantCatalog(), existing.name)
+      ) {
         throw new ORPCError("BAD_REQUEST", { message: "Builtin and plugin skills are read-only." });
       }
       const deleted = await prisma.agentSkill.deleteMany({
