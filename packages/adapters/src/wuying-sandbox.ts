@@ -24,6 +24,7 @@ import {
   WorkspaceTooLargeError,
 } from "@rakazo/adapter-kit";
 import { boundedSandboxCommandTimeoutMs } from "@rakazo/core";
+import { assertRestaurantComputerIsolated } from "@rakazo/db";
 import { boundedComputerActions, computerObservation } from "./computer-support.js";
 import { normalizeDesktopWorkspacePath } from "./desktop-sandbox-paths.js";
 import { McpSession } from "./mcp-transport.js";
@@ -381,6 +382,7 @@ export class WuyingSandboxProvider implements SandboxProvider {
     request: { botId: string; homePath: string; providerRef?: string },
     context: AdapterContext,
   ): Promise<ComputerRef> {
+    assertRestaurantComputerIsolated("wuying");
     if (!HOME_KEY.test(request.botId)) throw new Error("computer home key is not portable");
     const started = await this.ensureRunning(context.signal);
     const home = await this.home(request.botId, context.signal);

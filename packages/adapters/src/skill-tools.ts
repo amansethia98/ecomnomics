@@ -4,10 +4,11 @@ import {
   findSkillByName,
   isSkillReadOnly,
   mergeBuiltinSkills,
+  mergeLockedSkills,
   parseSkillMd,
 } from "@rakazo/core";
 import type { PrismaClient } from "@rakazo/db";
-import { availableInSpace } from "@rakazo/db";
+import { availableInSpace, restaurantSkillRecords } from "@rakazo/db";
 import { BUILTIN_AGENT_SKILLS } from "./builtin-skills.js";
 
 export const SKILL_TOOL_NAMES = new Set([
@@ -108,7 +109,17 @@ export async function listAgentSkillRecords(
     omit: { files: true },
     orderBy: [{ name: "asc" }, { id: "asc" }],
   });
-  return mergeBuiltinSkills(builtinRecords(), rows.map(toRecord));
+  return mergeLockedSkills(
+    restaurantSkillRecords().map((skill) => ({
+      id: `builtin:${skill.name}`,
+      name: skill.name,
+      description: skill.description,
+      content: skill.content,
+      source: "builtin" as const,
+      readOnly: true,
+    })),
+    mergeBuiltinSkills(builtinRecords(), rows.map(toRecord)),
+  );
 }
 
 async function findOwnedSkill(

@@ -23,6 +23,7 @@ import {
 } from "@rakazo/core";
 import type { Prisma, PrismaClient, ThreadEvents } from "@rakazo/db";
 import {
+  assertRestaurantComputerIsolated,
   expireComputerExecutionLeases,
   parseComputerMode,
   recordComputerRunEnd,
@@ -251,6 +252,7 @@ export async function provisionComputer(
 
   // A computer that bills starts only while its organization has allowance left this period.
   const startKind = (await deps.sandbox.provisionKind?.()) ?? existing.kind;
+  assertRestaurantComputerIsolated(startKind);
   if (await sandboxAllowanceUsedUp(deps, { spaceId: existing.spaceId, kind: startKind }))
     throw new SandboxAllowanceUsedError();
 

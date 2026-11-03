@@ -67,6 +67,8 @@ retries let long turns survive brief provider failures.
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `TICKET_BOARD_ENABLED` | `false` | Turns on the ticket board. Set it on the API and worker. |
+| `RESTAURANT_COMPUTER_ENABLED` | off | `true` gives each restaurant workspace one computer shared by all of its bots, and refuses a provider that puts every restaurant on the same machine. The computer still sleeps after `SANDBOX_IDLE_MS` and keeps its files. Set it on the API and worker. |
+| `RESTAURANT_STARTER_BOTS_ENABLED` | off | `true` copies every bot in `restaurant-templates/` into each new workspace. Edit `bot.md` for that bot's instructions. Skills in those folders stay locked and update for every restaurant when you change `SKILL.md` and restart. Set it on the API and worker. |
 | `USER_DEVICES_ENABLED` | on | `false` stops signed-in desktop apps from letting bots run commands on the user's own computer. Set it on the API and worker. |
 | `PI_SESSION_RECORDING` | off | `true` records agent sessions as JSONL under `DATA_DIR/pi-sessions`. The files are not encrypted, so do not use it on a shared or multi-tenant install. |
 | `PRIVACY_POLICY_URL` | Rakazo's policy | The privacy policy linked from the AI data-sharing notice. Set it on the API. |

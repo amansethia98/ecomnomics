@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { signupPolicyFromEnv } from "@rakazo/core";
 import type { PrismaClient } from "./client.js";
+import { seedRestaurantStarterBots } from "./restaurant-starters.js";
 
 export interface SignupPolicyEnv {
   signupsEnabled: string | undefined;
@@ -18,7 +19,7 @@ function isUniqueViolation(error: unknown): boolean {
 /** Provision a personal workspace. Signup never grants deployment administration. */
 export async function bootstrapUserSpace(
   prisma: PrismaClient,
-  user: { id: string },
+  user: { id: string; email?: string | null },
   env: SignupPolicyEnv,
 ): Promise<{ spaceId: string }> {
   // Concurrent bootstraps for the same user (e.g. overlapping first phone
@@ -115,5 +116,10 @@ export async function bootstrapUserSpace(
     .catch((error: unknown) => {
       if (!isUniqueViolation(error)) throw error;
     });
+  await seedRestaurantStarterBots(prisma, {
+    userId: user.id,
+    spaceId: orgId,
+    email: user.email,
+  });
   return { spaceId: orgId };
 }
