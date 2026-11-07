@@ -1601,24 +1601,52 @@ class DownloadTest(unittest.TestCase):
         self.addCleanup(lambda: os.path.exists(busy) and os.remove(busy))
         client = helper.CdpClient("ws://browser.example.test:9222/test")
         sent = []
-        client.call = lambda method, params=None, **_: sent.append(method)
+        client.call = lambda method, params=None, **_: sent.append((method, params))
         client.downloads = {"g1": {"name": "a.pdf", "state": "completed"}}
         seen: set[str] = set()
         helper.hold_tick(client, self.folder, busy, seen)
         self.assertEqual(sent, [])
         self.assertIn("g1", seen)
         os.remove(busy)
-        Path(self.folder, "a.pdf").write_bytes(b"pdf")
+        Path(self.folder, "g1").write_bytes(b"pdf")
         helper.hold_tick(client, self.folder, busy, seen)
-        self.assertEqual(sent, ["Browser.setDownloadBehavior"])
+        self.assertEqual(sent, [("Browser.setDownloadBehavior", {
+            "behavior": "allowAndName", "downloadPath": self.folder, "eventsEnabled": True})])
         with patch.dict(os.environ, {"HOME": self.home}):
             self.assertEqual(helper.take_remembered(self.folder), [])
-            client.downloads["g2"] = {"name": "b.csv", "state": "completed"}
-            Path(self.folder, "b.csv").write_bytes(b"csv")
+            self.assertEqual(Path(self.folder, "g1").read_bytes(), b"pdf")
+            client.downloads["g2"] = {"name": "b.csv", "state": "completed", "total": 3, "received": 3}
+            Path(self.folder, "g2").write_bytes(b"csv")
             helper.hold_tick(client, self.folder, busy, seen)
             remembered = helper.take_remembered(self.folder)
             self.assertEqual([item["name"] for item in remembered], ["b.csv"])
+            self.assertEqual(Path(self.folder, "b.csv").read_bytes(), b"csv")
+            self.assertFalse(Path(self.folder, "g2").exists())
             self.assertEqual(helper.take_remembered(self.folder), [])
+
+    def test_the_hold_names_a_file_safely_and_drops_one_over_the_limit(self):
+        os.makedirs(self.folder, exist_ok=True)
+        busy = helper.download_busy_path("bots/b1/Downloads")
+        client = helper.CdpClient("ws://browser.example.test:9222/test")
+        sent = []
+        client.call = lambda method, params=None, **_: sent.append((method, params))
+        client.downloads = {
+            "g3": {"name": "payout$.csv", "state": "completed", "total": 4, "received": 4},
+            "g4": {"name": "huge.csv", "state": "inProgress", "total": 5000, "received": 50},
+        }
+        Path(self.folder, "payout_.csv").write_bytes(b"old!")
+        Path(self.folder, "g3").write_bytes(b"new!")
+        Path(self.folder, "g4.crdownload").write_bytes(b"x" * 50)
+        with patch.dict(os.environ, {"HOME": self.home}), patch.object(helper, "MAX_UPLOAD_BYTES", 1000):
+            helper.hold_tick(client, self.folder, busy, set())
+            remembered = helper.take_remembered(self.folder)
+        self.assertEqual([item["name"] for item in remembered], ["payout_ (1).csv"])
+        self.assertEqual(Path(self.folder, "payout_.csv").read_bytes(), b"old!")
+        self.assertEqual(Path(self.folder, "payout_ (1).csv").read_bytes(), b"new!")
+        self.assertFalse(Path(self.folder, "g3").exists())
+        self.assertFalse(Path(self.folder, "g4.crdownload").exists())
+        self.assertIn(("Browser.cancelDownload", {"guid": "g4"}), sent)
+        self.assertTrue(client.downloads["g4"]["journaled"])
 
 
 if __name__ == "__main__":

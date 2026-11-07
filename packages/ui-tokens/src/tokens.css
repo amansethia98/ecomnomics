@@ -12,11 +12,11 @@
   --popover-foreground: #f5f5f5;
   --glass-fill: #2c2c2e;
   --glass-stroke: #fcfcfc26;
-  --primary: #ff8026;
+  --primary: #b85c1b;
   --primary-foreground: #ffffff;
   --secondary: #f5f5f50a;
   --secondary-foreground: #f5f5f5;
-  --chat-user: #ff8026;
+  --chat-user: #b85c1b;
   --chat-user-foreground: #ffffff;
   --muted: #151d30;
   --muted-foreground: #f5f5f5a8;
@@ -44,7 +44,7 @@
   --overlay: #000000b2;
   --scrollbar: #f5f5f538;
   --scrollbar-hover: #f5f5f580;
-  --primary-hover: #e66e18;
+  --primary-hover: #9a4e16;
   --primary-disabled: #f5f5f521;
   --radius: 0.75rem;
 }

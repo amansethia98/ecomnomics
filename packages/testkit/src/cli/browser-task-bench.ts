@@ -8,7 +8,8 @@
  * and the pinned agent-browser binary (RAKAZO_AGENT_BROWSER or
  * /usr/local/bin/agent-browser).
  */
-import { execFile, spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
@@ -17,13 +18,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { BrowserDownload, PageBrowserCommand, PageBrowserResult } from "@rakazo/adapter-kit";
-import {
-  RELIABILITY_TASK_IDS,
-  TASKS,
-  runTask,
-  type BenchTask,
-  type Submission,
-} from "../page-browser-bench/tasks.js";
+import type { BenchTask, Submission } from "../page-browser-bench/tasks.js";
+import { RELIABILITY_TASK_IDS, runTask, TASKS } from "../page-browser-bench/tasks.js";
 
 const execute = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
@@ -89,9 +85,7 @@ async function main() {
   const tasksFile = option("tasks");
   if (fixturesOnly === Boolean(tasksFile)) throw new Error(USAGE);
   const tasks: BenchTask[] = fixturesOnly
-    ? TASKS.filter((task) =>
-        (RELIABILITY_TASK_IDS as readonly string[]).includes(task.id),
-      )
+    ? TASKS.filter((task) => (RELIABILITY_TASK_IDS as readonly string[]).includes(task.id))
     : (JSON.parse(await readFile(tasksFile!, "utf8")) as BenchTask[]);
   const out = option("out") ?? "browser-task-bench.json";
 
@@ -122,7 +116,8 @@ async function main() {
     const deadline = Date.now() + 15_000;
     while (Date.now() < deadline) {
       try {
-        port = (await readFile(path.join(profile, "DevToolsActivePort"), "utf8")).split("\n")[0] ?? "";
+        port =
+          (await readFile(path.join(profile, "DevToolsActivePort"), "utf8")).split("\n")[0] ?? "";
         if (/^\d+$/.test(port)) break;
       } catch {
         // Chrome is still starting.
@@ -144,15 +139,19 @@ async function main() {
       const driver = async (command: PageBrowserCommand) => {
         let stdout: string;
         try {
-          ({ stdout } = await execute("python3", [helper, command.command, JSON.stringify(command)], {
-            env: {
-              ...process.env,
-              HOME: home,
-              RAKAZO_CDP_PORT: port,
-              RAKAZO_DOWNLOAD_HOLD: "0",
+          ({ stdout } = await execute(
+            "python3",
+            [helper, command.command, JSON.stringify(command)],
+            {
+              env: {
+                ...process.env,
+                HOME: home,
+                RAKAZO_CDP_PORT: port,
+                RAKAZO_DOWNLOAD_HOLD: "0",
+              },
+              timeout: 45_000,
             },
-            timeout: 45_000,
-          }));
+          ));
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           return {
@@ -176,7 +175,9 @@ async function main() {
         id: task.id,
         ok: record.success,
         ms: Date.now() - started,
-        ...(record.failure ? { error: detail ? `${record.failure}: ${detail}` : record.failure } : {}),
+        ...(record.failure
+          ? { error: detail ? `${record.failure}: ${detail}` : record.failure }
+          : {}),
         downloads: seen,
       };
       rows.push(row);

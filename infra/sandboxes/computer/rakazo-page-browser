@@ -1488,8 +1488,9 @@ DOWNLOAD_HINT = r"""(() => {
 def hold_tick(client: CdpClient, folder: str, busy: str, seen_busy: set[str]) -> None:
     """Keep Chromium saving into `folder` with no dialog, except while a page call is naming files itself.
 
-    A download that started during that call is left to the call. One that finishes in between is recorded
-    for the next snapshot.
+    A download that started during that call is left to the call. One that finishes in between is named
+    the same way as a call (the guid file, then a safe name) and recorded for the next snapshot. One
+    over the size limit is cancelled and not recorded.
     """
     if os.path.exists(busy):
         seen_busy.add("__busy__")
@@ -1500,16 +1501,35 @@ def hold_tick(client: CdpClient, folder: str, busy: str, seen_busy: set[str]) ->
         seen_busy.update(client.downloads)
         seen_busy.discard("__busy__")
     client.call("Browser.setDownloadBehavior", {
-        "behavior": "allow", "downloadPath": folder, "eventsEnabled": True,
+        "behavior": "allowAndName", "downloadPath": folder, "eventsEnabled": True,
     })
+    max_bytes = max_file_bytes()
+    taken: set[str] = set()
     for guid, download in client.downloads.items():
-        if guid in seen_busy or download.get("journaled") or download.get("state") != "completed":
+        if guid in seen_busy or download.get("journaled"):
             continue
-        name = download_name(download.get("name"))
-        path = os.path.join(folder, name)
-        if os.path.islink(path) or not os.path.isfile(path):
+        state = download.get("state")
+        if state not in ("inProgress", "completed"):
             continue
-        remember_download(folder, name, os.path.getsize(path))
+        staged = os.path.join(folder, guid)
+        total = download.get("total") or 0
+        received = download.get("received") or 0
+        if (isinstance(total, int) and isinstance(received, int) and max(total, received) > max_bytes):
+            with contextlib.suppress(Exception):
+                client.call("Browser.cancelDownload", {"guid": guid})
+            remove_partial(staged)
+            download["journaled"] = True
+            continue
+        if state != "completed" or os.path.islink(staged) or not os.path.isfile(staged):
+            continue
+        try:
+            chosen = place_download(staged, folder, download_name(download.get("name")), taken)
+        except (OSError, RuntimeError):
+            remove_partial(staged)
+            download["journaled"] = True
+            continue
+        taken.add(chosen)
+        remember_download(folder, chosen, os.path.getsize(os.path.join(folder, chosen)))
         download["journaled"] = True
 
 

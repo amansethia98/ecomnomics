@@ -1,4 +1,5 @@
-import { type ChildProcess, execFile, spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
@@ -58,7 +59,8 @@ test("covered clicks recover and downloads land without a dialog", async () => {
     });
     let port = "";
     await expect(async () => {
-      port = (await readFile(path.join(profile, "DevToolsActivePort"), "utf8")).split("\n")[0] ?? "";
+      port =
+        (await readFile(path.join(profile, "DevToolsActivePort"), "utf8")).split("\n")[0] ?? "";
       expect(port).toMatch(/^\d+$/);
     }).toPass({ timeout: 10_000 });
     const page = context.pages()[0]!;
@@ -136,7 +138,9 @@ test("covered clicks recover and downloads land without a dialog", async () => {
     expect(otp.elements?.some((element) => element.name === "Code 1")).toBe(true);
     expect(otp.elements?.some((element) => element.name === "Code 6")).toBe(true);
     expect(
-      await command("act", { actions: [{ kind: "type", ref: ref(otp, "Code 1"), text: "482913" }] }),
+      await command("act", {
+        actions: [{ kind: "type", ref: ref(otp, "Code 1"), text: "482913" }],
+      }),
     ).toMatchObject({ ok: true });
     const frame = page.frameLocator("iframe");
     for (const [index, digit] of Array.from("482913").entries()) {
@@ -156,7 +160,9 @@ test("covered clicks recover and downloads land without a dialog", async () => {
       expect.objectContaining({ name: "payout.csv", path: "Downloads/payout.csv" }),
     ]);
     expect(blobAct.downloads?.[0]?.state).toBeUndefined();
-    expect(await readFile(path.join(home, "Downloads", "payout.csv"), "utf8")).toContain("outlet,amount");
+    expect(await readFile(path.join(home, "Downloads", "payout.csv"), "utf8")).toContain(
+      "outlet,amount",
+    );
 
     await page.goto(`${base}/download-tab.html?run=tab`);
     const tab = await command("snapshot", { downloads: "Downloads" });
@@ -170,7 +176,9 @@ test("covered clicks recover and downloads land without a dialog", async () => {
         expect.objectContaining({ name: "report.csv", path: "Downloads/report.csv" }),
       ]),
     );
-    expect(await readFile(path.join(home, "Downloads", "report.csv"), "utf8")).toContain("outlet,amount");
+    expect(await readFile(path.join(home, "Downloads", "report.csv"), "utf8")).toContain(
+      "outlet,amount",
+    );
   } finally {
     await context?.close();
     if (server.exitCode === null) server.kill("SIGTERM");

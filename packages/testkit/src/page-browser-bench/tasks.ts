@@ -31,10 +31,7 @@ export type ScriptStep =
    */
   | { act: ActSpec[]; staleRefs?: boolean; optional?: boolean };
 
-export type Expect =
-  | { submitted: Record<string, string> }
-  | { url: string }
-  | { download: string };
+export type Expect = { submitted: Record<string, string> } | { url: string } | { download: string };
 
 export type BenchTask = { id: string; covers: string; steps: ScriptStep[]; expect: Expect };
 
@@ -427,7 +424,9 @@ export async function runTask(
   for (const step of task.steps) {
     if ("navigate" in step) {
       const sep = step.navigate.includes("?") ? "&" : "?";
-      await call(withDownloads({ command: "navigate", url: `${base}${step.navigate}${sep}run=${runId}` }));
+      await call(
+        withDownloads({ command: "navigate", url: `${base}${step.navigate}${sep}run=${runId}` }),
+      );
     } else if ("snapshot" in step) {
       await call(withDownloads({ command: "snapshot" }));
     } else if ("until" in step) {
