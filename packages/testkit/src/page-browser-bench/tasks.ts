@@ -267,9 +267,18 @@ export const TASKS: BenchTask[] = [
     covers: "a code typed into six boxes inside a same-origin frame",
     steps: [
       { navigate: "/otp-frame.html" },
-      { act: [{ kind: "type", target: { name: "Code 1" }, text: "482913" }] },
+      { act: [{ kind: "fill", target: { name: "Code 1" }, text: "482913" }] },
     ],
     expect: { submitted: { code: "482913" } },
+  },
+  {
+    id: "resend-frame",
+    covers: "clickable text inside an iframe",
+    steps: [
+      { navigate: "/resend-frame.html" },
+      { act: [{ kind: "click", target: { name: "Resend Now" } }] },
+    ],
+    expect: { submitted: { resend: "1" } },
   },
   {
     id: "download-blob",
@@ -299,6 +308,7 @@ export const RELIABILITY_TASK_IDS = [
   "overlay-login",
   "iframe-login",
   "otp-frame",
+  "resend-frame",
   "download-blob",
   "download-tab",
 ] as const;

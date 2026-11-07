@@ -169,17 +169,35 @@ test("covered clicks recover and downloads land without a dialog", async () => {
     const otp = await command("snapshot");
     expect(otp.elements?.some((element) => element.name === "Code 1")).toBe(true);
     expect(otp.elements?.some((element) => element.name === "Code 6")).toBe(true);
-    expect(
-      await command("act", {
-        actions: [{ kind: "type", ref: ref(otp, "Code 1"), text: "482913" }],
-      }),
-    ).toMatchObject({ ok: true });
+    const otpAct = await command("act", {
+      actions: [{ kind: "fill", ref: ref(otp, "Code 1"), text: "482913" }],
+    });
+    expect(otpAct.ok).toBe(true);
+    expect(otpAct.note).toMatch(/each box/);
+    expect(otpAct.fallback).toBeUndefined();
     const frame = page.frameLocator("iframe");
     for (const [index, digit] of Array.from("482913").entries()) {
       await expect(frame.getByLabel(`Code ${index + 1}`)).toHaveValue(digit);
     }
     expect(await submitted("otp")).toEqual([
       expect.objectContaining({ fields: expect.objectContaining({ code: "482913" }) }),
+    ]);
+
+    await page.goto(`${base}/resend-frame.html?run=resend`);
+    const resend = await command("snapshot");
+    const resendEl =
+      resend.elements?.find(
+        (element) => element.name === "Resend Now" && /^f\d+e\d+$/.test(element.ref),
+      ) ?? resend.elements?.find((element) => element.name === "Resend Now");
+    expect(resendEl?.ref).toBeTruthy();
+    const resendAct = await command("act", {
+      actions: [{ kind: "click", ref: resendEl!.ref }],
+    });
+    expect(resendAct.ok).toBe(true);
+    expect(resendAct.fallback).toBeUndefined();
+    expect(resendAct.note ?? "").not.toMatch(/request_takeover|Takeover/);
+    expect(await submitted("resend")).toEqual([
+      expect.objectContaining({ fields: expect.objectContaining({ resend: "1" }) }),
     ]);
 
     await page.goto(`${base}/download-blob.html?run=blob`);

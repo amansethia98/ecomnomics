@@ -38,6 +38,8 @@ AGENT_BROWSER = os.environ.get("RAKAZO_AGENT_BROWSER") or "/usr/local/bin/agent-
 NO_ANSWER = "The page did not answer in time."
 STALE_REF = "Stale element ref: the page has changed since that snapshot. Use a ref from the page below."
 NOT_KEPT = "The page did not keep every character typed. Check the field in this snapshot before trying again."
+CODE_PARTIAL = ("The code was not typed into every box. Check the boxes before asking for a new code; "
+                "it may have been only partly typed.")
 DISABLED = "That control is disabled, so nothing happened. Pick another control from this snapshot."
 PAYMENT_FRAME_HINT = "Card fields are in a payment frame: use fill_card without ref."
 
@@ -746,6 +748,8 @@ class PageBrowser:
         x, y = point.get("x"), point.get("y")
         if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
             raise RuntimeError("no point")
+        if isinstance(x, float) or isinstance(y, float):
+            x, y = int(round(x)), int(round(y))
         self.step([["mouse", "move", str(x), str(y)], ["mouse", "down"], ["mouse", "up"]])
 
     def page_mark(self) -> str:
@@ -976,7 +980,7 @@ class PageBrowser:
 
     def snapshot(self, settle: float | None = None) -> dict[str, Any]:
         settled = self.settle(SETTLE_SECONDS if settle is None else settle)
-        state_result, snap = self.ab.batch([["eval", PAGE_STATE], ["snapshot"]])
+        state_result, snap, marked = self.ab.batch([["eval", PAGE_STATE], ["snapshot"], ["eval", MARK_CLICKABLES]])
         state = state_result.get("result") or {}
         roots = parse_tree(snap.get("snapshot") or "")
         frames = [node for node in walk(roots) if node.role == "Iframe" and node.ref]
@@ -1035,6 +1039,26 @@ class PageBrowser:
                 render(node.children, depth + 1, "select" if options else inside)
 
         render(roots, 0, None)
+        named = {entry["name"].casefold() for _, entry in controls if isinstance(entry.get("name"), str)}
+        extra = marked.get("result") if isinstance(marked, dict) else None
+        if not isinstance(extra, list):
+            extra = []
+        try:
+            extra = [*extra, *page_secrets.cross_origin_clickables(self.port, self.target)]
+        except Exception:  # noqa: BLE001
+            pass
+        if isinstance(extra, list):
+            for item in extra:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or "").strip()
+                ref = str(item.get("ref") or "")
+                if not name or not re.fullmatch(r"f\d+e\d+", ref) or name.casefold() in named:
+                    continue
+                named.add(name.casefold())
+                role = str(item.get("role") or "button")
+                line = f'- {role} {json.dumps(name[:100], ensure_ascii=False)} [ref={ref}]'
+                controls.append((line, {"ref": ref, "role": role, "name": name[:200]}))
         if state.get("payToken"):
             account = state["payToken"]
         elif any(sites.get(id(node)) == page_secrets.PAY_TOKEN_FRAME_ORIGIN for node in frames):
@@ -1190,10 +1214,54 @@ class PageBrowser:
         return results
 
     def fill(self, ref: str, text: str) -> None:
+        if len(text) > 1 and self.fill_split_code(ref, text):
+            return
         _, kept = self.step([["fill", f"@{ref}", text], ["get", "value", f"@{ref}"]])
         value = kept.get("value")
         if isinstance(value, str) and value and value != text:
             raise RuntimeError("Input did not accept the requested value")
+
+    def fill_split_code(self, ref: str, text: str) -> bool:
+        """Type a multi-character value one box at a time when the field is one of a split code.
+
+        Same-origin frames are typed here. A cross-origin frame is typed in that frame.
+        """
+        self.step([["focus", f"@{ref}"]])
+        (found,) = self.ab.batch([["eval", CODE_PROBE]])
+        info = found.get("result") if isinstance(found, dict) else None
+        if not isinstance(info, dict):
+            return False
+        if info.get("code"):
+            self.type(ref, text)
+            self.notes.append("Typed one character into each box.")
+            return True
+        if info.get("frame"):
+            try:
+                page_secrets.fill_code_boxes(self.port, self.target, text)
+            except page_secrets.NotACode:
+                return False
+            self.notes.append("Typed one character into each box.")
+            return True
+        return False
+
+    def click_point(self, *, ref: str | None = None, text: str | None = None) -> bool:
+        """A real pointer click at a frame control or at visible text, including inside a frame."""
+        source = (CLICK_POINT.replace("__REF__", json.dumps(ref or ""))
+                  .replace("__TEXT__", json.dumps(text or "")))
+        try:
+            (found,) = self.ab.batch([["eval", source]])
+        except Exception:  # noqa: BLE001
+            found = None
+        point = found.get("result") if isinstance(found, dict) else None
+        if not isinstance(point, dict) or not isinstance(point.get("x"), (int, float)):
+            try:
+                point = page_secrets.cross_origin_click_point(self.port, self.target, ref=ref, text=text)
+            except Exception:  # noqa: BLE001
+                point = None
+        if not isinstance(point, dict) or not isinstance(point.get("x"), (int, float)):
+            return False
+        self.coordinate_click({"x": point["x"], "y": point["y"]})
+        return True
 
     def type(self, ref: str, text: str) -> None:
         """Real key presses into whatever has focus, as a person types: a code widget that moves
@@ -1203,6 +1271,15 @@ class PageBrowser:
         _, start = self.step([["focus", f"@{ref}"], ["eval", TYPE_START.replace("TOKEN", token)
                                                      .replace("WHOLE", json.dumps(len(text) > 1))]])
         info = start.get("result") or {}
+        if info.get("frame") and len(text) > 1:
+            # A cross-origin frame keeps focus on the frame element. Type one character per box there.
+            try:
+                page_secrets.fill_code_boxes(self.port, self.target, text)
+            except page_secrets.NotACode:
+                pass
+            else:
+                self.notes.append("Typed one character into each box.")
+                return
         multiline = info.get("multiline") is True
         # Enter in a one-line field would submit its form; Shift+Enter breaks the line elsewhere.
         chars = [char for char in text.replace("\r\n", "\n").replace("\r", "\n") if multiline or char != "\n"]
@@ -1234,8 +1311,9 @@ class PageBrowser:
         # A page that moved on after the last key, as auto-submitting codes do, has taken the step.
         (done,) = self.ab.batch([["eval", TYPE_DONE.replace("TOKEN", token)
                                   .replace("TEXT", json.dumps(text))]])
-        if (done.get("result") or {}).get("kept") is False:
-            raise KeysNotKept(NOT_KEPT)
+        done_result = done.get("result") or {}
+        if done_result.get("kept") is False:
+            raise KeysNotKept(CODE_PARTIAL if done_result.get("boxes") else NOT_KEPT)
 
     def act(self, actions: list[dict[str, Any]]) -> dict[str, Any]:
         validate_actions(actions)
@@ -1244,6 +1322,14 @@ class PageBrowser:
         try:
             for step in actions:
                 kind, ref = step["kind"], step.get("ref")
+                if kind == "click" and isinstance(ref, str) and re.fullmatch(r"f\d+e\d+", ref):
+                    uncertain = True
+                    if not self.click_point(ref=ref):
+                        raise Settled(STALE_REF)
+                    self.notes.append("Clicked it inside its frame.")
+                    completed += 1
+                    uncertain = False
+                    continue
                 node = self.control(ref, check_disabled=kind in ("fill", "type")) if ref is not None else None
                 uncertain = True
                 if kind == "pay_token" or step.get("origin"):
@@ -1265,11 +1351,15 @@ class PageBrowser:
                         self.step([*([["scrollintoview", f"@{frame.ref}"]] if frame else []),
                                    ["focus" if native_options(node) else "click", f"@{ref}"]])  # type: ignore[arg-type]
                     except Settled as exc:
-                        # agent-browser refuses before the click when something else is at the center.
-                        # A banner, sticky bar, or a strict hit test can be cleared without the bot retrying.
-                        if native_options(node) or "is covered by" not in str(exc):
+                        # A control drawn as text inside a frame has no accessible click. Hit that text.
+                        if node.frame and node.name and self.click_point(text=node.name):
+                            self.notes.append(
+                                f"Clicked {json.dumps(node.name, ensure_ascii=False)} by its text inside the frame.")
+                        elif native_options(node) or "is covered by" not in str(exc):
                             raise
-                        self.notes.append(self.recover_covered(ref, str(exc)))
+                        else:
+                            # A banner, sticky bar, or a strict hit test can be cleared without the bot retrying.
+                            self.notes.append(self.recover_covered(ref, str(exc)))
                 elif kind == "upload":
                     self.step([["upload", f"@{ref}", *step["files"]]])
                 elif kind == "fill" and native_options(node):  # type: ignore[arg-type]
@@ -1475,10 +1565,137 @@ TYPE_DONE = "(() => {" + CODE_BOXES + r"""
   if (code) {
     if (!code.container.isConnected) return { kept: true };
     const shown = like(code.container, code.name).slice(start).map((field) => field.value).join("");
-    return { kept: letters(shown).slice(0, wanted.length) === wanted };
+    const kept = letters(shown).slice(0, wanted.length) === wanted;
+    return { kept, boxes: true };
   }
   if (!el.isConnected) return { kept: true };
   return { kept: letters(el.isContentEditable ? el.innerText : el.value) === wanted };
+})()"""
+
+# A fill or type of several characters into one box of a split code. Same rules as typing a code.
+CODE_PROBE = "(() => { const rakazoCodeProbe = true; " + CODE_BOXES + r"""
+  const el = focused();
+  if (isFrame(el)) return { frame: true };
+  const code = el && codeOf(el);
+  if (!code || code.size < 4) return {};
+  const boxes = like(code.container, code.name).slice(code.from, code.from + code.size);
+  if (!boxes.length || !boxes.every((field) => field.maxLength === 1)) return {};
+  return { code: true, size: boxes.length };
+})()"""
+
+# Clickable text inside a frame that the accessibility tree does not give a ref: a span with a
+# click handler, a pointer cursor, or a button role. Refs are frame-qualified (f2e1).
+MARK_CLICKABLES = r"""(() => {
+  const marks = [];
+  let nextFrame = 0;
+  const clickableText = (el) => {
+    if (!el || el.nodeType !== 1) return "";
+    const tag = el.tagName;
+    if (["A", "BUTTON", "INPUT", "SELECT", "TEXTAREA", "IFRAME", "FRAME", "HTML", "BODY"].includes(tag)) return "";
+    const style = el.ownerDocument.defaultView.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden" || style.pointerEvents === "none") return "";
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) return "";
+    const role = (el.getAttribute("role") || "").toLowerCase();
+    const clicky = role === "button" || role === "link" || el.hasAttribute("onclick")
+      || typeof el.onclick === "function" || style.cursor === "pointer";
+    if (!clicky) return "";
+    return (el.innerText || el.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim().slice(0, 80);
+  };
+  const pagePoint = (el) => {
+    const rect = el.getBoundingClientRect();
+    let x = rect.left + rect.width / 2;
+    let y = rect.top + rect.height / 2;
+    let win = el.ownerDocument.defaultView;
+    while (win && win.frameElement) {
+      const frame = win.frameElement;
+      const outer = frame.getBoundingClientRect();
+      const sx = outer.width / (frame.clientWidth || outer.width || 1);
+      const sy = outer.height / (frame.clientHeight || outer.height || 1);
+      x = outer.left + x * sx;
+      y = outer.top + y * sy;
+      win = frame.ownerDocument.defaultView;
+    }
+    const view = window.visualViewport;
+    if (view) {
+      x = (x - view.offsetLeft) * (view.scale || 1);
+      y = (y - view.offsetTop) * (view.scale || 1);
+    }
+    return { x, y };
+  };
+  const visit = (doc) => {
+    const frameNo = nextFrame++;
+    if (frameNo > 0) {
+      let serial = 0;
+      for (const el of doc.querySelectorAll("span,div,p,label,[role='button'],[role='link']")) {
+        const text = clickableText(el);
+        if (!text) continue;
+        if ([...el.querySelectorAll("span,div,p,label,[role='button'],[role='link']")].some((child) => clickableText(child) === text))
+          continue;
+        serial += 1;
+        const ref = "f" + frameNo + "e" + serial;
+        el.setAttribute("data-rakazo-click", ref);
+        marks.push({ ref, name: text, role: (el.getAttribute("role") || "button").toLowerCase() });
+      }
+    }
+    for (const frame of doc.querySelectorAll("iframe,frame")) {
+      try { if (frame.contentDocument) visit(frame.contentDocument); } catch (e) { /* cross-origin */ }
+    }
+  };
+  visit(document);
+  return marks;
+})()"""
+
+# Where to send a real pointer click for a frame ref or a visible text, in top-viewport CSS pixels.
+CLICK_POINT = r"""(() => {
+  const wantRef = __REF__;
+  const wantText = __TEXT__;
+  const pagePoint = (el) => {
+    const rect = el.getBoundingClientRect();
+    let x = rect.left + rect.width / 2;
+    let y = rect.top + rect.height / 2;
+    let win = el.ownerDocument.defaultView;
+    while (win && win.frameElement) {
+      const frame = win.frameElement;
+      const outer = frame.getBoundingClientRect();
+      const sx = outer.width / (frame.clientWidth || outer.width || 1);
+      const sy = outer.height / (frame.clientHeight || outer.height || 1);
+      x = outer.left + x * sx;
+      y = outer.top + y * sy;
+      win = frame.ownerDocument.defaultView;
+    }
+    const view = window.visualViewport;
+    if (view) {
+      x = (x - view.offsetLeft) * (view.scale || 1);
+      y = (y - view.offsetTop) * (view.scale || 1);
+    }
+    return { x, y };
+  };
+  const docs = [document];
+  const walk = (doc) => {
+    for (const frame of doc.querySelectorAll("iframe,frame")) {
+      try { if (frame.contentDocument) { docs.push(frame.contentDocument); walk(frame.contentDocument); } }
+      catch (e) { /* cross-origin */ }
+    }
+  };
+  walk(document);
+  if (wantRef) {
+    for (const doc of docs) {
+      const el = doc.querySelector(`[data-rakazo-click="${wantRef}"]`);
+      if (el) return pagePoint(el);
+    }
+    return null;
+  }
+  const wanted = String(wantText || "").replace(/\s+/g, " ").trim();
+  if (!wanted) return null;
+  for (const doc of docs) {
+    const nodes = [...doc.querySelectorAll("a,button,span,div,p,label,[role='button'],[role='link']")];
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const text = (nodes[i].innerText || nodes[i].getAttribute("aria-label") || "").replace(/\s+/g, " ").trim();
+      if (text === wanted) return pagePoint(nodes[i]);
+    }
+  }
+  return null;
 })()"""
 
 
@@ -2058,7 +2275,7 @@ def validate_actions(actions: Any) -> None:
         if step.get("ref") is None and step["kind"] == "fill" and step.get("field") == "card":
             if step.get("cardField") not in page_secrets.CARD_AUTOCOMPLETE:
                 raise RuntimeError("A card fill without a ref needs its card field")
-        elif not isinstance(step.get("ref"), str) or not re.fullmatch(r"e\d+", step["ref"]):
+        elif not isinstance(step.get("ref"), str) or not re.fullmatch(r"e\d+|f\d+e\d+", step["ref"]):
             raise RuntimeError("Element ref is required")
         if step["kind"] == "upload":
             step["files"] = resolve_upload_paths(step.get("paths"), roots=step.get("roots"))

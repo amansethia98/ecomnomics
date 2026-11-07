@@ -316,7 +316,38 @@ class ActTest(unittest.TestCase):
                                     {"kind": "fill", "ref": "e4", "text": "Choose"}])
         self.assertEqual(result["completed"], 3)
         self.assertTrue(result["ok"])
-        self.assertEqual(browser.actions(), [["click", "@e8"], ["fill", "@e2", "Grace"], ["select", "@e4", "Choose"]])
+        self.assertEqual(browser.actions(), [["click", "@e8"], ["focus", "@e2"], ["fill", "@e2", "Grace"],
+                                             ["select", "@e4", "Choose"]])
+
+    def test_a_fill_of_a_split_code_types_one_character_per_box(self):
+        browser = FakeAgentBrowser()
+
+        def answer(command, original=browser.answer):
+            if command[0] == "eval" and "rakazoCodeProbe" in command[1]:
+                return {"result": {"code": True, "size": 6}}
+            return original(command)
+
+        browser.answer = answer
+        result, _ = self.act([{"kind": "fill", "ref": "e2", "text": "482913"}], browser)
+        self.assertTrue(result["ok"])
+        self.assertEqual([c for c in browser.sent if c[0] == "press"], [["press", c] for c in "482913"])
+        self.assertNotIn(["fill", "@e2", "482913"], browser.sent)
+        self.assertIn("each box", result.get("note", ""))
+        self.assertNotIn("482913", result.get("error", ""))
+
+    def test_a_frame_ref_is_clicked_at_the_element_s_point(self):
+        browser = FakeAgentBrowser()
+
+        def answer(command, original=browser.answer):
+            if command[0] == "eval" and "const wantRef" in command[1]:
+                return {"result": {"x": 12, "y": 34}}
+            return original(command)
+
+        browser.answer = answer
+        result, _ = self.act([{"kind": "click", "ref": "f1e1"}], browser)
+        self.assertTrue(result["ok"])
+        self.assertIn(["mouse", "move", "12", "34"], browser.sent)
+        self.assertIn("inside its frame", result.get("note", ""))
 
     def test_a_frame_below_the_fold_is_brought_into_view_before_a_click_inside_it(self):
         _, browser = self.act([{"kind": "click", "ref": "e10"}])
@@ -444,7 +475,7 @@ class ActTest(unittest.TestCase):
         self.assertEqual(result["completed"], 1)
         self.assertEqual(result["ladder"], "coordinate")
         self.assertIn("center of the element", result["note"])
-        self.assertIn(["mouse", "move", "30.0", "28.0"], browser.sent)
+        self.assertIn(["mouse", "move", "30", "28"], browser.sent)
 
     def test_a_covered_click_clicks_inside_the_frame_that_holds_the_control(self):
         browser = self.covered_browser(
@@ -510,7 +541,7 @@ class ActTest(unittest.TestCase):
                               {"kind": "fill", "ref": "e4", "text": "Choose"},
                               {"kind": "type", "ref": "e2", "text": "a"}], browser)
         self.assertEqual((result["ok"], result["completed"]), (True, 3))
-        self.assertEqual(browser.actions(), [["fill", "@e2", "Grace"], ["select", "@e4", "Choose"],
+        self.assertEqual(browser.actions(), [["focus", "@e2"], ["fill", "@e2", "Grace"], ["select", "@e4", "Choose"],
                                              ["focus", "@e2"], ["press", "a"]])
 
     def test_any_other_failure_keeps_progress_and_falls_back_to_the_desktop(self):
