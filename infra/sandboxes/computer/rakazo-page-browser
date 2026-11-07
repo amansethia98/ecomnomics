@@ -10,6 +10,7 @@ Saved logins, cards and pay tokens go through page_secrets instead.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import mimetypes
 import os
@@ -444,13 +445,255 @@ def frame_site(src: Any) -> str:
         return ""
 
 
+# A covered click is recovered in the page: dismiss a banner, scroll clear of a sticky bar, then
+# click a point that is clear or send the click to the element itself. BOX and FORCE are numbers.
+RECOVER_CLICK = r"""(() => {
+  const rakazoRecover = true;
+  const box = __BOX__;
+  const force = __FORCE__;
+  const close = (a, b) => Math.abs(a - b) < 4;
+  const same = (rect, other) => rect && other && rect.width > 0 && close(rect.x, other.x) && close(rect.y, other.y)
+    && close(rect.width, other.width) && close(rect.height, other.height);
+  const localRect = (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, width: r.width, height: r.height };
+  };
+  const docs = () => {
+    const all = [document];
+    const walk = (doc) => {
+      for (const frame of doc.querySelectorAll("iframe,frame")) {
+        try {
+          if (frame.contentDocument) { all.push(frame.contentDocument); walk(frame.contentDocument); }
+        } catch (e) { /* a cross-origin frame is not readable here */ }
+      }
+    };
+    walk(document);
+    return all;
+  };
+  const frameOffset = (doc) => {
+    const win = doc.defaultView;
+    if (!win || win === win.top) return { x: 0, y: 0 };
+    let node = win.frameElement;
+    let x = 0;
+    let y = 0;
+    while (node) {
+      const r = node.getBoundingClientRect();
+      x += r.left;
+      y += r.top;
+      const parent = node.ownerDocument.defaultView;
+      node = parent && parent.frameElement;
+    }
+    return { x, y };
+  };
+  const localBox = (doc) => {
+    const off = frameOffset(doc);
+    return { x: box.x - off.x, y: box.y - off.y, width: box.width, height: box.height };
+  };
+  const matches = (el, doc) => {
+    const rect = localRect(el);
+    return same(rect, localBox(doc)) || same(rect, box);
+  };
+  const labelOf = (el) => (el.getAttribute("aria-label") || el.innerText || el.value || "")
+    .replace(/\s+/g, " ").trim().slice(0, 80);
+  const describe = (el) => {
+    if (!el || el.nodeType !== 1) return "element";
+    let desc = el.tagName.toLowerCase();
+    if (el.id) desc += "#" + el.id.slice(0, 40);
+    else if (typeof el.className === "string" && el.className.trim())
+      desc += "." + el.className.trim().split(/\s+/).slice(0, 2).join(".");
+    const text = labelOf(el);
+    return text ? desc + ' "' + text + '"' : desc;
+  };
+  let target = null;
+  let targetDoc = null;
+  for (const doc of docs()) {
+    const area = localBox(doc);
+    const cx = area.x + area.width / 2;
+    const cy = area.y + area.height / 2;
+    let stack = [];
+    try { stack = doc.elementsFromPoint(cx, cy); } catch (e) { stack = []; }
+    target = stack.find((el) => matches(el, doc)) || null;
+    if (!target) {
+      const nodes = doc.querySelectorAll("a,button,input,summary,[role='button']");
+      for (const el of nodes) if (matches(el, doc)) { target = el; break; }
+    }
+    if (target) { targetDoc = doc; break; }
+  }
+  if (!target || !targetDoc) return { found: false };
+  const area = localBox(targetDoc);
+  const cx = area.x + area.width / 2;
+  const cy = area.y + area.height / 2;
+  let stack = [];
+  try { stack = targetDoc.elementsFromPoint(cx, cy); } catch (e) { stack = []; }
+  const index = stack.indexOf(target);
+  const above = index >= 0 ? stack.slice(0, index) : stack.filter((el) => el !== target && !target.contains(el));
+  const cover = above.find((el) => el !== target && !target.contains(el) && !el.contains(target)) || null;
+  const blocker = describe(cover);
+  const centerClear = !cover;
+  if (!force && centerClear) return { found: true, clear: true, blocker };
+  const DISMISS = /^(close|dismiss|got it|accept|ok|okay|not now|no thanks|skip|×|x|✕|reject|decline|allow all|accept all|agree|i agree)$/i;
+  const overlay = cover && (cover.closest("[role='dialog'],[role='alertdialog'],[aria-modal='true']") || cover);
+  if (!force && overlay) {
+    const controls = overlay.querySelectorAll("button,[role='button'],a,input[type='button'],input[type='submit']");
+    for (const control of controls) {
+      if (control === target || target.contains(control)) continue;
+      const name = labelOf(control);
+      const aria = control.getAttribute("aria-label") || "";
+      if (DISMISS.test(name) || /close|dismiss/i.test(aria)) {
+        control.click();
+        return { found: true, dismissed: name || aria || "close", blocker };
+      }
+    }
+  }
+  const stickyBar = (el) => {
+    for (let node = el; node && node !== targetDoc.documentElement; node = node.parentElement) {
+      const style = targetDoc.defaultView.getComputedStyle(node);
+      if (style.position !== "fixed" && style.position !== "sticky") continue;
+      const rect = node.getBoundingClientRect();
+      const view = targetDoc.defaultView;
+      if (rect.width > view.innerWidth * 0.5 && rect.height > 0 && rect.height < view.innerHeight * 0.85)
+        return node;
+    }
+    return null;
+  };
+  const bar = !force && cover ? stickyBar(cover) : null;
+  if (bar) {
+    const rect = target.getBoundingClientRect();
+    const band = bar.getBoundingClientRect();
+    const margin = 8;
+    const delta = band.top < targetDoc.defaultView.innerHeight / 2
+      ? rect.top - (band.bottom + margin)
+      : rect.bottom - (band.top - margin);
+    if (Math.abs(delta) > 2) {
+      let scroller = target.parentElement;
+      while (scroller && scroller !== targetDoc.documentElement) {
+        const style = targetDoc.defaultView.getComputedStyle(scroller);
+        if (/(auto|scroll)/.test(style.overflowY) && scroller.scrollHeight > scroller.clientHeight + 4) break;
+        scroller = scroller.parentElement;
+      }
+      (scroller || targetDoc.scrollingElement || targetDoc.documentElement).scrollBy(0, delta);
+      return { found: true, scrolled: true, blocker };
+    }
+  }
+  const samples = [[0.5, 0.5], [0.5, 0.2], [0.5, 0.8], [0.2, 0.5], [0.8, 0.5]];
+  const rect = target.getBoundingClientRect();
+  let point = null;
+  for (const [sx, sy] of samples) {
+    const x = rect.left + rect.width * sx;
+    const y = rect.top + rect.height * sy;
+    let hit = null;
+    try { hit = targetDoc.elementFromPoint(x, y); } catch (e) { hit = null; }
+    if (hit && (hit === target || target.contains(hit) || hit.contains(target))) {
+      const off = frameOffset(targetDoc);
+      point = { x: x + off.x, y: y + off.y };
+      if (sx !== 0.5 || sy !== 0.5) break;
+    }
+  }
+  if (point && !centerClear) return { found: true, point, blocker };
+  if (typeof target.click === "function") target.click();
+  return { found: true, clicked: true, blocker, detail: blocker };
+})()"""
+
+
+def blocker_of(message: str) -> str:
+    found = re.search(r"covered by <([^>]{1,180})>", message)
+    return found.group(1) if found else "another element"
+
+
+def covered_note(plan: dict[str, Any], blocker: str) -> str:
+    """What the bot is told after a covered click was recovered."""
+    if plan.get("dismissed"):
+        return f"Covered by <{blocker}>. Dismissed {plan['dismissed']} and clicked the element."
+    if plan.get("scrolled"):
+        return f"Covered by <{blocker}>. Scrolled it clear and clicked the element."
+    if plan.get("clear"):
+        return f"Covered by <{blocker}>. Clicked the element once it was clear."
+    if plan.get("point"):
+        return (f"Covered by <{blocker}>. Its center was covered, so the click went to a clear point "
+                "on the element.")
+    detail = plan.get("detail") or blocker
+    return (f"Covered by <{blocker}>. The click was sent to the element directly because {detail} "
+            "still blocked the pointer. Check the page.")
+
+
 class PageBrowser:
     def __init__(self, port: int, target_id: str, browser: AgentBrowser) -> None:
         self.port, self.target, self.ab = port, target_id, browser
         self.downloads: Downloads | None = None
+        # What a recovered click wants the bot to know, joined onto the result.
+        self.notes: list[str] = []
         # Set by a step whose input opened a JavaScript dialog. Reading a page that a dialog blocks
         # times out, and agent-browser then stops answering for the tab, dialog commands included.
         self.dialog_opened = False
+
+    def with_notes(self, result: dict[str, Any]) -> dict[str, Any]:
+        if not self.notes:
+            return result
+        extra = " ".join(self.notes)
+        note = result.get("note")
+        return {**result, "note": f"{note} {extra}" if isinstance(note, str) and note else extra}
+
+    def element_box(self, ref: str) -> dict[str, float] | None:
+        try:
+            (found,) = self.ab.batch([["get", "box", f"@{ref}"]])
+        except Exception:  # noqa: BLE001
+            return None
+        box = found.get("box") if isinstance(found, dict) and isinstance(found.get("box"), dict) else found
+        if not isinstance(box, dict):
+            return None
+        try:
+            parsed = {key: float(box[key]) for key in ("x", "y", "width", "height")}
+        except (KeyError, TypeError, ValueError):
+            return None
+        if parsed["width"] <= 0 or parsed["height"] <= 0:
+            return None
+        return parsed
+
+    def recovery_plan(self, box: dict[str, float] | None, force: bool) -> dict[str, Any] | None:
+        if not box:
+            return None
+        script = RECOVER_CLICK.replace("__BOX__", json.dumps(box)).replace("__FORCE__", "true" if force else "false")
+        try:
+            (found,) = self.ab.batch([["eval", script]])
+        except Exception:  # noqa: BLE001
+            return None
+        result = found.get("result") if isinstance(found, dict) else None
+        return result if isinstance(result, dict) else None
+
+    def coordinate_click(self, point: dict[str, Any]) -> None:
+        x, y = point.get("x"), point.get("y")
+        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+            raise RuntimeError("no point")
+        self.step([["mouse", "move", str(x), str(y)], ["mouse", "down"], ["mouse", "up"]])
+
+    def recover_covered(self, ref: str, message: str) -> str:
+        """Land a click agent-browser refused because something else was at its center."""
+        box = self.element_box(ref)
+        plan = self.recovery_plan(box, False)
+        if not plan or not plan.get("found"):
+            raise Settled(message)
+        blocker = str(plan.get("blocker") or blocker_of(message))[:180]
+        if plan.get("dismissed") or plan.get("scrolled") or plan.get("clear"):
+            try:
+                self.step([["click", f"@{ref}"]])
+                return covered_note(plan, blocker)
+            except Settled as exc:
+                if "is covered by" not in str(exc):
+                    raise
+                message = str(exc)
+                box = self.element_box(ref) or box
+                plan = self.recovery_plan(box, True) or plan
+                blocker = str(plan.get("blocker") or blocker_of(message))[:180]
+        if isinstance(plan.get("point"), dict) and not plan.get("clicked"):
+            try:
+                self.coordinate_click(plan["point"])
+                return covered_note(plan, blocker)
+            except Exception:  # noqa: BLE001
+                plan = self.recovery_plan(box, True) or plan
+                blocker = str(plan.get("blocker") or blocker)[:180]
+        if plan.get("clicked"):
+            return covered_note(plan, blocker)
+        raise Settled(f"{message} Tried dismissing it, scrolling it clear, and clicking the element directly.")
 
     # -- reading the page -------------------------------------------------------------------------
 
@@ -678,20 +921,21 @@ class PageBrowser:
         quoted = f": {json.dumps(message, ensure_ascii=False)}" if message else ""
         if kind != "alert":
             name = '"Leave site?"' if kind == "beforeunload" else kind
-            return {"ok": False, **progress, "error": f"A {name} dialog is open on the screen{quoted}",
-                    "dialog": kind, "fallback": "computer_act"}
+            return self.with_notes({"ok": False, **progress, "error": f"A {name} dialog is open on the screen{quoted}",
+                                    "dialog": kind, "fallback": "computer_act"})
         note = f"The page showed an alert, now closed{quoted}."
         try:
             self.ab.batch([["dialog", "dismiss"]])
             snap = self.snapshot(ACTION_WAIT_SECONDS)
         except Exception:  # noqa: BLE001
-            return {"ok": False, **progress, "error": f"The page showed an alert{quoted}.", "fallback": "computer_act"}
+            return self.with_notes({"ok": False, **progress, "error": f"The page showed an alert{quoted}.",
+                                    "fallback": "computer_act"})
         # A step that was still running when the alert came may or may not have taken effect.
         unsure = " Check whether the last step took effect." if progress.get("uncertain") else ""
         if remaining or unsure:
             after = " The remaining steps did not run." if remaining else ""
-            return {**snap, **progress, "ok": False, "error": f"{note}{unsure}{after}"}
-        return {**snap, **progress, "note": note}
+            return self.with_notes({**snap, **progress, "ok": False, "error": f"{note}{unsure}{after}"})
+        return self.with_notes({**snap, **progress, "note": note})
 
     def step(self, commands: list[list[str]]) -> list[Any]:
         try:
@@ -777,8 +1021,15 @@ class PageBrowser:
                             (link,) = self.ab.batch([["eval", "Boolean(document.activeElement?.closest('a[download]'))"]])
                             if link.get("result"):
                                 self.downloads.client.download_links.append(time.monotonic())
-                    self.step([*([["scrollintoview", f"@{frame.ref}"]] if frame else []),
-                               ["focus" if native_options(node) else "click", f"@{ref}"]])  # type: ignore[arg-type]
+                    try:
+                        self.step([*([["scrollintoview", f"@{frame.ref}"]] if frame else []),
+                                   ["focus" if native_options(node) else "click", f"@{ref}"]])  # type: ignore[arg-type]
+                    except Settled as exc:
+                        # agent-browser refuses before the click when something else is at the center.
+                        # A banner, sticky bar, or a strict hit test can be cleared without the bot retrying.
+                        if native_options(node) or "is covered by" not in str(exc):
+                            raise
+                        self.notes.append(self.recover_covered(ref, str(exc)))
                 elif kind == "upload":
                     self.step([["upload", f"@{ref}", *step["files"]]])
                 elif kind == "fill" and native_options(node):  # type: ignore[arg-type]
@@ -803,7 +1054,7 @@ class PageBrowser:
             busy = not self.settle(ACTION_WAIT_SECONDS - ACTION_QUIET_SECONDS, quiet_from=ended)
             left = ACTION_WAIT_SECONDS - ACTION_QUIET_SECONDS - (time.monotonic() - started)
             snap = self.snapshot(0.0 if busy else max(0.0, left))
-            return {**snap, "completed": completed, **({"loading": True} if busy else {})}
+            return self.with_notes({**snap, "completed": completed, **({"loading": True} if busy else {})})
         except (Settled, TypingStopped, KeysNotKept) as exc:
             # Nothing changed for this step, or typing stopped where it says. The page as it is goes with the reason.
             try:
@@ -811,7 +1062,7 @@ class PageBrowser:
             except Exception:  # noqa: BLE001
                 snap = {}
             error = NOT_KEPT if isinstance(exc, KeysNotKept) else str(exc)
-            return {"uncertain": False, **snap, "ok": False, "completed": completed, "error": error}
+            return self.with_notes({"uncertain": False, **snap, "ok": False, "completed": completed, "error": error})
         except Refused as exc:
             # Settled, and fixable in the page browser: no desktop fallback.
             return {"ok": False, "completed": completed, "uncertain": False, "error": str(exc)}
@@ -830,10 +1081,18 @@ class PageBrowser:
 # A code is typed into its boxes: like-named one- or two-character inputs around the field, up to
 # where their numbering starts again, so a second code or a middle-initial field next to it is left alone.
 CODE_BOXES = r"""
+  // instanceof against this document's constructors misses an element in a same-origin frame.
+  const viewOf = (node) => node && node.ownerDocument && node.ownerDocument.defaultView;
+  const isInput = (node) => { const view = viewOf(node); return !!(view && node instanceof view.HTMLInputElement); };
+  const isTextArea = (node) => { const view = viewOf(node); return !!(view && node instanceof view.HTMLTextAreaElement); };
+  const isFrame = (node) => {
+    const view = viewOf(node);
+    return !!(view && (node instanceof view.HTMLIFrameElement || node instanceof view.HTMLFrameElement));
+  };
   // Boxes cap their own length at one or two characters. Number boxes ignore a cap, and some pages
   // set none: those must be narrow and say they take one digit, so card or date fields never count.
   const box = (input) => {
-    if (!(input instanceof HTMLInputElement)) return false;
+    if (!isInput(input)) return false;
     if (input.maxLength > 0) return input.maxLength <= 2;
     const width = input.getBoundingClientRect().width;
     return ["text", "tel", "number", "password"].includes(input.type) && width > 0 && width <= 72
@@ -902,14 +1161,30 @@ CODE_BOXES = r"""
   };
   const focused = () => {
     let active = document.activeElement;
-    while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+    for (let i = 0; i < 8 && active; i++) {
+      if (active.shadowRoot?.activeElement) {
+        active = active.shadowRoot.activeElement;
+        continue;
+      }
+      // A same-origin frame's focused field is the one the keys reach. A cross-origin frame stays
+      // the frame element, and the keys are sent to it as a whole.
+      try {
+        const doc = active.contentDocument;
+        const inner = doc && doc.activeElement;
+        if (inner && inner !== doc.body && inner !== doc.documentElement) {
+          active = inner;
+          continue;
+        }
+      } catch (e) { /* cross-origin */ }
+      break;
+    }
     return active;
   };
 """
 
 TYPE_START = "(() => {" + CODE_BOXES + r"""
   const el = focused();
-  if (el instanceof HTMLIFrameElement || el instanceof HTMLFrameElement) return { frame: true };
+  if (isFrame(el)) return { frame: true };
   if (!el || el === document.body) throw new Error("The field did not take keyboard focus. Click it, then type again.");
   const code = codeOf(el);
   let start = code ? code.at : 0;
@@ -932,11 +1207,11 @@ TYPE_START = "(() => {" + CODE_BOXES + r"""
     range.selectNodeContents(el);
     getSelection().removeAllRanges();
     getSelection().addRange(range);
-  } else if ((el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.value) {
+  } else if ((isInput(el) || isTextArea(el)) && el.value) {
     empty(el);
   }
   window.__rakazoTyping = { token: "TOKEN", el, code, start };
-  return { multiline: !(el instanceof HTMLInputElement) };
+  return { multiline: !isInput(el) };
 })()"""
 
 # Focus may move on by itself to the next box of the code, and nowhere else.
@@ -993,6 +1268,9 @@ class CdpClient(page_secrets.CdpClient):
         # When the bot clicked links that download (`<a download>`) whose downloads have not begun: the
         # browser makes their requests, so the page has no document for them.
         self.download_links: list[float] = []
+        # Pages that opened during this call. A download that starts in a new tab has no request on the
+        # page that was clicked, so the call waits for it the way it waits for a download link.
+        self.new_pages: list[dict[str, Any]] = []
 
     def _handle_event(self, message: dict[str, Any]) -> None:
         super()._handle_event(message)
@@ -1001,10 +1279,24 @@ class CdpClient(page_secrets.CdpClient):
         if method == "Browser.downloadWillBegin":
             if self.download_links:
                 self.download_links.pop(0)
+            for page in self.new_pages:
+                page["done"] = True
             guid = params.get("guid")
             if isinstance(guid, str):
                 self.downloads.setdefault(guid, {"name": params.get("suggestedFilename"), "url": params.get("url"),
                                                  "state": "inProgress", "received": 0, "total": 0})
+        elif method == "Runtime.bindingCalled" and params.get("name") == "rakazoDownloadHint":
+            self.download_links.append(time.monotonic())
+        elif method == "Target.targetCreated":
+            info = params.get("targetInfo") or {}
+            if info.get("type") == "page" and isinstance(info.get("targetId"), str) and len(self.new_pages) < 20:
+                self.new_pages.append({"id": info["targetId"], "url": str(info.get("url") or ""),
+                                       "at": time.monotonic()})
+        elif method == "Target.targetInfoChanged":
+            info = params.get("targetInfo") or {}
+            for page in self.new_pages:
+                if page["id"] == info.get("targetId") and isinstance(info.get("url"), str):
+                    page["url"] = info["url"]
         elif method == "Browser.downloadProgress":
             download = self.downloads.get(params.get("guid"))
             if download is not None:
@@ -1035,7 +1327,20 @@ class CdpClient(page_secrets.CdpClient):
     def documents_pending(self, grace: float, wait: float) -> bool:
         """Whether a document the page requested may still turn out to be a download."""
         now = time.monotonic()
+
+        def page_pending(page: dict[str, Any]) -> bool:
+            if page.get("done"):
+                return False
+            url = str(page.get("url") or "")
+            age = now - page["at"]
+            # A new tab is about:blank until it navigates. Wait briefly for that address, then only
+            # for one that looks like a file.
+            if not url or url.startswith("about:"):
+                return age < grace
+            return page_may_download(url) and age < wait
+
         return any(now - clicked < wait for clicked in self.download_links) or any(
+            page_pending(page) for page in self.new_pages) or any(
             now - requested < wait if answered is None else now - answered < grace
             for requested, answered in self._documents.values())
 
@@ -1078,6 +1383,134 @@ STARTED = time.monotonic()
 DOWNLOAD_FAILED = "The download failed."
 DOWNLOADS_UNUSABLE = "Downloads cannot be saved on this computer: its Downloads folder is not usable."
 TOO_MANY_DOWNLOADS = f"downloads not saved: a call saves at most {MAX_DOWNLOADS} files."
+# A new tab whose address looks like a file, or that has not navigated yet, may be a download starting.
+FILE_DOWNLOAD = re.compile(r"\.(csv|xlsx?|pdf|zip|tsv)(?:$|\?)", re.IGNORECASE)
+
+
+def page_may_download(url: str) -> bool:
+    if url.startswith(("blob:", "data:")):
+        return True
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https"):
+        return False
+    return bool(FILE_DOWNLOAD.search(parts.path))
+
+
+def journal_path(folder: str) -> str:
+    """Where a download that finishes after its call is recorded, outside the folder the bot lists."""
+    digest = hashlib.sha256(os.path.realpath(folder).encode()).hexdigest()[:24]
+    return f"/tmp/rakazo/downloads-{digest}.jsonl"
+
+
+def remember_download(folder: str, name: str, size: int, kind: str | None = None) -> None:
+    home = os.path.realpath(os.environ.get("HOME") or "/home/rakazo")
+    shown = os.path.relpath(folder, home)
+    entry: dict[str, Any] = {"name": name, "path": f"{shown}/{name}", "size": size}
+    if kind:
+        entry["type"] = kind
+    path = journal_path(folder)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry) + "\n")
+
+
+def take_remembered(folder: str) -> list[dict[str, Any]]:
+    """Downloads recorded since the last page result, each reported once."""
+    path = journal_path(folder)
+    taken_path = f"{path}.take"
+    try:
+        os.replace(path, taken_path)
+    except OSError:
+        return []
+    try:
+        with open(taken_path, encoding="utf-8") as handle:
+            lines = handle.readlines()
+    except OSError:
+        return []
+    finally:
+        with contextlib.suppress(OSError):
+            os.remove(taken_path)
+    found = []
+    for line in lines:
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(item, dict) and isinstance(item.get("path"), str) and isinstance(item.get("name"), str):
+            found.append(item)
+    return found
+
+
+def download_busy_path(folder: str) -> str:
+    digest = hashlib.sha256(folder.encode()).hexdigest()[:16]
+    return f"/tmp/rakazo/download-busy-{digest}"
+
+
+def hold_marker(folder: str) -> str:
+    digest = hashlib.sha256(folder.encode()).hexdigest()[:16]
+    return f"/tmp/rakazo/download-hold-{digest}"
+
+
+def hold_alive(marker: str) -> bool:
+    try:
+        pid = int(open(marker, encoding="utf-8").read().strip())
+        os.kill(pid, 0)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+# Tells the helper a click is about to download, including a blob link or a new tab, so the call waits
+# for the file instead of returning before Chromium has started it.
+DOWNLOAD_HINT = r"""(() => {
+  if (window.__rakazoDownloadHint) return;
+  window.__rakazoDownloadHint = true;
+  const mark = () => { try { window.rakazoDownloadHint("1"); } catch (e) {} };
+  const proto = HTMLAnchorElement.prototype;
+  const click = proto.click;
+  proto.click = function () {
+    const href = String(this.href || "");
+    if (this.hasAttribute("download") || href.startsWith("blob:")) mark();
+    return click.apply(this, arguments);
+  };
+  document.addEventListener("click", (event) => {
+    const node = event.target && event.target.closest ? event.target.closest("a[download], a[href^='blob:']") : null;
+    if (node) mark();
+  }, true);
+  const open = window.open;
+  window.open = function (url) {
+    if (typeof url === "string" && url) mark();
+    return open.apply(this, arguments);
+  };
+})()"""
+
+
+def hold_tick(client: CdpClient, folder: str, busy: str, seen_busy: set[str]) -> None:
+    """Keep Chromium saving into `folder` with no dialog, except while a page call is naming files itself.
+
+    A download that started during that call is left to the call. One that finishes in between is recorded
+    for the next snapshot.
+    """
+    if os.path.exists(busy):
+        seen_busy.add("__busy__")
+        seen_busy.update(client.downloads)
+        return
+    # The first tick after the call ends still belongs to it: those files are named by the call.
+    if "__busy__" in seen_busy:
+        seen_busy.update(client.downloads)
+        seen_busy.discard("__busy__")
+    client.call("Browser.setDownloadBehavior", {
+        "behavior": "allow", "downloadPath": folder, "eventsEnabled": True,
+    })
+    for guid, download in client.downloads.items():
+        if guid in seen_busy or download.get("journaled") or download.get("state") != "completed":
+            continue
+        name = download_name(download.get("name"))
+        path = os.path.join(folder, name)
+        if os.path.islink(path) or not os.path.isfile(path):
+            continue
+        remember_download(folder, name, os.path.getsize(path))
+        download["journaled"] = True
 
 
 def download_folder(folder: Any, home: str) -> str:
@@ -1180,6 +1613,15 @@ class Downloads:
                 frame = client.call("Page.getFrameTree", session_id=session_id)["frameTree"]["frame"]
                 client.download_frame = frame["id"]
 
+    def arm(self, session_id: str) -> None:
+        """Notice blob links and new tabs on this page, and new targets in the browser."""
+        with contextlib.suppress(Exception):
+            self.client.call("Runtime.addBinding", {"name": "rakazoDownloadHint"}, session_id=session_id)
+            self.client.call("Page.addScriptToEvaluateOnNewDocument", {"source": DOWNLOAD_HINT}, session_id=session_id)
+            self.client.call("Runtime.evaluate", {"expression": DOWNLOAD_HINT}, session_id=session_id)
+        with contextlib.suppress(Exception):
+            self.client.call("Target.setDiscoverTargets", {"discover": True})
+
     def check_limits(self) -> None:
         """Cancel a download past the call's count or over the size limit; Chromium deletes what it wrote."""
         for index, (guid, download) in enumerate(self.client.downloads.items()):
@@ -1196,6 +1638,7 @@ class Downloads:
 
     def finish(self) -> list[dict[str, Any]]:
         """Wait for the call's downloads within its time, then list each one as the bot will find it."""
+        prior = take_remembered(self.folder) if self.folder else []
         while True:
             self.check_limits()
             running = any(download["state"] == "inProgress" and guid not in self.stopped
@@ -1218,7 +1661,7 @@ class Downloads:
                              start_new_session=True, close_fds=True, env=env)
         if len(found) > MAX_DOWNLOADS:
             found = found[:MAX_DOWNLOADS] + [{"error": f"{len(found) - MAX_DOWNLOADS} more {TOO_MANY_DOWNLOADS}"}]
-        return found
+        return prior + found
 
     def entry(self, guid: str, download: dict[str, Any], taken: set[str],
               later: list[dict[str, str]]) -> dict[str, Any]:
@@ -1266,10 +1709,13 @@ def finish_later(pending: list[dict[str, str]], seconds: float = FINISH_LATER_SE
             except OSError:
                 if os.path.exists(staged):
                     try:
-                        place_download(staged, item["folder"], item["name"], set())
+                        chosen = place_download(staged, item["folder"], item["name"], set())
                     except (OSError, RuntimeError):
                         placement_failed.add(staged)
                     else:
+                        with contextlib.suppress(OSError):
+                            remember_download(item["folder"], chosen,
+                                              os.path.getsize(os.path.join(item["folder"], chosen)))
                         pending.remove(item)
                         placement_failed.discard(staged)
                 elif staged in begun:
@@ -1387,6 +1833,53 @@ def read_stdin_line() -> str:
     return data.decode("utf-8")
 
 
+def ensure_download_hold(folder: str) -> None:
+    """One background process keeps later downloads in this folder, with no save dialog."""
+    if os.environ.get("RAKAZO_DOWNLOAD_HOLD") == "0":
+        return
+    marker = hold_marker(folder)
+    if hold_alive(marker):
+        return
+    os.makedirs("/tmp/rakazo", exist_ok=True)
+    env = {key: value for key, value in os.environ.items()
+           if key not in ("RAKAZO_BROWSER_ARGS_STDIN", "RAKAZO_BROWSER_WATCH_STDIN")}
+    proc = subprocess.Popen(
+        [sys.executable, os.path.abspath(__file__), "hold", json.dumps({"downloads": folder})],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True, close_fds=True, env=env)
+    with contextlib.suppress(OSError):
+        with open(marker, "w", encoding="utf-8") as handle:
+            handle.write(str(proc.pid))
+
+
+def hold_downloads(folder: Any) -> None:
+    """Apply the no-dialog download folder until the browser goes away."""
+    home = os.path.realpath(os.environ.get("HOME") or "/home/rakazo")
+    try:
+        absolute = download_folder(folder, home)
+    except (RuntimeError, OSError):
+        return
+    busy = download_busy_path(str(folder))
+    seen: set[str] = set()
+    try:
+        client = CdpClient(discover_ws_url(cdp_port()))
+        client.connect()
+    except Exception:  # noqa: BLE001
+        return
+    try:
+        while True:
+            try:
+                hold_tick(client, absolute, busy, seen)
+            except Exception:  # noqa: BLE001
+                return
+            try:
+                client.listen(0.3)
+            except Exception:  # noqa: BLE001
+                return
+    finally:
+        client.close()
+
+
 def run(argv: list[str]) -> int:
     stdin_args = read_stdin_line() if os.environ.get("RAKAZO_BROWSER_ARGS_STDIN") == "1" else None
     if os.environ.get("RAKAZO_BROWSER_WATCH_STDIN") == "1":
@@ -1396,7 +1889,7 @@ def run(argv: list[str]) -> int:
                           "fallback": "computer_act"}))
         return 2
     command = argv[1]
-    if command not in ("navigate", "snapshot", "act", "finish"):
+    if command not in ("navigate", "snapshot", "act", "finish", "hold"):
         print(json.dumps({"ok": False, "error": f"unknown command: {command}", "fallback": "computer_act"}))
         return 2
     raw_args = stdin_args if stdin_args is not None else (argv[2] if len(argv) >= 3 else "")
@@ -1408,6 +1901,9 @@ def run(argv: list[str]) -> int:
             print(json.dumps({"downloads": [{"error": DOWNLOAD_FAILED}]}))
             return 1
         return 0
+    if command == "hold":
+        hold_downloads(args.get("downloads"))
+        return 0
     port = cdp_port()
     downloads: Downloads | None = None
     client: CdpClient | None = None
@@ -1416,15 +1912,23 @@ def run(argv: list[str]) -> int:
     connected = False
     opened = False
     page: PageBrowser | None = None
+    busy: str | None = None
     try:
         wait_for_cdp(port)
         connected = True
         target, address = front_tab(port)
         browser = AgentBrowser(port)
         if command in ("navigate", "act") and args.get("downloads") is not None:
+            # While this file exists, the background hold does not change Chromium's download setting.
+            busy = download_busy_path(str(args["downloads"]))
+            os.makedirs("/tmp/rakazo", exist_ok=True)
+            with open(busy, "w", encoding="utf-8") as handle:
+                handle.write("1")
             client = CdpClient(discover_ws_url(port))
             client.connect()
             downloads = Downloads(client, args["downloads"])
+            if downloads.folder:
+                ensure_download_hold(str(args["downloads"]))
         if internal(address):
             if command != "navigate":
                 raise RuntimeError(INTERNAL_PAGE)
@@ -1447,10 +1951,18 @@ def run(argv: list[str]) -> int:
             client.download_frame = frame["id"]
             client.call("Network.enable", {"maxPostDataSize": 1}, session_id=session)
             page.downloads = downloads
+            if downloads.folder:
+                downloads.arm(session)
         if command == "navigate":
             result = page.navigate(str(args.get("url") or ""), opened=opened)
         elif command == "snapshot":
             result = page.snapshot()
+            if args.get("downloads"):
+                try:
+                    folder = download_folder(args["downloads"], os.path.realpath(os.environ.get("HOME") or "/home/rakazo"))
+                    saved = take_remembered(folder)
+                except (RuntimeError, OSError):
+                    saved = []
         else:
             actions = args.get("actions")
             if not isinstance(actions, list):
@@ -1475,8 +1987,12 @@ def run(argv: list[str]) -> int:
         print(json.dumps({**failure, **({"downloads": saved} if saved else {})}))
         return 0
     finally:
+        # Close first so Chromium drops this call's setting, then let the hold apply its own.
         if client:
             client.close()
+        if busy:
+            with contextlib.suppress(OSError):
+                os.remove(busy)
 
 
 if __name__ == "__main__":

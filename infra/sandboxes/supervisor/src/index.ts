@@ -535,7 +535,7 @@ app.post("/computers/:id/browser", async (c) => {
           }),
         downloads: downloadFolder,
       }),
-      z.object({ command: z.literal("snapshot") }),
+      z.object({ command: z.literal("snapshot"), downloads: downloadFolder }),
       z.object({
         command: z.literal("act"),
         downloads: downloadFolder,

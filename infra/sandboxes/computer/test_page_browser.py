@@ -12,6 +12,10 @@ import unittest
 from unittest.mock import Mock, patch
 from urllib.parse import urlsplit
 
+# The helper's background download hold must not start during these tests: they patch Popen
+# and assert the exact process a still-running download leaves behind.
+os.environ["RAKAZO_DOWNLOAD_HOLD"] = "0"
+
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 loader = importlib.machinery.SourceFileLoader("page_browser", str(HERE / "rakazo-page-browser"))
@@ -77,6 +81,8 @@ class FakeAgentBrowser:
         self.checks = []
         self.disabled = set()
         self.aria_disabled = {}
+        self.boxes = {}
+        self.recover = None
         # A JavaScript dialog the next click opens, then the one open on the page.
         self.opens = None
         self.dialog = None
@@ -130,6 +136,9 @@ class FakeAgentBrowser:
                 return {"result": {"timeOrigin": 1 if self.stuck else 2, "href": self.state["url"], "ready": "complete"}}
             if "__rakazoTyping = " in script:
                 return self.typing
+            if "rakazoRecover" in script:
+                plan = self.recover() if callable(self.recover) else self.recover
+                return {"result": plan if plan is not None else {"found": False}}
             if "Typing stopped" in script:
                 self.checks.append(script)
                 return {"result": True}
@@ -138,6 +147,9 @@ class FakeAgentBrowser:
             return {} if "--clear" in command else {"requests": self.requests}
         if command[:2] == ["is", "enabled"]:
             return {"enabled": command[2].lstrip("@") not in self.disabled}
+        if name == "get" and command[1] == "box":
+            box = self.boxes.get(command[2].lstrip("@"))
+            return {"box": box} if box else {}
         if name == "get" and command[1] == "attr" and command[3] == "aria-disabled":
             return {"value": self.aria_disabled.get(command[2].lstrip("@"))}
         if name == "get" and command[1] == "attr":
@@ -315,6 +327,78 @@ class ActTest(unittest.TestCase):
                 self.assertEqual(result["error"], message)
                 self.assertNotIn("fallback", result)
                 self.assertIn("tree", result)
+
+    COVERED = "Element '@e8' is covered by <div.toast> at its click point, so the input would land there."
+
+    def covered_browser(self, plans, fail_times=1):
+        browser = FakeAgentBrowser()
+        browser.boxes = {"e8": {"x": 10, "y": 20, "width": 40, "height": 16}}
+        state = {"left": fail_times, "plans": list(plans)}
+
+        def fail(_browser, _command):
+            if state["left"] <= 0:
+                return None
+            state["left"] -= 1
+            return self.COVERED
+
+        def recover():
+            return state["plans"].pop(0) if state["plans"] else {"found": False}
+
+        browser.fail = {"click": fail}
+        browser.recover = recover
+        return browser
+
+    def test_a_covered_click_is_retried_after_the_covering_control_is_dismissed(self):
+        browser = self.covered_browser([{"found": True, "dismissed": "Close", "blocker": "div.toast"}])
+        result, _ = self.act([{"kind": "click", "ref": "e8"}], browser)
+        self.assertEqual((result["ok"], result["completed"]), (True, 1))
+        self.assertNotIn("uncertain", result)
+        self.assertIn("Dismissed Close", result["note"])
+        self.assertIn("<div.toast>", result["note"])
+        self.assertEqual([command for command in browser.actions() if command[0] == "click"],
+                         [["click", "@e8"], ["click", "@e8"]])
+
+    def test_a_covered_click_uses_a_clear_point_when_the_center_stays_covered(self):
+        browser = self.covered_browser([{"found": True, "point": {"x": 12, "y": 28}, "blocker": "header#bar"}])
+        result, _ = self.act([{"kind": "click", "ref": "e8"}], browser)
+        self.assertEqual(result["completed"], 1)
+        self.assertIn("clear point", result["note"])
+        self.assertIn(["mouse", "move", "12", "28"], browser.sent)
+        self.assertIn(["mouse", "down"], browser.sent)
+        self.assertIn(["mouse", "up"], browser.sent)
+
+    def test_a_covered_click_is_sent_to_the_element_when_nothing_else_will_clear_it(self):
+        browser = self.covered_browser([
+            {"found": True, "clicked": True, "blocker": "div#mask", "detail": "div#mask"}])
+        result, _ = self.act([{"kind": "click", "ref": "e8"}], browser)
+        self.assertEqual(result["completed"], 1)
+        self.assertIn("directly", result["note"])
+        self.assertIn("div#mask", result["note"])
+        self.assertEqual([command for command in browser.actions() if command[0] == "click"], [["click", "@e8"]])
+
+    def test_a_covered_click_that_cannot_be_planned_keeps_the_original_error(self):
+        browser = self.covered_browser([{"found": False}])
+        result, _ = self.act([{"kind": "click", "ref": "e8"}], browser)
+        self.assertEqual((result["ok"], result["uncertain"], result["completed"]), (False, False, 0))
+        self.assertEqual(result["error"], self.COVERED)
+        self.assertNotIn("fallback", result)
+
+    def test_a_covered_click_reports_when_dismiss_scroll_and_a_direct_click_all_fail(self):
+        browser = self.covered_browser([{"found": True, "blocker": "div#mask"}])
+        result, _ = self.act([{"kind": "click", "ref": "e8"}], browser)
+        self.assertEqual(result["completed"], 0)
+        self.assertIn(self.COVERED, result["error"])
+        self.assertIn("Tried dismissing it, scrolling it clear, and clicking the element directly.", result["error"])
+        self.assertNotIn("fallback", result)
+
+    def test_a_covered_click_clicks_directly_when_the_retry_is_covered_again(self):
+        browser = self.covered_browser([
+            {"found": True, "dismissed": "Close", "blocker": "div.toast"},
+            {"found": True, "clicked": True, "blocker": "div.toast", "detail": "div.toast"},
+        ], fail_times=2)
+        result, _ = self.act([{"kind": "click", "ref": "e8"}], browser)
+        self.assertEqual(result["completed"], 1)
+        self.assertIn("directly", result["note"])
 
     def test_a_click_on_a_disabled_control_is_settled_with_the_page(self):
         for message in ("Element is disabled.", "Element '@e8' is disabled, so the click would not reach it"):
@@ -1383,6 +1467,10 @@ class DownloadTest(unittest.TestCase):
         self.assertFalse(any("g1.pdf" in names for names in seen))
         self.assertEqual(os.listdir(self.folder), ["g1.pdf"])
         self.assertEqual(Path(self.folder, "g1.pdf").read_bytes(), b"%PDF")
+        with patch.dict(os.environ, {"HOME": self.home}):
+            remembered = helper.take_remembered(self.folder)
+        self.assertEqual([item["name"] for item in remembered], ["g1.pdf"])
+        self.assertEqual(helper.take_remembered(self.folder), [])
 
     def run_helper(self, command, args, result):
         self.client.connect = Mock()
@@ -1448,6 +1536,89 @@ class DownloadTest(unittest.TestCase):
             self.assertEqual(current.act([{"kind": "click", "ref": "e8"}])["completed"], 1)
         self.assertEqual(self.client.download_links, [1.0])
         self.assertIn(["click", "@e8"], browser.sent)
+
+    def test_a_normal_new_tab_is_not_waited_out(self):
+        downloads = self.downloads()
+        self.client._handle_event({"method": "Target.targetCreated", "params": {"targetInfo": {
+            "type": "page", "targetId": "t2", "url": "about:blank"}}})
+
+        def become_page(now):
+            if 1.1 <= now < 1.2:
+                self.client._handle_event({"method": "Target.targetInfoChanged", "params": {"targetInfo": {
+                    "targetId": "t2", "url": "https://bank.example/home"}}})
+        self.on_listen = become_page
+        self.assertEqual(downloads.finish(), [])
+        self.assertLess(self.now[0], 1.6)
+
+    def test_a_new_file_tab_is_waited_for(self):
+        downloads = self.downloads()
+        self.client._handle_event({"method": "Target.targetCreated", "params": {"targetInfo": {
+            "type": "page", "targetId": "t3", "url": "about:blank"}}})
+
+        def become_file(now):
+            if 1.2 <= now < 1.3:
+                self.client._handle_event({"method": "Target.targetInfoChanged", "params": {"targetInfo": {
+                    "targetId": "t3", "url": "https://bank.example/files/report.csv"}}})
+            if 1.6 <= now < 1.7:
+                self.begin("g9", "report.csv", url="https://bank.example/files/report.csv")
+            if 1.8 <= now < 1.9:
+                self.complete("g9", b"a,b\n")
+        self.on_listen = become_file
+        saved = downloads.finish()
+        self.assertEqual(saved[0]["name"], "report.csv")
+        self.assertLess(self.now[0], 2.2)
+
+    def test_a_blob_click_hint_is_waited_for_like_a_download_link(self):
+        downloads = self.downloads()
+        self.client._handle_event({"method": "Runtime.bindingCalled",
+                                   "params": {"name": "rakazoDownloadHint", "payload": "1"}})
+
+        def answer(now):
+            if 2.0 <= now < 2.1:
+                self.begin("g1", "payout.csv", url="blob:https://bank.example/1")
+            if 2.2 <= now < 2.3:
+                self.complete("g1", b"outlet,amount\n")
+        self.on_listen = answer
+        self.assertEqual([entry["name"] for entry in downloads.finish()], ["payout.csv"])
+        self.assertLess(self.now[0], 2.5)
+
+    def test_a_download_that_finishes_between_calls_is_listed_once_on_the_next_snapshot(self):
+        with patch.dict(os.environ, {"HOME": self.home}):
+            helper.remember_download(self.folder, "late.csv", 3, "text/csv")
+            result = self.run_helper("snapshot", {"downloads": "bots/b1/Downloads"}, {
+                "ok": True, "url": "https://bank.example/", "title": "Bank", "tree": "", "elements": []})
+            self.assertEqual(result["downloads"], [{"name": "late.csv", "path": "bots/b1/Downloads/late.csv",
+                                                    "size": 3, "type": "text/csv"}])
+            again = self.run_helper("snapshot", {"downloads": "bots/b1/Downloads"}, {
+                "ok": True, "url": "https://bank.example/", "title": "Bank", "tree": "", "elements": []})
+        self.assertNotIn("downloads", again)
+
+    def test_the_hold_leaves_a_busy_call_s_files_alone_and_records_the_next_one(self):
+        os.makedirs(self.folder, exist_ok=True)
+        busy = helper.download_busy_path("bots/b1/Downloads")
+        os.makedirs("/tmp/rakazo", exist_ok=True)
+        Path(busy).write_text("1", encoding="utf-8")
+        self.addCleanup(lambda: os.path.exists(busy) and os.remove(busy))
+        client = helper.CdpClient("ws://browser.example.test:9222/test")
+        sent = []
+        client.call = lambda method, params=None, **_: sent.append(method)
+        client.downloads = {"g1": {"name": "a.pdf", "state": "completed"}}
+        seen: set[str] = set()
+        helper.hold_tick(client, self.folder, busy, seen)
+        self.assertEqual(sent, [])
+        self.assertIn("g1", seen)
+        os.remove(busy)
+        Path(self.folder, "a.pdf").write_bytes(b"pdf")
+        helper.hold_tick(client, self.folder, busy, seen)
+        self.assertEqual(sent, ["Browser.setDownloadBehavior"])
+        with patch.dict(os.environ, {"HOME": self.home}):
+            self.assertEqual(helper.take_remembered(self.folder), [])
+            client.downloads["g2"] = {"name": "b.csv", "state": "completed"}
+            Path(self.folder, "b.csv").write_bytes(b"csv")
+            helper.hold_tick(client, self.folder, busy, seen)
+            remembered = helper.take_remembered(self.folder)
+            self.assertEqual([item["name"] for item in remembered], ["b.csv"])
+            self.assertEqual(helper.take_remembered(self.folder), [])
 
 
 if __name__ == "__main__":

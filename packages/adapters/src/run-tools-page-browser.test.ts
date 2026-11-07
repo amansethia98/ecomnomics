@@ -109,7 +109,9 @@ describe("page tools save a page's file downloads in the calling bot's own folde
     const args =
       name === "browser_navigate"
         ? { url: "https://bank.example/files/statement.pdf" }
-        : { actions: [{ kind: "click", ref: "e1" }] };
+        : name === "browser_snapshot"
+          ? {}
+          : { actions: [{ kind: "click", ref: "e1" }] };
     const call = { name, args, finish: async (result: unknown) => result };
     const result = (await pageBrowserTool(ctx as never, call as never)) as {
       content?: Array<{ text: string }>;
@@ -119,7 +121,7 @@ describe("page tools save a page's file downloads in the calling bot's own folde
     return { requests, text, details: JSON.stringify(result.details ?? result) };
   }
 
-  it.each(["browser_act", "browser_navigate"])("%s", async (name) => {
+  it.each(["browser_act", "browser_navigate", "browser_snapshot"])("%s", async (name) => {
     for (const [mode, botId, folder] of [
       ["team", "b1", "bots/b1/Downloads"],
       ["team", "b2", "bots/b2/Downloads"],
@@ -137,7 +139,7 @@ describe("page tools save a page's file downloads in the calling bot's own folde
     }
   });
 
-  it.each(["browser_act", "browser_navigate"])(
+  it.each(["browser_act", "browser_navigate", "browser_snapshot"])(
     "%s result from a helper that saved nothing is unchanged",
     async (name) => {
       const { text } = await download(name, "team", "b1", false);

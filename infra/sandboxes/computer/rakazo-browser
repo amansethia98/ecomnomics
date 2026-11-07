@@ -432,6 +432,35 @@ if [ -n "${LD_PRELOAD:-}" ]; then
   unset _kept _rest _entry
 fi
 
+# Save downloads into the bot's folder and never ask where. The managed policy stops the
+# dialog; this pref is the folder for a browser that is starting now. python3 is optional:
+# a restricted PATH can still launch the browser, and the page helper sets the folder too.
+if command -v python3 >/dev/null 2>&1; then
+  DOWNLOAD_DIR="${RAKAZO_DOWNLOAD_DIR:-$RAKAZO_HOME/Downloads}"
+  case "$DOWNLOAD_DIR" in
+    "$RAKAZO_HOME"|"$RAKAZO_HOME"/*) ;;
+    *) DOWNLOAD_DIR="$RAKAZO_HOME/Downloads" ;;
+  esac
+  mkdir -p "$DOWNLOAD_DIR" "$ACTUAL_PROFILE/Default"
+  python3 - "$ACTUAL_PROFILE/Default/Preferences" "$DOWNLOAD_DIR" <<'PY' || true
+import json, os, sys
+path, directory = sys.argv[1], sys.argv[2]
+# Leave an existing profile alone. Crash recovery rewrites these files in place, and a
+# browser that is already running must not have its preferences replaced underneath it.
+if os.path.exists(path):
+    raise SystemExit(0)
+temporary = path + ".rakazo"
+with open(temporary, "w", encoding="utf-8") as handle:
+    json.dump({"download": {
+        "prompt_for_download": False,
+        "directory_upgrade": True,
+        "default_directory": directory,
+    }}, handle)
+    handle.write("\n")
+os.replace(temporary, path)
+PY
+fi
+
 # This container has no GPU. --disable-gpu keeps Chromium from probing one.
 # WebGL still needs SwiftShader: --disable-software-rasterizer blocks it, and
 # current Chromium allows that fallback only with --enable-unsafe-swiftshader.

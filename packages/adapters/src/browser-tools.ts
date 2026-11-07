@@ -112,8 +112,12 @@ export async function browserSnapshotFromTool(
 ) {
   void args;
   try {
-    const result = await browser.snapshot(computer, { signal: context.signal }, context);
-    return formatBrowserResult(result, options);
+    const result = await browser.snapshot(
+      computer,
+      { downloads: options.downloads?.folder, signal: context.signal },
+      context,
+    );
+    return formatBrowserResult(withBotPaths(result, options), options);
   } catch (error) {
     context.signal.throwIfAborted();
     return formatBrowserResult(
