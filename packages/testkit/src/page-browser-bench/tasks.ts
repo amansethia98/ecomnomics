@@ -245,6 +245,24 @@ export const TASKS: BenchTask[] = [
     expect: { submitted: { report: "1" } },
   },
   {
+    id: "overlay-login",
+    covers: "a login button under a transparent iframe, reached by Enter or a coordinate click",
+    steps: [
+      { navigate: "/overlay-login.html" },
+      { act: [{ kind: "click", target: { name: "Verify" } }] },
+    ],
+    expect: { submitted: { email: "owner@example.test", code: "123456" } },
+  },
+  {
+    id: "iframe-login",
+    covers: "a login button inside a same-origin iframe",
+    steps: [
+      { navigate: "/iframe-login.html" },
+      { act: [{ kind: "click", target: { name: "Verify" } }] },
+    ],
+    expect: { submitted: { email: "owner@example.test" } },
+  },
+  {
     id: "otp-frame",
     covers: "a code typed into six boxes inside a same-origin frame",
     steps: [
@@ -278,6 +296,8 @@ export const RELIABILITY_TASK_IDS = [
   "covered",
   "toast",
   "mask",
+  "overlay-login",
+  "iframe-login",
   "otp-frame",
   "download-blob",
   "download-tab",

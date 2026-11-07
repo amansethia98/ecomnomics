@@ -14,6 +14,7 @@ import {
   browserSnapshotFromTool,
   redactBrowserResult,
 } from "./browser-tools.js";
+import { noteClickLadder } from "./click-ladder.js";
 import { BACKGROUND_WORK_LAUNCH } from "./computer-idle.js";
 import {
   displayBotWorkspacePath,
@@ -230,6 +231,7 @@ export async function pageBrowserTool(ctx: RunContext, call: ToolCall) {
       name,
       result,
     );
+    noteClickLadder(ctx.runId, result);
     return browserResultForModel(result);
   }, call.finish);
 }

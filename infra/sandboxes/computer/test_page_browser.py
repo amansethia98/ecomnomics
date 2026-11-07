@@ -99,6 +99,10 @@ class FakeAgentBrowser:
                     raise helper.AbError(failure, index)
                 results.append(None)
                 continue
+            if getattr(self, "submit_on_enter", False) and command[:2] == ["press", "Enter"]:
+                self.state["text"] = f"{self.state.get('text', '')} signed-in"
+            if getattr(self, "submit_on_mouse", False) and command[:2] == ["mouse", "down"]:
+                self.state["text"] = f"{self.state.get('text', '')} clicked"
             if key in self.fail:
                 failure = self.fail[key]
                 if callable(failure):
@@ -137,6 +141,22 @@ class FakeAgentBrowser:
             if "__rakazoTyping = " in script:
                 return self.typing
             if "rakazoRecover" in script:
+                mode = "plan"
+                if 'const mode = "' in script:
+                    mode = script.split('const mode = "', 1)[1].split('"', 1)[0]
+                if mode == "signature":
+                    return {"result": {"href": self.state["url"], "title": self.state.get("title", ""),
+                                       "text": self.state.get("text", "")}}
+                if mode == "keyboard":
+                    return {"result": {"found": bool(getattr(self, "keyboard_field", False)),
+                                       "focused": bool(getattr(self, "keyboard_field", False))}}
+                if mode == "save":
+                    return {"result": {"href": self.state["url"], "fields": getattr(self, "fields", [])}}
+                if mode == "restore":
+                    self.restored = script
+                    return {"result": {"ok": True}}
+                if "const scriptClick = true" in script and getattr(self, "submit_on_script", False):
+                    self.state["text"] = f"{self.state.get('text', '')} submitted"
                 plan = self.recover() if callable(self.recover) else self.recover
                 return {"result": plan if plan is not None else {"found": False}}
             if "Typing stopped" in script:
@@ -324,7 +344,11 @@ class ActTest(unittest.TestCase):
             with self.subTest(message=message):
                 result, _ = self.act([{"kind": "click", "ref": "e8"}], FakeAgentBrowser(fail={"click": message}))
                 self.assertEqual((result["ok"], result["uncertain"], result["completed"]), (False, False, 0))
-                self.assertEqual(result["error"], message)
+                self.assertIn(message, result["error"])
+                if "is covered by" in message:
+                    self.assertIn("Ladder exhausted", result["error"])
+                else:
+                    self.assertEqual(result["error"], message)
                 self.assertNotIn("fallback", result)
                 self.assertIn("tree", result)
 
@@ -349,19 +373,24 @@ class ActTest(unittest.TestCase):
         return browser
 
     def test_a_covered_click_is_retried_after_the_covering_control_is_dismissed(self):
-        browser = self.covered_browser([{"found": True, "dismissed": "Close", "blocker": "div.toast"}])
+        # The first click and the scroll retry stay covered. Dismissing the banner then lands.
+        browser = self.covered_browser(
+            [{"found": True, "dismissed": "Close", "blocker": "div.toast"}], fail_times=2)
         result, _ = self.act([{"kind": "click", "ref": "e8"}], browser)
         self.assertEqual((result["ok"], result["completed"]), (True, 1))
         self.assertNotIn("uncertain", result)
         self.assertIn("Dismissed Close", result["note"])
         self.assertIn("<div.toast>", result["note"])
+        self.assertEqual(result["ladder"], "overlay")
         self.assertEqual([command for command in browser.actions() if command[0] == "click"],
-                         [["click", "@e8"], ["click", "@e8"]])
+                         [["click", "@e8"], ["click", "@e8"], ["click", "@e8"]])
 
     def test_a_covered_click_uses_a_clear_point_when_the_center_stays_covered(self):
-        browser = self.covered_browser([{"found": True, "point": {"x": 12, "y": 28}, "blocker": "header#bar"}])
+        browser = self.covered_browser(
+            [{"found": True, "point": {"x": 12, "y": 28}, "blocker": "header#bar"}], fail_times=2)
         result, _ = self.act([{"kind": "click", "ref": "e8"}], browser)
         self.assertEqual(result["completed"], 1)
+        self.assertEqual(result["ladder"], "coordinate")
         self.assertIn("clear point", result["note"])
         self.assertIn(["mouse", "move", "12", "28"], browser.sent)
         self.assertIn(["mouse", "down"], browser.sent)
@@ -369,33 +398,68 @@ class ActTest(unittest.TestCase):
 
     def test_a_covered_click_is_sent_to_the_element_when_nothing_else_will_clear_it(self):
         browser = self.covered_browser([
-            {"found": True, "clicked": True, "blocker": "div#mask", "detail": "div#mask"}])
+            {"found": True, "clicked": True, "blocker": "div#mask", "detail": "div#mask"}], fail_times=9)
+        browser.submit_on_script = True
         result, _ = self.act([{"kind": "click", "ref": "e8"}], browser)
         self.assertEqual(result["completed"], 1)
+        self.assertEqual(result["ladder"], "script")
         self.assertIn("directly", result["note"])
         self.assertIn("div#mask", result["note"])
-        self.assertEqual([command for command in browser.actions() if command[0] == "click"], [["click", "@e8"]])
 
     def test_a_covered_click_that_cannot_be_planned_keeps_the_original_error(self):
-        browser = self.covered_browser([{"found": False}])
+        browser = self.covered_browser([{"found": False}], fail_times=9)
         result, _ = self.act([{"kind": "click", "ref": "e8"}], browser)
         self.assertEqual((result["ok"], result["uncertain"], result["completed"]), (False, False, 0))
-        self.assertEqual(result["error"], self.COVERED)
+        self.assertIn(self.COVERED, result["error"])
+        self.assertIn("Ladder exhausted", result["error"])
+        self.assertEqual(result["ladder"], "exhausted")
+        self.assertEqual(result["ladderTarget"], "e8")
         self.assertNotIn("fallback", result)
 
-    def test_a_covered_click_reports_when_dismiss_scroll_and_a_direct_click_all_fail(self):
-        browser = self.covered_browser([{"found": True, "blocker": "div#mask"}])
+    def test_a_covered_click_reports_when_the_ladder_is_exhausted(self):
+        browser = self.covered_browser([{"found": True, "blocker": "div#mask"}], fail_times=9)
+        browser.fields = [{"name": "code", "id": "code", "type": "text", "value": "123456"}]
         result, _ = self.act([{"kind": "click", "ref": "e8"}], browser)
         self.assertEqual(result["completed"], 0)
         self.assertIn(self.COVERED, result["error"])
-        self.assertIn("Tried dismissing it, scrolling it clear, and clicking the element directly.", result["error"])
+        self.assertIn("Ladder exhausted", result["error"])
+        self.assertNotIn("123456", result["error"])
+        self.assertIn("123456", browser.restored)
         self.assertNotIn("fallback", result)
+
+    def test_a_covered_click_presses_enter_when_the_pointer_cannot_land(self):
+        browser = self.covered_browser([], fail_times=9)
+        browser.keyboard_field = True
+        browser.submit_on_enter = True
+        result, _ = self.act([{"kind": "click", "ref": "e8"}], browser)
+        self.assertEqual(result["completed"], 1)
+        self.assertEqual(result["ladder"], "keyboard")
+        self.assertIn("Strategy: keyboard", result["note"])
+        self.assertNotIn("fallback", result)
+
+    def test_a_covered_click_uses_a_coordinate_click_at_the_center(self):
+        browser = self.covered_browser([], fail_times=9)
+        browser.submit_on_mouse = True
+        result, _ = self.act([{"kind": "click", "ref": "e8"}], browser)
+        self.assertEqual(result["completed"], 1)
+        self.assertEqual(result["ladder"], "coordinate")
+        self.assertIn("center of the element", result["note"])
+        self.assertIn(["mouse", "move", "30.0", "28.0"], browser.sent)
+
+    def test_a_covered_click_clicks_inside_the_frame_that_holds_the_control(self):
+        browser = self.covered_browser(
+            [{"found": True, "frame": True, "blocker": "iframe#login"}], fail_times=2)
+        result, _ = self.act([{"kind": "click", "ref": "e8"}], browser)
+        self.assertEqual(result["completed"], 1)
+        self.assertEqual(result["ladder"], "frame")
+        self.assertIn("inside its frame", result["note"])
 
     def test_a_covered_click_clicks_directly_when_the_retry_is_covered_again(self):
         browser = self.covered_browser([
             {"found": True, "dismissed": "Close", "blocker": "div.toast"},
             {"found": True, "clicked": True, "blocker": "div.toast", "detail": "div.toast"},
-        ], fail_times=2)
+        ], fail_times=3)
+        browser.submit_on_script = True
         result, _ = self.act([{"kind": "click", "ref": "e8"}], browser)
         self.assertEqual(result["completed"], 1)
         self.assertIn("directly", result["note"])

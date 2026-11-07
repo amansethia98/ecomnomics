@@ -445,12 +445,16 @@ def frame_site(src: Any) -> str:
         return ""
 
 
-# A covered click is recovered in the page: dismiss a banner, scroll clear of a sticky bar, then
-# click a point that is clear or send the click to the element itself. BOX and FORCE are numbers.
+# A covered click walks a ladder before it fails: scroll, an obvious overlay or the frame that
+# holds the control, Enter on the related field, a script click, a coordinate click, then one
+# reload. BOX and FORCE are numbers. MODE is plan, keyboard, save, or signature. SCRIPT is whether
+# this pass may call click() itself.
 RECOVER_CLICK = r"""(() => {
   const rakazoRecover = true;
   const box = __BOX__;
   const force = __FORCE__;
+  const mode = __MODE__;
+  const scriptClick = __SCRIPT__;
   const close = (a, b) => Math.abs(a - b) < 4;
   const same = (rect, other) => rect && other && rect.width > 0 && close(rect.x, other.x) && close(rect.y, other.y)
     && close(rect.width, other.width) && close(rect.height, other.height);
@@ -493,6 +497,23 @@ RECOVER_CLICK = r"""(() => {
     const rect = localRect(el);
     return same(rect, localBox(doc)) || same(rect, box);
   };
+  if (mode === "save") {
+    const fields = [];
+    for (const doc of docs()) {
+      for (const el of doc.querySelectorAll("input,textarea")) {
+        const type = (el.getAttribute("type") || "text").toLowerCase();
+        if (["hidden", "checkbox", "radio", "button", "submit", "file", "image"].includes(type)) continue;
+        if (!el.value) continue;
+        fields.push({ name: el.name || "", id: el.id || "", type, value: el.value });
+      }
+    }
+    return { href: location.href, fields };
+  }
+  if (mode === "signature") {
+    const body = document.body;
+    const text = (body && body.innerText || "").replace(/\s+/g, " ").trim().slice(0, 400);
+    return { href: location.href, title: document.title, text };
+  }
   const labelOf = (el) => (el.getAttribute("aria-label") || el.innerText || el.value || "")
     .replace(/\s+/g, " ").trim().slice(0, 80);
   const describe = (el) => {
@@ -520,6 +541,19 @@ RECOVER_CLICK = r"""(() => {
     if (target) { targetDoc = doc; break; }
   }
   if (!target || !targetDoc) return { found: false };
+  const framed = targetDoc !== document;
+  if (mode === "keyboard") {
+    const form = target.form || (target.closest && target.closest("form"));
+    const root = form || targetDoc;
+    const fields = [...root.querySelectorAll("input,textarea")].filter((el) => {
+      const type = (el.getAttribute("type") || "text").toLowerCase();
+      return !["hidden", "checkbox", "radio", "button", "submit", "file", "image"].includes(type);
+    });
+    const field = [...fields].reverse().find((el) => (el.value || "").trim()) || fields[fields.length - 1];
+    if (!field) return { found: false, frame: framed };
+    field.focus();
+    return { found: true, focused: true, frame: framed };
+  }
   const area = localBox(targetDoc);
   const cx = area.x + area.width / 2;
   const cy = area.y + area.height / 2;
@@ -530,7 +564,21 @@ RECOVER_CLICK = r"""(() => {
   const cover = above.find((el) => el !== target && !target.contains(el) && !el.contains(target)) || null;
   const blocker = describe(cover);
   const centerClear = !cover;
-  if (!force && centerClear) return { found: true, clear: true, blocker };
+  const obvious = (el) => {
+    let src = "";
+    try { src = el.src || ""; } catch (e) { src = ""; }
+    const blob = [el.id, el.className, el.title, el.name, src, labelOf(el)].join(" ").toLowerCase();
+    return /cookie|consent|gdpr|privacy|onetrust|sp_message/.test(blob);
+  };
+  let holdsTarget = false;
+  try { holdsTarget = !!(cover && cover.contentDocument && cover.contentDocument.contains(target)); }
+  catch (e) { holdsTarget = false; }
+  if (!force && holdsTarget) return { found: true, frame: true, blocker };
+  if (!force && cover && !holdsTarget && !target.contains(cover) && !cover.contains(target) && obvious(cover)) {
+    cover.style.setProperty("display", "none", "important");
+    return { found: true, removed: describe(cover), blocker, frame: framed };
+  }
+  if (!force && centerClear) return { found: true, clear: true, blocker, frame: framed };
   const DISMISS = /^(close|dismiss|got it|accept|ok|okay|not now|no thanks|skip|×|x|✕|reject|decline|allow all|accept all|agree|i agree)$/i;
   const overlay = cover && (cover.closest("[role='dialog'],[role='alertdialog'],[aria-modal='true']") || cover);
   if (!force && overlay) {
@@ -541,7 +589,7 @@ RECOVER_CLICK = r"""(() => {
       const aria = control.getAttribute("aria-label") || "";
       if (DISMISS.test(name) || /close|dismiss/i.test(aria)) {
         control.click();
-        return { found: true, dismissed: name || aria || "close", blocker };
+        return { found: true, dismissed: name || aria || "close", blocker, frame: framed };
       }
     }
   }
@@ -572,7 +620,7 @@ RECOVER_CLICK = r"""(() => {
         scroller = scroller.parentElement;
       }
       (scroller || targetDoc.scrollingElement || targetDoc.documentElement).scrollBy(0, delta);
-      return { found: true, scrolled: true, blocker };
+      return { found: true, scrolled: true, blocker, frame: framed };
     }
   }
   const samples = [[0.5, 0.5], [0.5, 0.2], [0.5, 0.8], [0.2, 0.5], [0.8, 0.5]];
@@ -589,9 +637,17 @@ RECOVER_CLICK = r"""(() => {
       if (sx !== 0.5 || sy !== 0.5) break;
     }
   }
-  if (point && !centerClear) return { found: true, point, blocker };
+  if (point && !centerClear) return { found: true, point, blocker, frame: framed };
+  if (!scriptClick) return { found: true, blocker, frame: framed, pending: true };
   if (typeof target.click === "function") target.click();
-  return { found: true, clicked: true, blocker, detail: blocker };
+  const form = target.form || (target.closest && target.closest("form"));
+  if (form && typeof form.requestSubmit === "function") {
+    try {
+      const submitter = target.tagName === "BUTTON" || target.type === "submit" ? target : undefined;
+      form.requestSubmit(submitter);
+    } catch (e) { /* requestSubmit can reject a control that is not a submitter */ }
+  }
+  return { found: true, clicked: true, blocker, detail: blocker, frame: framed };
 })()"""
 
 
@@ -600,20 +656,32 @@ def blocker_of(message: str) -> str:
     return found.group(1) if found else "another element"
 
 
-def covered_note(plan: dict[str, Any], blocker: str) -> str:
-    """What the bot is told after a covered click was recovered."""
+def covered_note(plan: dict[str, Any], blocker: str, strategy: str) -> str:
+    """What the bot is told after a covered click was recovered, including which strategy worked."""
+    if strategy == "scroll":
+        return f"Covered by <{blocker}>. Scrolled it into view and clicked the element. Strategy: scroll."
+    if strategy == "keyboard":
+        return (f"Covered by <{blocker}>. Focused the related field and pressed Enter. "
+                "Strategy: keyboard.")
+    if strategy == "frame" or plan.get("frame") and strategy == "overlay" and not (
+            plan.get("dismissed") or plan.get("removed") or plan.get("scrolled")):
+        return f"Covered by <{blocker}>. Clicked the element inside its frame. Strategy: frame."
+    if plan.get("removed"):
+        return (f"Covered by <{blocker}>. Removed {plan['removed']} and clicked the element. "
+                "Strategy: overlay.")
     if plan.get("dismissed"):
-        return f"Covered by <{blocker}>. Dismissed {plan['dismissed']} and clicked the element."
+        return f"Covered by <{blocker}>. Dismissed {plan['dismissed']} and clicked the element. Strategy: overlay."
     if plan.get("scrolled"):
-        return f"Covered by <{blocker}>. Scrolled it clear and clicked the element."
+        return f"Covered by <{blocker}>. Scrolled it clear and clicked the element. Strategy: overlay."
+    if strategy == "coordinate" or plan.get("point"):
+        where = ("Clicked the center of the element." if plan.get("center")
+                 else "Its center was covered, so the click went to a clear point on the element.")
+        return f"Covered by <{blocker}>. {where} Strategy: coordinate."
     if plan.get("clear"):
-        return f"Covered by <{blocker}>. Clicked the element once it was clear."
-    if plan.get("point"):
-        return (f"Covered by <{blocker}>. Its center was covered, so the click went to a clear point "
-                "on the element.")
+        return f"Covered by <{blocker}>. Clicked the element once it was clear. Strategy: overlay."
     detail = plan.get("detail") or blocker
     return (f"Covered by <{blocker}>. The click was sent to the element directly because {detail} "
-            "still blocked the pointer. Check the page.")
+            "still blocked the pointer. Check the page. Strategy: script.")
 
 
 class PageBrowser:
@@ -622,16 +690,25 @@ class PageBrowser:
         self.downloads: Downloads | None = None
         # What a recovered click wants the bot to know, joined onto the result.
         self.notes: list[str] = []
+        # Which blocked-click strategy landed, or "exhausted" when every one failed.
+        self.ladder: str | None = None
+        self.ladder_target: str | None = None
+        self._reloaded_for_click = False
         # Set by a step whose input opened a JavaScript dialog. Reading a page that a dialog blocks
         # times out, and agent-browser then stops answering for the tab, dialog commands included.
         self.dialog_opened = False
 
     def with_notes(self, result: dict[str, Any]) -> dict[str, Any]:
-        if not self.notes:
-            return result
-        extra = " ".join(self.notes)
-        note = result.get("note")
-        return {**result, "note": f"{note} {extra}" if isinstance(note, str) and note else extra}
+        merged = result
+        if self.notes:
+            extra = " ".join(self.notes)
+            note = result.get("note")
+            merged = {**result, "note": f"{note} {extra}" if isinstance(note, str) and note else extra}
+        if self.ladder:
+            merged = {**merged, "ladder": self.ladder}
+        if self.ladder_target:
+            merged = {**merged, "ladderTarget": self.ladder_target}
+        return merged
 
     def element_box(self, ref: str) -> dict[str, float] | None:
         try:
@@ -649,12 +726,17 @@ class PageBrowser:
             return None
         return parsed
 
-    def recovery_plan(self, box: dict[str, float] | None, force: bool) -> dict[str, Any] | None:
-        if not box:
+    def recovery_plan(self, box: dict[str, float] | None, force: bool, mode: str = "plan",
+                      script: bool = False) -> dict[str, Any] | None:
+        if not box and mode == "plan":
             return None
-        script = RECOVER_CLICK.replace("__BOX__", json.dumps(box)).replace("__FORCE__", "true" if force else "false")
+        payload = box or {"x": 0, "y": 0, "width": 0, "height": 0}
+        source = (RECOVER_CLICK.replace("__BOX__", json.dumps(payload))
+                  .replace("__FORCE__", "true" if force else "false")
+                  .replace("__MODE__", json.dumps(mode))
+                  .replace("__SCRIPT__", "true" if script else "false"))
         try:
-            (found,) = self.ab.batch([["eval", script]])
+            (found,) = self.ab.batch([["eval", source]])
         except Exception:  # noqa: BLE001
             return None
         result = found.get("result") if isinstance(found, dict) else None
@@ -666,34 +748,192 @@ class PageBrowser:
             raise RuntimeError("no point")
         self.step([["mouse", "move", str(x), str(y)], ["mouse", "down"], ["mouse", "up"]])
 
-    def recover_covered(self, ref: str, message: str) -> str:
-        """Land a click agent-browser refused because something else was at its center."""
-        box = self.element_box(ref)
-        plan = self.recovery_plan(box, False)
-        if not plan or not plan.get("found"):
-            raise Settled(message)
+    def page_mark(self) -> str:
+        found = self.recovery_plan(None, False, mode="signature") or {}
+        return json.dumps({key: found.get(key) for key in ("href", "title", "text")}, sort_keys=True)
+
+    def page_changed(self, before: str) -> bool:
+        after = self.page_mark()
+        return bool(after) and after != before and after != json.dumps(
+            {"href": None, "text": None, "title": None}, sort_keys=True)
+
+    def changed_after(self, before: str) -> bool:
+        """Let a submit or navigation land, then see whether the page is different."""
+        self.settle(1)
+        return self.page_changed(before)
+
+    def finish_climb(self, strategy: str, blocker: str, plan: dict[str, Any] | None = None) -> str:
+        self.ladder = strategy
+        return covered_note(plan or {}, blocker, strategy)
+
+    def retry_click(self, ref: str) -> None:
+        with contextlib.suppress(Exception):
+            self.step([["scrollintoview", f"@{ref}"]])
+        self.step([["click", f"@{ref}"]])
+
+    def overlay_click(self, ref: str, box: dict[str, float] | None, message: str) -> str | None:
+        """Dismiss an obvious cover, or click the control inside the frame that holds it."""
+        plan = self.recovery_plan(box, False, script=False) or {}
+        if not plan.get("found"):
+            return None
         blocker = str(plan.get("blocker") or blocker_of(message))[:180]
-        if plan.get("dismissed") or plan.get("scrolled") or plan.get("clear"):
+        if plan.get("dismissed") or plan.get("removed") or plan.get("scrolled") or plan.get("clear") or plan.get("frame"):
             try:
-                self.step([["click", f"@{ref}"]])
-                return covered_note(plan, blocker)
+                self.retry_click(ref)
             except Settled as exc:
                 if "is covered by" not in str(exc):
                     raise
-                message = str(exc)
                 box = self.element_box(ref) or box
-                plan = self.recovery_plan(box, True) or plan
-                blocker = str(plan.get("blocker") or blocker_of(message))[:180]
-        if isinstance(plan.get("point"), dict) and not plan.get("clicked"):
+                plan = self.recovery_plan(box, True, script=False) or plan
+                blocker = str(plan.get("blocker") or blocker_of(str(exc)))[:180]
+            else:
+                strategy = "frame" if plan.get("frame") and not (
+                    plan.get("dismissed") or plan.get("removed") or plan.get("scrolled")) else "overlay"
+                return self.finish_climb(strategy, blocker, plan)
+        if isinstance(plan.get("point"), dict):
             try:
                 self.coordinate_click(plan["point"])
-                return covered_note(plan, blocker)
             except Exception:  # noqa: BLE001
-                plan = self.recovery_plan(box, True) or plan
-                blocker = str(plan.get("blocker") or blocker)[:180]
+                return None
+            # A clear point on the element is the click. It can land without the page text changing.
+            return self.finish_climb("coordinate", blocker, plan)
         if plan.get("clicked"):
-            return covered_note(plan, blocker)
-        raise Settled(f"{message} Tried dismissing it, scrolling it clear, and clicking the element directly.")
+            self._pending_script = plan
+        return None
+
+    def keyboard_click(self, ref: str, box: dict[str, float] | None, blocker: str) -> str | None:
+        """Focus the related field and press Enter, then Tab and Enter."""
+        plan = self.recovery_plan(box, False, mode="keyboard") or {}
+        if not plan.get("focused"):
+            return None
+        before = self.page_mark()
+        for keys in ([["press", "Enter"]], [["press", "Tab"], ["press", "Enter"]]):
+            try:
+                self.step(keys)
+            except Exception:  # noqa: BLE001
+                continue
+            if self.changed_after(before):
+                return self.finish_climb("keyboard", blocker, plan)
+        return None
+
+    def script_click(self, ref: str, box: dict[str, float] | None, blocker: str) -> str | None:
+        """element.click() and requestSubmit(), only when the page actually changes.
+
+        A page can ignore an untrusted click. That leaves the pointer and the keyboard for later.
+        """
+        before = self.page_mark()
+        plan = self.recovery_plan(box, True, script=True) or {}
+        if not plan.get("clicked"):
+            plan = getattr(self, "_pending_script", None) or plan
+        self._pending_script = None
+        if plan.get("clicked") and self.changed_after(before):
+            return self.finish_climb("script", str(plan.get("blocker") or blocker)[:180], plan)
+        return None
+
+    def coordinate_center(self, box: dict[str, float] | None, blocker: str) -> str | None:
+        """A real pointer click at the element's center, the same point computer_act would use."""
+        if not box:
+            return None
+        before = self.page_mark()
+        point = {"x": box["x"] + box["width"] / 2, "y": box["y"] + box["height"] / 2}
+        try:
+            self.coordinate_click(point)
+        except Exception:  # noqa: BLE001
+            return None
+        if self.changed_after(before):
+            return self.finish_climb("coordinate", blocker, {"point": point, "center": True})
+        return None
+
+    def reload_for_click(self, ref: str, message: str) -> str | None:
+        """One reload, then the same ladder again, after putting typed values back."""
+        if self._reloaded_for_click:
+            return None
+        saved = self.recovery_plan(None, False, mode="save") or {}
+        href = saved.get("href") if isinstance(saved.get("href"), str) else ""
+        fields = saved.get("fields") if isinstance(saved.get("fields"), list) else []
+        self._reloaded_for_click = True
+        try:
+            if href:
+                self.ab.batch([["eval", f"location.assign({json.dumps(href)})"]])
+            else:
+                self.ab.batch([["eval", "location.reload()"]])
+        except Exception:  # noqa: BLE001
+            return None
+        self.settle(2)
+        if fields:
+            restore = (
+                "(() => { const rakazoRecover = true; const mode = \"restore\"; const fields = "
+                + json.dumps(fields)
+                + """;
+  const docs = [document];
+  for (const frame of document.querySelectorAll("iframe,frame")) {
+    try { if (frame.contentDocument) docs.push(frame.contentDocument); } catch (e) {}
+  }
+  for (const field of fields) {
+    for (const doc of docs) {
+      const found = (field.id && doc.getElementById(field.id))
+        || (field.name && doc.querySelector(`[name="${String(field.name).replace(/"/g, "")}"]`));
+      if (!found) continue;
+      found.value = field.value;
+      found.dispatchEvent(new Event("input", { bubbles: true }));
+      break;
+    }
+  }
+  return { ok: true };
+})()"""
+            )
+            with contextlib.suppress(Exception):
+                self.ab.batch([["eval", restore]])
+        try:
+            return self.recover_covered(ref, message)
+        except Settled:
+            return None
+
+    def recover_covered(self, ref: str, message: str) -> str:
+        """Land a click the page blocked, and name the strategy that worked."""
+        box = self.element_box(ref)
+        blocker = blocker_of(message)
+        # (a) Scroll the control into view and click it again.
+        try:
+            self.retry_click(ref)
+            return self.finish_climb("scroll", blocker)
+        except Settled as exc:
+            if "is covered by" not in str(exc) and "stale" not in str(exc).lower() and "Unknown ref" not in str(exc):
+                raise
+            message = str(exc) if "is covered by" in str(exc) else message
+            blocker = blocker_of(message)
+            box = self.element_box(ref) or box
+        # (b) Dismiss an obvious overlay, or click inside the frame that holds the control.
+        landed = self.overlay_click(ref, box, message)
+        if landed:
+            return landed
+        box = self.element_box(ref) or box
+        # (c) Focus the related field and press Enter, then Tab and Enter.
+        landed = self.keyboard_click(ref, box, blocker)
+        if landed:
+            return landed
+        # (d) element.click() and form.requestSubmit().
+        landed = self.script_click(ref, box, blocker)
+        if landed:
+            return landed
+        # (e) A coordinate click at the element's center.
+        landed = self.coordinate_center(box, blocker)
+        if landed:
+            return landed
+        # (f) Reload once, put typed values back, and walk the ladder again.
+        landed = self.reload_for_click(ref, message)
+        if landed:
+            if self.ladder and self.ladder != "reload":
+                self.ladder = f"reload+{self.ladder}"
+            else:
+                self.ladder = "reload"
+            return f"Reloaded the page and kept what was typed. {landed}"
+        self.ladder = "exhausted"
+        self.ladder_target = ref
+        raise Settled(
+            f"{message} Ladder exhausted for @{ref}: tried scroll, overlay, keyboard, "
+            "script click, coordinate click, and one reload."
+        )
 
     # -- reading the page -------------------------------------------------------------------------
 

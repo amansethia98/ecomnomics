@@ -340,7 +340,7 @@ export const builtinAgentTools: ConnectorTool[] = [
   },
   {
     name: "browser_act",
-    description: `Click or fill page elements by ref from browser_snapshot (kinds: ${BROWSER_ACT_KINDS.join(", ")}). click is a real mouse click, and fill on a dropdown takes one of its options' visible labels or values. The result shows the page after the action, and a snapshot covers the whole page, so scrolling is rarely needed. upload attaches your files to a "file upload" element; use it instead of clicking upload buttons. fill_secret types one field of a login saved with request_secret, by its label, only on the site it was saved for (in a frame: the frame's site); you never see the value. fill_card types an approved purchase's card details, only on its merchant site; leave out ref to find the field, including in a payment frame. fill_pay_token hands an approved purchase's pay token to its checkout; no ref. type presses keys like a keyboard and replaces the field's text; use it for code boxes and fields that ignore fill. For a code split into one box per digit, type the whole code once into the first box, and to correct it type it again. Downloads save to Downloads with no dialog and are listed in downloads, or on a later snapshot. A covered click is retried and names the blocker. If you cannot finish, report the page and the error. Prefer this over computer_act for web pages. If the result includes fallback:"computer_act", use computer_act instead.`,
+    description: `Click or fill page elements by ref from browser_snapshot (kinds: ${BROWSER_ACT_KINDS.join(", ")}). click is a real mouse click, and fill on a dropdown takes one of its options' visible labels or values. The result shows the page after the action, and a snapshot covers the whole page, so scrolling is rarely needed. upload attaches your files to a "file upload" element; use it instead of clicking upload buttons. fill_secret types one field of a login saved with request_secret, by its label, only on the site it was saved for (in a frame: the frame's site); you never see the value. fill_card types an approved purchase's card details, only on its merchant site; leave out ref to find the field, including in a payment frame. fill_pay_token hands an approved purchase's pay token to its checkout; no ref. type presses keys like a keyboard and replaces the field's text; use it for code boxes and fields that ignore fill. For a code split into one box per digit, type the whole code once into the first box, and to correct it type it again. Downloads save to Downloads with no dialog and are listed in downloads, or on a later snapshot. A blocked click uses a ladder and names what worked. If you cannot finish, report the page and the error. Prefer this over computer_act for web pages. If the result includes fallback:"computer_act", use computer_act instead.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -537,7 +537,7 @@ export const builtinAgentTools: ConnectorTool[] = [
   {
     name: "request_takeover",
     description:
-      "Ask the user to take over the computer screen for passwords, 2FA, CAPTCHA, payment, passkeys, or other protected input. Never ask the user to paste protected values in chat.",
+      "Take over only for an OTP or 2FA you do not have, a failed captcha, a payment confirmation, or after a blocked click's ladder failed. If told to keep trying, do that. Never paste protected values in chat.",
     inputSchema: {
       type: "object",
       properties: { reason: { type: "string" } },

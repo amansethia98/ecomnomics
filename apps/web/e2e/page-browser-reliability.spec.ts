@@ -41,7 +41,7 @@ function freePort(): Promise<number> {
 }
 
 test("covered clicks recover and downloads land without a dialog", async () => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
   const home = await mkdtemp(path.join(os.tmpdir(), "page-browser-reliability-"));
   const profile = path.join(home, "profile");
   const httpPort = await freePort();
@@ -73,7 +73,7 @@ test("covered clicks recover and downloads land without a dialog", async () => {
           RAKAZO_CDP_PORT: port,
           RAKAZO_DOWNLOAD_HOLD: "0",
         },
-        timeout: 40_000,
+        timeout: 90_000,
       });
       return JSON.parse(stdout) as {
         ok?: boolean;
@@ -81,6 +81,8 @@ test("covered clicks recover and downloads land without a dialog", async () => {
         error?: string;
         elements?: { name: string; ref: string }[];
         downloads?: { name?: string; path?: string; state?: string; error?: string }[];
+        fallback?: string;
+        ladder?: string;
       };
     }
     const ref = (snapshot: { elements?: { name: string; ref: string }[] }, name: string) => {
@@ -131,6 +133,36 @@ test("covered clicks recover and downloads land without a dialog", async () => {
     expect(maskAct.note).toMatch(/directly/);
     expect(await submitted("mask")).toEqual([
       expect.objectContaining({ fields: expect.objectContaining({ report: "1" }) }),
+    ]);
+
+    await page.goto(`${base}/overlay-login.html?run=overlay`);
+    const overlay = await command("snapshot");
+    const overlayAct = await command("act", {
+      actions: [{ kind: "click", ref: ref(overlay, "Verify") }],
+    });
+    expect(overlayAct.ok).toBe(true);
+    expect(overlayAct.fallback).toBeUndefined();
+    expect(overlayAct.ladder).toMatch(/^(reload\+)?(keyboard|coordinate)$/);
+    expect(overlayAct.note).toMatch(/Strategy: keyboard|Strategy: coordinate/);
+    expect(overlayAct.note).not.toMatch(/request_takeover|Takeover/);
+    expect(await submitted("overlay")).toEqual([
+      expect.objectContaining({
+        fields: expect.objectContaining({ email: "owner@example.test", code: "123456" }),
+      }),
+    ]);
+
+    await page.goto(`${base}/iframe-login.html?run=frame-login`);
+    const framed = await command("snapshot");
+    const framedAct = await command("act", {
+      actions: [{ kind: "click", ref: ref(framed, "Verify") }],
+    });
+    expect(framedAct.ok).toBe(true);
+    expect(framedAct.fallback).toBeUndefined();
+    expect(framedAct.note ?? "").not.toMatch(/request_takeover|Takeover/);
+    expect(await submitted("frame-login")).toEqual([
+      expect.objectContaining({
+        fields: expect.objectContaining({ email: "owner@example.test" }),
+      }),
     ]);
 
     await page.goto(`${base}/otp-frame.html?run=otp`);
