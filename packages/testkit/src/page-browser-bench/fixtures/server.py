@@ -2,6 +2,7 @@
 
 Usage: server.py <cert.pem> <key.pem>. The pages are this file's folder. https://localhost:8443 is the
 site under test; https://127.0.0.1:8444 serves the same files as a second site, for cross-site frames.
+`server.py --http <port>` serves the same pages over HTTP on 127.0.0.1 for a local run.
 """
 
 from __future__ import annotations
@@ -58,6 +59,15 @@ class Handler(SimpleHTTPRequestHandler):
             self.send(404, b"", "text/plain")
         elif url.path == "/long.html":
             self.send(200, long_page(), "text/html; charset=utf-8")
+        elif url.path == "/files/report.csv":
+            body = b"outlet,amount\nmain,1\n"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/csv")
+            self.send_header("Content-Disposition", 'attachment; filename="report.csv"')
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
         elif url.path == "/api/slow":
             time.sleep(SLOW_SECONDS)
             self.send(200, b"ready", "text/plain")
@@ -84,6 +94,9 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def main() -> None:
+    if len(sys.argv) >= 3 and sys.argv[1] == "--http":
+        ThreadingHTTPServer(("127.0.0.1", int(sys.argv[2])), Handler).serve_forever()
+        return
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(sys.argv[1], sys.argv[2])
     servers = [ThreadingHTTPServer(("127.0.0.1", port), Handler) for port in (8443, 8444)]

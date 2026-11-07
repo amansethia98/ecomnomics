@@ -54,8 +54,9 @@ found="$(grep -E \
 mkdir "${work}/app"
 tar -xf "${rootfs}" -C "${work}/app" --exclude=node_modules app
 while IFS= read -r file; do
+  # length() rather than {40,}: Ubuntu's awk is mawk, which does not treat that as a count.
   if awk '/-----BEGIN ([A-Z0-9]+ )*PRIVATE KEY-----/ {
-        if ((getline body) > 0 && body ~ /^[A-Za-z0-9+\/=]{40,}$/) { found = 1; exit }
+        if ((getline body) > 0 && length(body) >= 40 && body ~ /^[A-Za-z0-9+\/=]+$/) { found = 1; exit }
       } END { exit !found }' "${file}"; then
     found+="${found:+$'\n'}${file#"${work}/app/"}"
   fi

@@ -236,7 +236,7 @@ describe("paused turn context", () => {
             ? { path: "fixture.txt", content: "approved fixture" }
             : pause === "request_secret"
               ? { label: "Fixture code", purpose: "otp" }
-              : { reason: "Complete fixture step" };
+              : { reason: "The user must enter the OTP." };
       let pausedPrefix: ModelEmulatorRequest["messages"] = [];
       const model = await startModelEmulator({
         steps: [

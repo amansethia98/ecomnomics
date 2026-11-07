@@ -112,7 +112,14 @@ export class ComputerBrowserProvider implements BrowserProvider {
     if (this.canUseInProcess(computer)) {
       return this.fake.snapshot(computer, request, context);
     }
-    const live = await this.runLive(computer, { command: "snapshot" }, context);
+    const live = await this.runLive(
+      computer,
+      {
+        command: "snapshot",
+        ...(request.downloads ? { downloads: request.downloads } : {}),
+      },
+      context,
+    );
     if (live?.ok !== true || live.fallback === "computer_act") {
       return {
         url: "",
@@ -131,6 +138,7 @@ export class ComputerBrowserProvider implements BrowserProvider {
       tree: typeof live.tree === "string" ? live.tree : formatTree(elements),
       elements,
       ...(live.loading === true ? { loading: true } : {}),
+      ...downloadsOf(live),
       ...pageNotice(live),
     };
   }

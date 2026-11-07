@@ -6,6 +6,7 @@ import {
 } from "./agent-connections.js";
 import { messageBot } from "./bot-messages.js";
 import { endCallFromTool, requestUserCall } from "./call-request.js";
+import { CLICK_LADDER_INSTRUCTION, takeoverAllowed } from "./click-ladder.js";
 import { handoffToGroupBot } from "./group-handoff.js";
 import { publishMessage } from "./run-messages.js";
 import {
@@ -60,7 +61,11 @@ export const messagingTools: ToolHandlers = {
       ),
     );
   },
-  async request_takeover() {
+  async request_takeover(ctx, call) {
+    const reason = String(call.args.reason ?? "");
+    if (!takeoverAllowed(ctx.runId, reason)) {
+      return call.finish({ refused: true, instruction: CLICK_LADDER_INSTRUCTION });
+    }
     return { ok: true };
   },
   async run_subagent(_ctx, call) {

@@ -1,0 +1,27 @@
+<!doctype html>
+<title>Code</title>
+<form id="otp">
+  <input maxlength="1" aria-label="Code 1" inputmode="numeric">
+  <input maxlength="1" aria-label="Code 2" inputmode="numeric">
+  <input maxlength="1" aria-label="Code 3" inputmode="numeric">
+  <input maxlength="1" aria-label="Code 4" inputmode="numeric">
+  <input maxlength="1" aria-label="Code 5" inputmode="numeric">
+  <input maxlength="1" aria-label="Code 6" inputmode="numeric">
+</form>
+<script>
+  const boxes = [...document.querySelectorAll("input")];
+  for (const box of boxes) {
+    box.addEventListener("input", () => {
+      const next = boxes[boxes.indexOf(box) + 1];
+      if (box.value && next) next.focus();
+      if (boxes.every((item) => item.value)) {
+        const body = new URLSearchParams({ code: boxes.map((item) => item.value).join("") });
+        fetch("/submit", {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body,
+        });
+      }
+    });
+  }
+</script>

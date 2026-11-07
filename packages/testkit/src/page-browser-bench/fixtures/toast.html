@@ -1,0 +1,10 @@
+<!doctype html>
+<title>Payouts</title>
+<div id="toast" role="dialog" aria-modal="true" style="position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:5">
+  <p>Your report is ready.</p>
+  <button type="button" onclick="this.parentElement.remove()">Close</button>
+</div>
+<form method="post" action="/submit">
+  <input type="hidden" name="report" value="1">
+  <button type="submit">Get report</button>
+</form>

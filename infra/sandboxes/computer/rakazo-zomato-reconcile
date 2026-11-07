@@ -1,0 +1,615 @@
+#!/usr/bin/env python3
+"""Reconcile one Zomato settlement workbook into a CSV and an xlsx.
+
+The summary tab's header cells are often #REF!, and the order table does not
+start on row 1. This reads sheets and columns by name with the standard
+library only, so the computer does not install anything at run time.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import re
+import sys
+import zipfile
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from pathlib import Path
+from xml.etree import ElementTree as ET
+from xml.sax.saxutils import escape
+
+NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+REL = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+PKG = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+CENT = Decimal("0.01")
+RANGE = re.compile(
+    r"\d{1,2}\s+[A-Za-z]+\s+\d{4}\s*[-–]\s*\d{1,2}\s+[A-Za-z]+\s+\d{4}"
+)
+MONTHS = (
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+)
+BROKEN = {"", "-", "#ref!", "#n/a", "na", "n/a"}
+
+
+def norm(value) -> str:
+    return " ".join(str(value or "").replace("\n", " ").split()).lower()
+
+
+def money(value) -> Decimal:
+    text = str(value or "").strip().replace(",", "")
+    if text.lower() in BROKEN:
+        return Decimal(0)
+    try:
+        return Decimal(text)
+    except InvalidOperation:
+        return Decimal(0)
+
+
+def cents(value: Decimal) -> Decimal:
+    return value.quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def money_text(value: Decimal) -> str:
+    return f"{cents(value):.2f}"
+
+
+def col_index(letters: str) -> int:
+    number = 0
+    for char in letters:
+        number = number * 26 + (ord(char.upper()) - 64)
+    return number - 1
+
+
+def col_letter(index: int) -> str:
+    number = index + 1
+    letters = ""
+    while number:
+        number, remainder = divmod(number - 1, 26)
+        letters = chr(65 + remainder) + letters
+    return letters
+
+
+def order_id(value) -> str | None:
+    text = str(value or "").strip()
+    if text.endswith(".0") and text[:-2].isdigit():
+        text = text[:-2]
+    return text if text.isdigit() else None
+
+
+def find_col(header: list, *needles: str) -> int | None:
+    hits = []
+    for index, cell in enumerate(header):
+        label = norm(cell)
+        if label and all(needle in label for needle in needles):
+            hits.append((len(label), index))
+    if not hits:
+        return None
+    hits.sort()
+    return hits[0][1]
+
+
+def cell_at(row: list, index: int | None):
+    if index is None or index >= len(row):
+        return ""
+    return row[index]
+
+
+def sheet_named(sheets: dict[str, list[list]], *needles: str) -> list[list] | None:
+    for name, rows in sheets.items():
+        label = norm(name)
+        if all(needle in label for needle in needles):
+            return rows
+    return None
+
+
+def load_workbook(path: str) -> dict[str, list[list]]:
+    """Sheet name to rows. Each row is a dense list of cell text, including blanks."""
+    with zipfile.ZipFile(path) as archive:
+        shared = _shared_strings(archive)
+        names = _sheet_targets(archive)
+        sheets = {}
+        for name, target in names:
+            sheets[name] = _sheet_rows(archive, target, shared)
+    return sheets
+
+
+def _shared_strings(archive: zipfile.ZipFile) -> list[str]:
+    if "xl/sharedStrings.xml" not in archive.namelist():
+        return []
+    root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+    return ["".join(node.text or "" for node in item.iter(f"{NS}t")) for item in root.findall(f"{NS}si")]
+
+
+def _sheet_targets(archive: zipfile.ZipFile) -> list[tuple[str, str]]:
+    workbook = ET.fromstring(archive.read("xl/workbook.xml"))
+    relations = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+    targets = {rel.attrib["Id"]: rel.attrib["Target"] for rel in relations}
+    found = []
+    for sheet in workbook.findall(f"{NS}sheets/{NS}sheet"):
+        target = targets[sheet.attrib[f"{REL}id"]]
+        target = target.lstrip("/")
+        if not target.startswith("xl/"):
+            target = f"xl/{target}"
+        found.append((sheet.attrib["name"], target))
+    return found
+
+
+def _cell_text(cell: ET.Element, shared: list[str]) -> str:
+    kind = cell.attrib.get("t")
+    if kind == "inlineStr":
+        return "".join(node.text or "" for node in cell.iter(f"{NS}t"))
+    value = cell.find(f"{NS}v")
+    if kind == "e":
+        return value.text if value is not None and value.text else "#REF!"
+    if value is None or value.text is None:
+        return ""
+    if kind == "s":
+        return shared[int(value.text)]
+    return value.text
+
+
+def _sheet_rows(archive: zipfile.ZipFile, target: str, shared: list[str]) -> list[list]:
+    root = ET.fromstring(archive.read(target))
+    by_row: dict[int, dict[int, str]] = defaultdict(dict)
+    width = 0
+    for cell in root.findall(f".//{NS}c"):
+        ref = cell.attrib.get("r", "")
+        letters = "".join(char for char in ref if char.isalpha())
+        digits = "".join(char for char in ref if char.isdigit())
+        if not letters or not digits:
+            continue
+        column = col_index(letters)
+        width = max(width, column + 1)
+        text = _cell_text(cell, shared)
+        if text != "":
+            by_row[int(digits)][column] = text
+    rows = []
+    for number in sorted(by_row):
+        values = by_row[number]
+        rows.append([values.get(index, "") for index in range(width)])
+    return rows
+
+
+def write_workbook(path: str, sheets: dict[str, list[list]]) -> None:
+    """Write a small xlsx. Strings are inline; numbers stay numbers."""
+    names = list(sheets)
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", _content_types(len(names)))
+        archive.writestr("_rels/.rels", _root_rels())
+        archive.writestr("xl/workbook.xml", _workbook_xml(names))
+        archive.writestr("xl/_rels/workbook.xml.rels", _workbook_rels(len(names)))
+        for index, name in enumerate(names, start=1):
+            archive.writestr(f"xl/worksheets/sheet{index}.xml", _sheet_xml(sheets[name]))
+
+
+def _content_types(count: int) -> str:
+    sheets = "".join(
+        f'<Override PartName="/xl/worksheets/sheet{index}.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        for index in range(1, count + 1)
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        f"{sheets}</Types>"
+    )
+
+
+def _root_rels() -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        f'<Relationships xmlns="{PKG[1:-1]}">'
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+        'Target="xl/workbook.xml"/></Relationships>'
+    )
+
+
+def _workbook_xml(names: list[str]) -> str:
+    sheets = "".join(
+        f'<sheet name="{escape(name)}" sheetId="{index}" r:id="rId{index}"/>'
+        for index, name in enumerate(names, start=1)
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        f'<workbook xmlns="{NS[1:-1]}" xmlns:r="{REL[1:-1]}"><sheets>{sheets}</sheets></workbook>'
+    )
+
+
+def _workbook_rels(count: int) -> str:
+    rows = "".join(
+        f'<Relationship Id="rId{index}" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+        f'Target="worksheets/sheet{index}.xml"/>'
+        for index in range(1, count + 1)
+    )
+    return f'<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="{PKG[1:-1]}">{rows}</Relationships>'
+
+
+def _sheet_xml(rows: list[list]) -> str:
+    body = []
+    for row_number, row in enumerate(rows, start=1):
+        cells = []
+        for index, value in enumerate(row):
+            if value is None or value == "":
+                continue
+            ref = f"{col_letter(index)}{row_number}"
+            if isinstance(value, (int, float, Decimal)):
+                cells.append(f'<c r="{ref}"><v>{value}</v></c>')
+            else:
+                cells.append(f'<c r="{ref}" t="inlineStr"><is><t>{escape(str(value))}</t></is></c>')
+        if cells:
+            body.append(f'<row r="{row_number}">{"".join(cells)}</row>')
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        f'<worksheet xmlns="{NS[1:-1]}"><sheetData>{"".join(body)}</sheetData></worksheet>'
+    )
+
+
+def _header_row(rows: list[list], *needles: str) -> tuple[int, list] | None:
+    for index, row in enumerate(rows):
+        if find_col(row, *needles) is not None and all(find_col(row, needle) is not None for needle in needles):
+            return index, row
+    return None
+
+
+def _format_date(value) -> str:
+    text = str(value or "").strip()
+    match = re.match(r"(\d{4})-(\d{2})-(\d{2})", text)
+    if match:
+        year, month, day = (int(part) for part in match.groups())
+        return f"{day:02d} {MONTHS[month - 1]} {year}"
+    try:
+        serial = Decimal(text)
+    except InvalidOperation:
+        return text
+    if serial < 20000 or serial > 80000:
+        return text
+    found = datetime(1899, 12, 30) + timedelta(days=int(serial))
+    return f"{found.day:02d} {MONTHS[found.month - 1]} {found.year}"
+
+
+def _cycle(sheets: dict[str, list[list]]) -> str:
+    for rows in sheets.values():
+        for row in rows:
+            for index, cell in enumerate(row):
+                label = norm(cell)
+                if "cycle" in label or "report period" in label:
+                    neighbour = cell_at(row, index + 1)
+                    if norm(neighbour) not in BROKEN and RANGE.search(str(neighbour)):
+                        return RANGE.search(str(neighbour)).group(0)
+    for rows in sheets.values():
+        for row in rows:
+            for cell in row:
+                match = RANGE.search(str(cell))
+                if match:
+                    return match.group(0)
+    return ""
+
+
+def _orders(rows: list[list]) -> list[dict]:
+    found = None
+    for index, row in enumerate(rows):
+        labels = [norm(cell) for cell in row]
+        if "order id" in labels and any(label.startswith("order status") for label in labels):
+            found = index
+            break
+    if found is None:
+        raise ValueError("The Order Level sheet has no header row with Order ID and Order status.")
+    header = rows[found]
+    columns = {
+        "id": find_col(header, "order id"),
+        "status": find_col(header, "order status"),
+        "name": find_col(header, "res", "name"),
+        "rid": find_col(header, "res", "id"),
+        "subtotal": find_col(header, "subtotal"),
+        "packaging": find_col(header, "packaging"),
+        "promo": find_col(header, "discount", "promo"),
+        "other_discount": find_col(header, "restaurant discount")
+        if find_col(header, "bogo") is None
+        else find_col(header, "bogo"),
+        "gst": find_col(header, "gst collected"),
+        "net_order": find_col(header, "net order value"),
+        "fees": find_col(header, "payment mechanism fees"),
+        "tax_on_fees": find_col(header, "taxes on service"),
+        "government": find_col(header, "government charges"),
+        "other": find_col(header, "other order-level"),
+        "net_deductions": find_col(header, "net deductions"),
+        "net_additions": find_col(header, "net additions"),
+        "payout": find_col(header, "order level payout"),
+        "settlement": find_col(header, "settlement status"),
+        "settled_on": find_col(header, "settlement date"),
+        "utr": find_col(header, "bank utr"),
+        "unsettled": find_col(header, "unsettled"),
+    }
+    missing = [name for name in ("id", "status", "payout") if columns[name] is None]
+    if missing:
+        raise ValueError(f"The Order Level sheet is missing {', '.join(missing)}.")
+    # The other restaurant-discount column is the one that is not the promo column.
+    if columns["other_discount"] == columns["promo"]:
+        for index, cell in enumerate(header):
+            label = norm(cell)
+            if "restaurant discount" in label and "promo" not in label:
+                columns["other_discount"] = index
+                break
+    parsed = []
+    for row in rows[found + 1 :]:
+        identity = order_id(cell_at(row, columns["id"]))
+        if identity is None:
+            continue
+        item = {key: cell_at(row, index) for key, index in columns.items()}
+        item["id"] = identity
+        item["status"] = str(item["status"] or "").strip().upper()
+        parsed.append(item)
+    if not parsed:
+        raise ValueError("The Order Level sheet has no order rows under its header.")
+    return parsed
+
+
+def _deductions(rows: list[list] | None) -> dict[str, Decimal]:
+    found = {"ads": Decimal(0), "hyperpure": Decimal(0), "other": Decimal(0), "outstanding": Decimal(0)}
+    if not rows:
+        return found
+    section = None
+    header = None
+    details: dict[str, list[tuple[Decimal, Decimal]]] = {"ads": [], "hyperpure": [], "other": []}
+    totals: dict[str, Decimal] = {}
+    for row in rows:
+        joined = " ".join(norm(cell) for cell in row if norm(cell))
+        if "investments in growth" in joined:
+            section, header = "ads", None
+            continue
+        if "hyperpure" in joined and "total" not in joined:
+            section, header = "hyperpure", None
+            continue
+        if "other deduction" in joined and "total" not in joined:
+            section, header = "other", None
+            continue
+        if "adjustments from previous" in joined and "total" not in joined:
+            section, header = "other", None
+            continue
+        if section is None:
+            continue
+        if "total deductions" in joined:
+            section = None
+            continue
+        if header is None and find_col(row, "adjusted") is not None:
+            header = row
+            continue
+        if header is None:
+            continue
+        adjusted = money(cell_at(row, find_col(header, "adjusted")))
+        outstanding = money(cell_at(row, find_col(header, "outstanding")))
+        if "total" in joined:
+            totals[section] = adjusted
+            continue
+        if not any(norm(cell) and not _numeric_text(cell) for cell in row):
+            continue
+        details[section].append((adjusted, outstanding))
+    for name, pairs in details.items():
+        summed = sum((pair[0] for pair in pairs), Decimal(0))
+        found[name] = totals.get(name, summed) if name not in totals or totals[name] == cents(summed) else summed
+        if name in totals and cents(totals[name]) != cents(summed) and pairs:
+            found[name] = summed
+        found["outstanding"] += sum((pair[1] for pair in pairs), Decimal(0))
+    return found
+
+
+def _numeric_text(value) -> bool:
+    text = str(value or "").strip().replace(",", "")
+    if text.lower() in BROKEN:
+        return False
+    try:
+        Decimal(text)
+    except InvalidOperation:
+        return False
+    return True
+
+
+def _sheet_net_payout(rows: list[list] | None, order_payouts: Decimal) -> Decimal | None:
+    """The breakup tab's Net Payout total, when that total is a real figure.
+
+    This export leaves the whole breakup at 0 when its formulas are #REF!, so a
+    zero total beside real order payouts is ignored.
+    """
+    if not rows:
+        return None
+    located = _header_row(rows, "particular")
+    if located is None:
+        return None
+    _, header = located
+    total = find_col(header, "total")
+    particular = find_col(header, "particular")
+    if total is None or particular is None:
+        return None
+    for row in rows:
+        if "net payout" not in norm(cell_at(row, particular)):
+            continue
+        raw = str(cell_at(row, total) or "").strip()
+        if raw.lower() in BROKEN:
+            return None
+        amount = money(raw)
+        if amount == 0 and order_payouts != 0:
+            return None
+        return amount
+    return None
+
+
+def reconcile(sheets: dict[str, list[list]]) -> dict:
+    order_rows = sheet_named(sheets, "order", "level")
+    if order_rows is None:
+        raise ValueError("The workbook has no Order Level sheet.")
+    orders = _orders(order_rows)
+    totals = defaultdict(lambda: Decimal(0))
+    by_status: dict[str, list[Decimal]] = defaultdict(list)
+    dates = Counter()
+    utrs = Counter()
+    names = Counter()
+    outlets = Counter()
+    unsettled = []
+    cancelled = []
+    mismatched = []
+    for order in orders:
+        payout = money(order["payout"])
+        by_status[order["status"] or "UNKNOWN"].append(payout)
+        for key in (
+            "subtotal", "packaging", "promo", "other_discount", "gst", "net_order", "fees",
+            "tax_on_fees", "government", "other", "net_deductions", "net_additions",
+        ):
+            totals[key] += money(order[key])
+        totals["payout"] += payout
+        if str(order["settled_on"]).strip():
+            dates[str(order["settled_on"]).strip()] += 1
+        utr = str(order["utr"] or "").strip().strip(",")
+        if utr and norm(utr) not in BROKEN:
+            utrs[utr] += 1
+        if str(order["name"]).strip():
+            names[str(order["name"]).strip()] += 1
+        if str(order["rid"]).strip():
+            outlets[str(order["rid"]).strip().removesuffix(".0")] += 1
+        settlement = norm(order["settlement"])
+        unsettled_amount = money(order["unsettled"])
+        if settlement not in {"", "settled"} or unsettled_amount != 0:
+            unsettled.append(order)
+        if "CANCEL" in order["status"] or "REJECT" in order["status"]:
+            cancelled.append(order)
+        expected = money(order["net_order"]) - money(order["net_deductions"]) + money(order["net_additions"])
+        if "CANCEL" not in order["status"] and "REJECT" not in order["status"]:
+            if cents(expected) != cents(payout):
+                mismatched.append((order, expected))
+
+    deductions = _deductions(sheet_named(sheets, "addition", "deduction"))
+    order_payouts = totals["payout"]
+    non_order = deductions["ads"] + deductions["hyperpure"] + deductions["other"]
+    sheet_net = _sheet_net_payout(sheet_named(sheets, "payout", "breakup"), order_payouts)
+    net_payout = sheet_net if sheet_net is not None else order_payouts - non_order
+    check = order_payouts - non_order - net_payout
+    name = names.most_common(1)[0][0] if names else "Unknown outlet"
+    outlet_id = outlets.most_common(1)[0][0] if outlets else ""
+    outlet = f"{name} (ID {outlet_id})" if outlet_id else name
+    cycle = _cycle(sheets)
+    settled_on = _format_date(dates.most_common(1)[0][0]) if dates else ""
+    utr = utrs.most_common(1)[0][0] if utrs else ""
+
+    def status_line(status: str) -> str:
+        amounts = by_status.get(status, [])
+        return f"{len(amounts)} orders, payout {money_text(sum(amounts, Decimal(0)))}"
+
+    rows = [
+        ("Header", "Outlet", outlet),
+        ("Header", "Payout cycle", cycle),
+        ("Header", "Settlement date", settled_on),
+        ("Header", "UTR", utr),
+        ("Header", "Orders in report", str(len(orders))),
+    ]
+    for status in sorted(by_status, key=lambda item: (item != "DELIVERED", item)):
+        rows.append(("Orders by status", status, status_line(status)))
+    rows.extend([
+        ("Totals", "Items subtotal", money_text(totals["subtotal"])),
+        ("Totals", "Packaging charges", money_text(totals["packaging"])),
+        ("Totals", "Restaurant promo discounts", money_text(totals["promo"])),
+        ("Totals", "Other restaurant discounts", money_text(totals["other_discount"])),
+        ("Totals", "GST collected from customers", money_text(totals["gst"])),
+        ("Totals", "Net order value (A)", money_text(totals["net_order"])),
+        ("Totals", "Service + payment fees", money_text(totals["fees"])),
+        ("Totals", "Tax on fees", money_text(totals["tax_on_fees"])),
+        ("Totals", "Government charges (TCS/TDS/GST)", money_text(totals["government"])),
+        ("Totals", "Other order-level deductions", money_text(totals["other"])),
+        ("Totals", "Net deductions (E)", money_text(totals["net_deductions"])),
+        ("Totals", "Net additions (F)", money_text(totals["net_additions"])),
+        ("Totals", "Sum of order-level payouts", money_text(order_payouts)),
+        ("Reconciliation", "Investments in growth / ads", money_text(deductions["ads"])),
+        ("Reconciliation", "Hyperpure", money_text(deductions["hyperpure"])),
+        ("Reconciliation", "Other non-order deductions", money_text(deductions["other"])),
+        ("Reconciliation", "Net payout", money_text(net_payout)),
+        ("Reconciliation", "Order-level payouts minus non-order deductions minus net payout", money_text(check)),
+        ("Reconciliation", "Unsettled orders", str(len(unsettled))),
+        ("Reconciliation", "Mismatched delivered orders", str(len(mismatched))),
+        ("Reconciliation", "Outstanding for a later payout", money_text(deductions["outstanding"])),
+    ])
+    if cancelled:
+        listed = ", ".join(f"{order['id']} got {money_text(money(order['payout']))}" for order in cancelled)
+        rows.append(("Reconciliation", "Cancelled or rejected orders", f"{len(cancelled)} orders: {listed}"))
+    for order in unsettled:
+        rows.append((
+            "Flagged",
+            f"Unsettled {order['id']}",
+            f"{order['status'] or 'unknown'} settlement {order['settlement'] or 'blank'}, unsettled {money_text(money(order['unsettled']))}",
+        ))
+    for order, expected in mismatched:
+        rows.append((
+            "Flagged",
+            f"Mismatched {order['id']}",
+            f"payout {money_text(money(order['payout']))}, line formula {money_text(expected)}",
+        ))
+    delivered = len(by_status.get("DELIVERED", []))
+    cancelled_count = sum(len(amounts) for status, amounts in by_status.items() if "CANCEL" in status or "REJECT" in status)
+    summary = "\n".join([
+        outlet,
+        f"Cycle {cycle or 'unknown'}, settled {settled_on or 'unknown'}, UTR {utr or 'none'}",
+        f"{len(orders)} orders ({delivered} delivered, {cancelled_count} cancelled)",
+        f"Order-level payouts {money_text(order_payouts)}",
+        f"Ads / investments in growth {money_text(deductions['ads'])}",
+        f"Net payout {money_text(net_payout)}",
+        f"Check {money_text(check)}",
+        f"Unsettled {len(unsettled)}; mismatched delivered {len(mismatched)}",
+    ])
+    return {
+        "rows": rows,
+        "summary": summary,
+        "orders": len(orders),
+        "delivered": delivered,
+        "cancelled": cancelled_count,
+        "order_payouts": cents(order_payouts),
+        "ads": cents(deductions["ads"]),
+        "net_payout": cents(net_payout),
+        "check": cents(check),
+        "unsettled": len(unsettled),
+    }
+
+
+def write_csv(path: str, rows: list[tuple[str, str, str]]) -> None:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(("Section", "Item", "Value"))
+        writer.writerows(rows)
+
+
+def write_report_xlsx(path: str, rows: list[tuple[str, str, str]]) -> None:
+    write_workbook(path, {"Reconciliation": [("Section", "Item", "Value"), *rows]})
+
+
+def output_paths(workbook: str, directory: str | None) -> tuple[str, str]:
+    source = Path(workbook)
+    folder = Path(directory) if directory else source.parent
+    folder.mkdir(parents=True, exist_ok=True)
+    stem = source.stem
+    return str(folder / f"{stem}-reconciliation.csv"), str(folder / f"{stem}-reconciliation.xlsx")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Reconcile a Zomato settlement workbook.")
+    parser.add_argument("workbook", help="Settlement .xlsx downloaded from Finance > Payouts")
+    parser.add_argument("--out", help="Directory for the CSV and xlsx. Defaults to the workbook's folder.")
+    args = parser.parse_args(argv)
+    try:
+        report = reconcile(load_workbook(args.workbook))
+    except (OSError, zipfile.BadZipFile, KeyError, ValueError, ET.ParseError) as exc:
+        print(f"Could not reconcile {args.workbook}: {exc}", file=sys.stderr)
+        return 1
+    csv_path, xlsx_path = output_paths(args.workbook, args.out)
+    write_csv(csv_path, report["rows"])
+    write_report_xlsx(xlsx_path, report["rows"])
+    print(report["summary"])
+    print(f"Wrote {csv_path}")
+    print(f"Wrote {xlsx_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
