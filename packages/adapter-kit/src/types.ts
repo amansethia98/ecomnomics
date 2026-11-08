@@ -1086,6 +1086,8 @@ export interface BrowserSnapshotRequest {
   /** Folder in the computer's home that a PDF the tab shows is saved to; without it, none is saved. */
   downloads?: string;
   signal?: AbortSignal;
+  /** Folder in the computer's home; a download that finished since the last page action is listed. */
+  downloads?: string;
 }
 
 export interface BrowserSnapshotNode {
@@ -1116,6 +1118,8 @@ export interface BrowserSnapshotResult {
   note?: string;
   /** A JavaScript dialog the page has open on the screen, which page tools cannot answer. */
   dialog?: string;
+  /** A download that finished after the click that started it. */
+  downloads?: BrowserDownload[];
 }
 
 export type BrowserActKind = "click" | "fill" | "type" | "upload";

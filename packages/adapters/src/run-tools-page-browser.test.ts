@@ -128,7 +128,9 @@ describe("page tools save a page's file downloads in the calling bot's own folde
     const args =
       name === "browser_navigate"
         ? { url: "https://bank.example/files/statement.pdf" }
-        : { actions: [{ kind: "click", ref: "e1" }] };
+        : name === "browser_snapshot"
+          ? {}
+          : { actions: [{ kind: "click", ref: "e1" }] };
     const call = { name, args, finish: async (result: unknown) => result };
     const result = (await pageBrowserTool(ctx as never, call as never)) as {
       content?: Array<{ text: string }>;

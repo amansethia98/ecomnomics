@@ -32,7 +32,15 @@ The suite covers a link, a text form, a native select, a checkbox, same-site and
 a form far below the fold, a page much larger than the snapshot budget with its form last (reached with a snapshot query, as
 a model would after the snapshot says controls were cut), a page that replaces its form after load
 (stale refs), a page whose HTML and data each arrive late, a search box whose suggestions load after
-typing stops, a saved login fill, and a card fill by card field.
+typing stops, a saved login fill, a card fill by card field, a button under a tall sticky header, a
+button under a dismissible banner, a button under an overlay with nothing to dismiss, a six-box code
+inside a same-origin frame, clickable text inside a frame, a download started by a script, and a
+download that opens in a new tab. The long page is expected to fail while the snapshot keeps the
+first controls: it shows what the budget hides.
+
+`pnpm bench:browser-tasks` runs that reliability list on this machine (headless Chrome, no Docker)
+and writes one JSON row per task with whether it succeeded, how long it took, and which files
+downloaded. `--tasks <file.json>` runs another list in the same shape as the built-in tasks.
 
 An agent-level mode, where a model drives the real tools through the shared model connection and
 completion, steps, tokens and cost are recorded, is not built yet.

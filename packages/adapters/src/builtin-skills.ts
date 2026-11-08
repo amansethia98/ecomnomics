@@ -59,6 +59,20 @@ const SKILLS: Array<{ name: string; description: string; body: string }> = [
 4. Synthesize a verdict: ship, ship after fixes, or do not ship. List the confirmed findings ordered by severity, each with its location and failure scenario, then any open questions. If nothing survived verification, say so plainly instead of inventing nitpicks.`,
   },
   {
+    name: "Zomato payout reconciliation",
+    description: "Download the latest paid Zomato settlement and reconcile it.",
+    body: `Reconcile one Zomato payout. Do this instead of reading the spreadsheet yourself.
+
+1. Open the partner site, go to Finance, then Payouts, and select the outlet the user named. If they named none and more than one outlet is listed, ask which one.
+2. Choose the most recent payout that is already paid. It has a payout date and a UTR. Do not download the current or upcoming cycle. That cycle is still unpaid and has no UTR.
+3. Download that cycle's settlement report. It is an .xlsx and lands in Downloads.
+4. Run this once, with that file's path. Do not install packages, and do not convert the workbook with another tool. The summary cells often say #REF!, and the orders are not on the first row; the script already accounts for that.
+
+python3 /usr/local/bin/rakazo-zomato-reconcile "<path>"
+
+5. The command writes a reconciliation .csv and .xlsx next to the report and prints a short summary. Give the user that summary and both file paths. If the check is not 0.00, say so and quote the summary. If the payout page shows a pending deduction for a later cycle that the summary's outstanding line does not, mention that figure on its own and do not add it into the check. If the command is not found, the computer image is older than this skill and needs a rebuild. Do not claim a figure the summary does not show.`,
+  },
+  {
     name: "Rakazo",
     description: "How to use or set up Rakazo: chat apps, your computer, billing, hosting",
     body: `Answer questions about Rakazo itself from its docs. Fetch the matching page with web_fetch before answering, then answer briefly in your own words and link the page. If fetching fails or is unavailable, answer only what this index says and link the page. Never invent menus, buttons, or steps the page doesn't show. Account-specific facts (credit balance, plan, usage) aren't in the docs: point to the screen that shows them.

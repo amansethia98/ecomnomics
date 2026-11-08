@@ -24,6 +24,7 @@ import {
   oneTimeCodeArgument,
 } from "./bot-secrets.js";
 import { FIND_TOOL, findTools, partitionTools, USE_TOOL } from "./builtin-tool-bridge.js";
+import { CLICK_LADDER_INSTRUCTION, takeoverAllowed } from "./click-ladder.js";
 import { shortenToolResultText } from "./context-selection.js";
 import type { PiAgentRuntimeOptions } from "./pi-runtime.js";
 import { sanitizeSensitiveText } from "./pi-runtime-errors.js";
@@ -456,11 +457,18 @@ function toAgentTool(
           try {
             result = await (async () => {
               if (tool.name === "request_takeover") {
+                const reason = String(args.reason ?? "I need you on the screen.");
+                if (!takeoverAllowed(host.request.runId, reason)) {
+                  return {
+                    content: [{ type: "text", text: CLICK_LADDER_INSTRUCTION }],
+                    details: { refused: true, reason },
+                  };
+                }
                 host.pausePending = true;
                 host.queue.push({
                   type: "takeover",
                   ...(host.request.onCheckpoint ? { executionId } : {}),
-                  reason: String(args.reason ?? "I need you on the screen."),
+                  reason,
                 });
                 return {
                   content: [{ type: "text", text: "Takeover requested." }],
