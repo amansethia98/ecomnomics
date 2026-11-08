@@ -42,6 +42,7 @@ import {
   appendEventInTransaction,
   availableInSpace,
   createThreadMessageInTransaction,
+  restaurantSkillRecords,
 } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
 
@@ -155,7 +156,9 @@ async function takenNames(db: Reader, actor: Actor) {
   });
   return {
     spaceMemoryPaths: documents.map((document) => document.path),
-    skillNames: [...skills, ...BUILTIN_AGENT_SKILLS].map((skill) => skill.name),
+    skillNames: [...skills, ...BUILTIN_AGENT_SKILLS, ...restaurantSkillRecords()].map(
+      (skill) => skill.name,
+    ),
     mcpSlugs: servers.map((server) => server.slug),
   };
 }

@@ -30,6 +30,7 @@ import type {
   WorkspaceDirectoryRequest,
 } from "@rakazo/adapter-kit";
 import { boundedSandboxCommandTimeoutMs } from "@rakazo/core";
+import { assertRestaurantComputerIsolated } from "@rakazo/db";
 import {
   applyPlaceholderAction,
   boundedComputerActions,
@@ -168,6 +169,7 @@ export class DesktopSandboxProvider implements SandboxProvider {
     request: { botId: string; homePath: string },
     _context: AdapterContext,
   ): Promise<ComputerRef> {
+    assertRestaurantComputerIsolated("desktop");
     const home = this.homeFor(request.botId);
     await rm(stoppedMarker(home), { force: true });
     // Recursive mkdir returns undefined when the directory already exists. This

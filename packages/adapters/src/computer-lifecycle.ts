@@ -23,6 +23,7 @@ import {
 } from "@rakazo/core";
 import type { Prisma, PrismaClient, ThreadEvents } from "@rakazo/db";
 import {
+  assertRestaurantComputerIsolated,
   expireComputerExecutionLeases,
   parseComputerMode,
   recordComputerRunEnd,
@@ -203,6 +204,9 @@ export async function provisionComputer(
     !existing.restorePending &&
     deps.sandbox.isRunning
   ) {
+    // Before reuse: a shared machine stays refused when each restaurant needs its own computer,
+    // including one that was already running when the switch was turned on.
+    assertRestaurantComputerIsolated(existing.kind);
     const ref = toComputerRef(existing);
     if (await confirmedRunning(deps.sandbox, ref, context)) {
       context.signal.throwIfAborted();
@@ -251,6 +255,7 @@ export async function provisionComputer(
 
   // A computer that bills starts only while its organization has allowance left this period.
   const startKind = (await deps.sandbox.provisionKind?.()) ?? existing.kind;
+  assertRestaurantComputerIsolated(startKind);
   if (await sandboxAllowanceUsedUp(deps, { spaceId: existing.spaceId, kind: startKind }))
     throw new SandboxAllowanceUsedError();
 

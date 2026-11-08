@@ -10,6 +10,7 @@ import type {
   SandboxProvider,
   ScreenRequest,
 } from "@rakazo/adapter-kit";
+import { assertRestaurantComputerIsolated } from "@rakazo/db";
 
 export const NO_SANDBOX_MESSAGE =
   "Computers unavailable. Set SANDBOX_PROVIDER=docker with SANDBOX_SUPERVISOR_TOKEN, or use e2b, novita, daytona, or boat with its API key.";
@@ -47,6 +48,7 @@ export class NoneSandboxProvider implements SandboxProvider {
     },
     _context: AdapterContext,
   ): Promise<ComputerRef> {
+    assertRestaurantComputerIsolated("none");
     this.fail();
   }
 

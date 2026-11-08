@@ -32,12 +32,14 @@ import {
   botProfileLabelsChanged,
   ComputerLimitError,
   commitBotUpdate,
+  DedicatedComputerDisabledError,
   expireComputerExecutionLeases,
   InstructionConflictError,
   IsolationError,
   recordComputerRunEnd,
   recordSecurityEvent,
   restoreBotUnderComputerQuota,
+  SharedMachineSandboxError,
   SpaceDeletionInProgressError,
   settingsTarget,
 } from "@rakazo/db";
@@ -62,7 +64,11 @@ function mapSpaceLifecycleError(error: unknown): unknown {
   if (error instanceof SpaceDeletionInProgressError) {
     return new ORPCError("CONFLICT", { message: error.message });
   }
-  if (error instanceof ComputerLimitError) {
+  if (
+    error instanceof ComputerLimitError ||
+    error instanceof DedicatedComputerDisabledError ||
+    error instanceof SharedMachineSandboxError
+  ) {
     return new ORPCError("BAD_REQUEST", { message: error.message });
   }
   return error;

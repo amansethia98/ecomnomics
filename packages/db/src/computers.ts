@@ -3,6 +3,7 @@ import type { ComputerMode } from "@rakazo/contracts";
 import { isTerminal } from "@rakazo/core";
 import type { PrismaClient } from "./client.js";
 import { Prisma } from "./client.js";
+import { assertRestaurantComputerIsolated } from "./restaurant-mode.js";
 import { runAsSystem, runAsSystemInTransaction } from "./row-security.js";
 import { withTransactionRetry } from "./transaction-retry.js";
 
@@ -294,6 +295,7 @@ export async function ensureComputerRecord(
     kind: string;
   },
 ) {
+  assertRestaurantComputerIsolated(input.kind);
   const limit = resolveMaxComputersPerUser();
   const scopeKey = computerScopeKey(input);
   if (limit <= 0) return upsertComputerRecord(prisma, input, scopeKey);

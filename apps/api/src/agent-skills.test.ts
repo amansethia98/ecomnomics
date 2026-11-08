@@ -152,4 +152,32 @@ Write the notes.
     expect(parsed.body).toBe("Write the weekly notes.");
     expect(parsed.frontmatter.notes).toBe("First step\nSecond step\n\n");
   });
+
+  it("keeps a template skill locked when starter bots are on", async () => {
+    vi.stubEnv("RESTAURANT_STARTER_BOTS_ENABLED", "true");
+    const { service } = setup([savedSkill("Update menu")]);
+    const listed = (await service.listWithContent(actor)).filter(
+      (skill) => skill.name.toLowerCase() === "update menu",
+    );
+    expect(listed).toEqual([
+      expect.objectContaining({
+        id: "builtin:Update menu",
+        readOnly: true,
+        source: "builtin",
+      }),
+    ]);
+    expect(listed[0]?.content).toContain("EDIT THIS:");
+    await expect(service.get(actor, { name: "update menu" })).resolves.toMatchObject({
+      id: "builtin:Update menu",
+      readOnly: true,
+    });
+    await expect(
+      service.update(actor, { skillId: "saved-1", description: "Changed" }),
+    ).rejects.toThrow(/read-only/);
+    await expect(service.remove(actor, "saved-1")).rejects.toThrow(/read-only/);
+    await expect(
+      service.create(actor, { name: "Reply to reviews", description: "Mine", body: "steps" }),
+    ).rejects.toThrow(/already exists/);
+    vi.unstubAllEnvs();
+  });
 });

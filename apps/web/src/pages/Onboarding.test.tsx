@@ -42,7 +42,7 @@ vi.mock("@lingui/react/macro", () => {
   };
 });
 
-import { OnboardingPage } from "./Onboarding";
+import { findFirstBot, OnboardingPage } from "./Onboarding";
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -129,4 +129,19 @@ it("finds and searches a long custom endpoint list during onboarding", async () 
   await act(async () => document.querySelector<HTMLElement>("[cmdk-item]")!.click());
   expect(document.querySelector('[aria-label="Models from server"]')?.textContent).toBe("found-10");
   await act(async () => root.unmount());
+});
+
+it("uses a restaurant template bot instead of creating Chief", () => {
+  const menu = { id: "menu", name: "Menu Manager", spawnKey: "restaurant-template:menu-manager" };
+  const reviews = {
+    id: "reviews",
+    name: "Reviews Replier",
+    spawnKey: "restaurant-template:reviews-replier",
+  };
+  expect(findFirstBot([reviews, menu])?.id).toBe("reviews");
+  expect(findFirstBot([{ id: "chief", name: "Chief", spawnKey: "onboarding:first" }])?.id).toBe(
+    "chief",
+  );
+  expect(findFirstBot([{ id: "named", name: "Chief", spawnKey: null }])?.id).toBe("named");
+  expect(findFirstBot([])).toBeUndefined();
 });

@@ -24,6 +24,7 @@ import {
   clampCatalogThinkingLevel,
   createModelProbe,
   initialModelProbeState,
+  isRestaurantTemplateSpawnKey,
   pickCatalogModelId,
   popularModelProvidersFirst,
 } from "@rakazo/core";
@@ -92,9 +93,11 @@ const FIRST_BOT_LOCK = "rakazo:onboarding-first-bot";
 /** Survives StrictMode remounts; concurrent first-bot creates share one in-flight attempt. */
 let firstBotEnsure: Promise<{ id: string }> | null = null;
 
-function findFirstBot(
+export function findFirstBot(
   bots: Array<{ id: string; name: string; spawnKey: string | null }>,
 ): { id: string } | undefined {
+  const template = bots.find((bot) => isRestaurantTemplateSpawnKey(bot.spawnKey));
+  if (template) return { id: template.id };
   const bySpawnKey = bots.find((bot) => bot.spawnKey === FIRST_BOT_SPAWN_KEY);
   if (bySpawnKey) return { id: bySpawnKey.id };
   // Legacy first-run Chief created before spawnKey was set.

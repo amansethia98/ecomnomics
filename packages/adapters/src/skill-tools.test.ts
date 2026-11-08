@@ -371,4 +371,54 @@ describe("skill tools", () => {
       }),
     ).toEqual({ error: "Skill name must be at most 80 characters." });
   });
+
+  it("serves template skills as locked builtins only when starter bots are on", async () => {
+    vi.stubEnv("RESTAURANT_STARTER_BOTS_ENABLED", "false");
+    expect(
+      (await listAgentSkillRecords(prisma as never, owner)).some(
+        (skill) => skill.name === "Update menu",
+      ),
+    ).toBe(false);
+
+    vi.stubEnv("RESTAURANT_STARTER_BOTS_ENABLED", "true");
+    prisma = makePrisma([
+      {
+        id: "user-menu",
+        spaceId: owner.spaceId,
+        userId: owner.userId,
+        name: "Update menu",
+        description: "customer copy",
+        content: buildSkillMd({
+          name: "Update menu",
+          description: "customer copy",
+          body: "customer steps",
+        }),
+        source: "user",
+      },
+    ]);
+    const records = await listAgentSkillRecords(prisma as never, owner);
+    const menu = records.filter((skill) => skill.name.toLowerCase() === "update menu");
+    expect(menu).toEqual([
+      expect.objectContaining({
+        id: "builtin:Update menu",
+        source: "builtin",
+        readOnly: true,
+      }),
+    ]);
+    expect(String(menu[0]?.content)).toContain("EDIT THIS:");
+    expect(await skillUpdateFromTool(prisma as never, owner, { name: "Update menu" })).toEqual({
+      error: "Builtin and plugin skills are read-only.",
+    });
+    expect(await skillDeleteFromTool(prisma as never, owner, { name: "Update menu" })).toEqual({
+      error: "Builtin and plugin skills are read-only.",
+    });
+    expect(
+      await skillCreateFromTool(prisma as never, owner, {
+        name: "Update menu",
+        description: "another",
+        body: "steps",
+      }),
+    ).toEqual({ error: 'A skill named "Update menu" already exists.' });
+    vi.unstubAllEnvs();
+  });
 });
