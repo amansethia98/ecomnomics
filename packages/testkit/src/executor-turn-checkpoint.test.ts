@@ -992,7 +992,7 @@ describe("executor paused transcript", () => {
       const args = approval
         ? { content: "exact-approved-content" }
         : pause === "request_takeover"
-          ? { reason: "Complete the fixture step" }
+          ? { reason: "The user must enter the OTP." }
           : { question: "Which fixture?", options: ["One", "Two"] };
       const model = await startModelEmulator({
         steps: [

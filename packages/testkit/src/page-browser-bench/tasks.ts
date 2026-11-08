@@ -31,7 +31,7 @@ export type ScriptStep =
    */
   | { act: ActSpec[]; staleRefs?: boolean; optional?: boolean };
 
-export type Expect = { submitted: Record<string, string> } | { url: string };
+export type Expect = { submitted: Record<string, string> } | { url: string } | { download: string };
 
 export type BenchTask = { id: string; covers: string; steps: ScriptStep[]; expect: Expect };
 
@@ -217,7 +217,101 @@ export const TASKS: BenchTask[] = [
       submitted: { number: "4242424242424242", expiry: "1234", cvc: "123", postal: "94110" },
     },
   },
+  {
+    id: "covered",
+    covers: "a submit button whose center stays under a tall sticky header",
+    steps: [
+      { navigate: "/covered.html" },
+      { act: [{ kind: "click", target: { name: "Save payout" } }] },
+    ],
+    expect: { submitted: { saved: "1" } },
+  },
+  {
+    id: "toast",
+    covers: "a click covered by a banner that can be dismissed",
+    steps: [
+      { navigate: "/toast.html" },
+      { act: [{ kind: "click", target: { name: "Get report" } }] },
+    ],
+    expect: { submitted: { report: "1" } },
+  },
+  {
+    id: "mask",
+    covers: "a click covered by an overlay with nothing to dismiss",
+    steps: [
+      { navigate: "/mask.html" },
+      { act: [{ kind: "click", target: { name: "Get report" } }] },
+    ],
+    expect: { submitted: { report: "1" } },
+  },
+  {
+    id: "overlay-login",
+    covers: "a login button under a transparent iframe, reached by Enter or a coordinate click",
+    steps: [
+      { navigate: "/overlay-login.html" },
+      { act: [{ kind: "click", target: { name: "Verify" } }] },
+    ],
+    expect: { submitted: { email: "owner@example.test", code: "123456" } },
+  },
+  {
+    id: "iframe-login",
+    covers: "a login button inside a same-origin iframe",
+    steps: [
+      { navigate: "/iframe-login.html" },
+      { act: [{ kind: "click", target: { name: "Verify" } }] },
+    ],
+    expect: { submitted: { email: "owner@example.test" } },
+  },
+  {
+    id: "otp-frame",
+    covers: "a code typed into six boxes inside a same-origin frame",
+    steps: [
+      { navigate: "/otp-frame.html" },
+      { act: [{ kind: "fill", target: { name: "Code 1" }, text: "482913" }] },
+    ],
+    expect: { submitted: { code: "482913" } },
+  },
+  {
+    id: "resend-frame",
+    covers: "clickable text inside an iframe",
+    steps: [
+      { navigate: "/resend-frame.html" },
+      { act: [{ kind: "click", target: { name: "Resend Now" } }] },
+    ],
+    expect: { submitted: { resend: "1" } },
+  },
+  {
+    id: "download-blob",
+    covers: "a file download started by a script from a click",
+    steps: [
+      { navigate: "/download-blob.html" },
+      { act: [{ kind: "click", target: { name: "Download report" } }] },
+    ],
+    expect: { download: "payout.csv" },
+  },
+  {
+    id: "download-tab",
+    covers: "a file download that opens in a new tab",
+    steps: [
+      { navigate: "/download-tab.html" },
+      { act: [{ kind: "click", target: { name: "Download report" } }] },
+    ],
+    expect: { download: "report.csv" },
+  },
 ];
+
+/** Fixture tasks for covered clicks, framed codes, and downloads. */
+export const RELIABILITY_TASK_IDS = [
+  "covered",
+  "toast",
+  "mask",
+  "overlay-login",
+  "iframe-login",
+  "otp-frame",
+  "resend-frame",
+  "download-blob",
+  "download-tab",
+] as const;
 
 /** Opt-in public pages, measured for snapshot size and latency only. */
 export const LIVE_SITES = [
@@ -325,10 +419,14 @@ export async function runTask(
   runId: string,
   driver: RunDriver,
   submissions: (runId: string) => Promise<Submission[]>,
+  base = SITE,
 ): Promise<TaskRecord> {
   const steps: StepRecord[] = [];
   let first: PageBrowserResult | undefined;
   let latest: PageBrowserResult | undefined;
+  const downloads = "download" in task.expect ? "Downloads" : undefined;
+  const withDownloads = (command: PageBrowserCommand): PageBrowserCommand =>
+    downloads ? { ...command, downloads } : command;
   const call = async (command: PageBrowserCommand) => {
     const started = performance.now();
     const result = await driver(command);
@@ -356,12 +454,14 @@ export async function runTask(
   for (const step of task.steps) {
     if ("navigate" in step) {
       const sep = step.navigate.includes("?") ? "&" : "?";
-      await call({ command: "navigate", url: `${SITE}${step.navigate}${sep}run=${runId}` });
+      await call(
+        withDownloads({ command: "navigate", url: `${base}${step.navigate}${sep}run=${runId}` }),
+      );
     } else if ("snapshot" in step) {
-      await call({ command: "snapshot" });
+      await call(withDownloads({ command: "snapshot" }));
     } else if ("until" in step) {
       for (let attempt = 0; !findRef(latest, step.until) && attempt < step.tries; attempt += 1) {
-        await call({ command: "snapshot" });
+        await call(withDownloads({ command: "snapshot" }));
       }
     } else if ("wait" in step) {
       await new Promise((resolve) => setTimeout(resolve, step.wait));
@@ -371,15 +471,29 @@ export async function runTask(
         if (step.optional) continue;
         return fail(actions);
       }
-      const result = await call({ command: "act", actions });
+      const result = await call(withDownloads({ command: "act", actions }));
       // A stale ref may be refused (expected) or act on the replacement; either way the next step goes on.
       if (!result.ok && !step.staleRefs) return fail("act failed");
     }
   }
 
+  if ("download" in task.expect) {
+    const wanted = task.expect.download;
+    const ready = (result?: PageBrowserResult) =>
+      (result?.downloads ?? []).some(
+        (file) =>
+          file.name === wanted &&
+          typeof file.path === "string" &&
+          !file.error &&
+          file.state !== "downloading",
+      );
+    if (ready(latest)) return ok();
+    const again = await call(withDownloads({ command: "snapshot" }));
+    return ready(again) ? ok() : fail(`download ${wanted} was not listed`);
+  }
   if ("url" in task.expect) {
     const url = latest?.url ?? "";
-    return new URL(url, SITE).pathname === task.expect.url ? ok() : fail(`ended on ${url}`);
+    return new URL(url, base).pathname === task.expect.url ? ok() : fail(`ended on ${url}`);
   }
   const wanted = task.expect.submitted;
   const deadline = Date.now() + 3000;

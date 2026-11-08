@@ -64,6 +64,7 @@ import {
   shouldSkipPortableWorkspaceFile,
   workspaceSaveFindExpression,
 } from "./workspace-save-policy.js";
+import { installZomatoReconcileCommand } from "./zomato-reconcile-install.js";
 
 const DISPLAY_START = 20;
 const BOAT_API_BASE = "https://boat.dev/api/v1";
@@ -497,6 +498,20 @@ export class BoatSandboxProvider implements SandboxProvider {
           provider: "boat",
           outcome: "install_failed",
           error: commandFailure(pageBrowser),
+        });
+      const reconcile = await this.runCommand(
+        id,
+        installZomatoReconcileCommand(),
+        undefined,
+        60_000,
+        context.signal,
+      );
+      // The payout skill tells the bot to run this script. A failed copy leaves the old one in place.
+      if (reconcile.exitCode !== 0 || reconcile.timedOut)
+        getLogger().warn("sandbox.zomato_reconcile", {
+          provider: "boat",
+          outcome: "install_failed",
+          error: commandFailure(reconcile),
         });
       if (this.preparations.get(id) !== preparation) {
         throw new Error("Boat workspace preparation was invalidated during teardown");

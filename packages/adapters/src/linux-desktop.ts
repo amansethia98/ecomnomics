@@ -444,12 +444,14 @@ const FIND_MISSING_DESKTOP_TOOLS = [
 
 /**
  * Same as infra/sandboxes/computer/browser-policy.json. Rakazo keeps credentials itself, so
- * the browser's save-password, address, and card prompts only cover the page.
+ * the browser's save-password, address, and card prompts only cover the page. Downloads go to
+ * the bot's folder with no save dialog; the folder itself is set per bot, not by this policy.
  */
 export const BROWSER_POLICY = JSON.stringify({
   PasswordManagerEnabled: false,
   AutofillAddressEnabled: false,
   AutofillCreditCardEnabled: false,
+  PromptForDownloadLocation: false,
 });
 
 /** Managed policy directories for Chromium, Ubuntu's Chromium, Google Chrome, and Brave. */

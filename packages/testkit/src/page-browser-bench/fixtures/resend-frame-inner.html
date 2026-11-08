@@ -1,0 +1,13 @@
+<!doctype html>
+<title>Code</title>
+<p>Didn't get the code? <span id="resend" style="cursor:pointer">Resend Now</span></p>
+<script>
+  document.getElementById("resend").addEventListener("click", () => {
+    const body = new URLSearchParams({ resend: "1" });
+    fetch("/submit", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body,
+    });
+  });
+</script>

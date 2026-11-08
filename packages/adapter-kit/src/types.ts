@@ -1074,6 +1074,8 @@ export interface BrowserNavigateResult {
 
 export interface BrowserSnapshotRequest {
   signal?: AbortSignal;
+  /** Folder in the computer's home; a download that finished since the last page action is listed. */
+  downloads?: string;
 }
 
 export interface BrowserSnapshotNode {
@@ -1103,6 +1105,8 @@ export interface BrowserSnapshotResult {
   note?: string;
   /** A JavaScript dialog the page has open on the screen, which page tools cannot answer. */
   dialog?: string;
+  /** A download that finished after the click that started it. */
+  downloads?: BrowserDownload[];
 }
 
 export type BrowserActKind = "click" | "fill" | "type" | "upload";
@@ -1173,7 +1177,7 @@ export interface BrowserActResult {
 /** A sandbox must route these commands through its owned screen, never generic host execution. */
 export type PageBrowserCommand =
   | { command: "navigate"; url: string; downloads?: string }
-  | { command: "snapshot" }
+  | { command: "snapshot"; downloads?: string }
   | { command: "act"; actions: BrowserActStep[]; downloads?: string };
 
 export type PageBrowserResult = Partial<BrowserSnapshotResult & BrowserActResult> & { ok: boolean };
