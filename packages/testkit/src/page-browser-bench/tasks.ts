@@ -439,7 +439,7 @@ export async function runTask(
   let latest: PageBrowserResult | undefined;
   const downloads = "download" in task.expect ? "Downloads" : undefined;
   const withDownloads = (command: PageBrowserCommand): PageBrowserCommand =>
-    downloads ? { ...command, downloads } : command;
+    downloads && command.command !== "purchase_check" ? { ...command, downloads } : command;
   const call = async (command: PageBrowserCommand) => {
     const started = performance.now();
     const result = await driver(command);
