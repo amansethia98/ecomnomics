@@ -1083,8 +1083,6 @@ export interface BrowserNavigateResult {
 export interface BrowserSnapshotRequest {
   /** Words to find controls by anywhere on the page, such as "newsletter signup". */
   query?: string;
-  /** Folder in the computer's home that a PDF the tab shows is saved to; without it, none is saved. */
-  downloads?: string;
   signal?: AbortSignal;
   /** Folder in the computer's home; a download that finished since the last page action is listed. */
   downloads?: string;
@@ -1111,7 +1109,6 @@ export interface BrowserSnapshotResult {
   elements: BrowserSnapshotNode[];
   /** The page was still loading or waiting on its own requests when it was captured. */
   loading?: boolean;
-  downloads?: BrowserDownload[];
   fallback?: "computer_act";
   error?: string;
   /** What the page did that the bot should know, such as an alert that was closed. */
