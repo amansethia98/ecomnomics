@@ -75,6 +75,10 @@ class Refused(RuntimeError):
     """The step was declined before anything it does not report was changed."""
 
 
+class NotACode(RuntimeError):
+    """The focused field is not one box of a split code."""
+
+
 def discover_ws_url(port: int) -> str:
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=5.0) as resp:
         data = resp.read(1024 * 1024 + 1)
@@ -856,5 +860,285 @@ def payment_frame_hints(port: int, target_id: str) -> tuple[bool, str | None]:
     client = connect(port)
     try:
         return frame_hints(client, attach(client, target_id))
+    finally:
+        client.close()
+
+
+def eval_page(client: CdpClient, session_id: str, expression: str) -> Any:
+    """Evaluate in the frame's own page world, where focus and input events are."""
+    return page_value(client.call("Runtime.evaluate", {
+        "expression": expression, "returnByValue": True,
+    }, session_id=session_id))
+
+
+_CODE_PREPARE = r"""(() => {
+  const box = (el) => el && el.tagName === "INPUT" && el.maxLength === 1 && !el.disabled
+    && !["hidden", "checkbox", "radio", "button", "submit", "file", "image"].includes((el.type || "text").toLowerCase());
+  const groupOf = (el) => {
+    if (!box(el)) return null;
+    for (let node = el, up = 0; node && up < 4; node = node.parentElement, up++) {
+      const boxes = [...node.querySelectorAll("input")].filter(box);
+      if (boxes.includes(el) && boxes.length >= 4 && boxes.length <= 8) return boxes;
+    }
+    return null;
+  };
+  const focused = (doc) => {
+    let el = doc.activeElement;
+    if (!el || el === doc.body || el === doc.documentElement) return null;
+    if (el.tagName === "IFRAME" || el.tagName === "FRAME") {
+      try { if (el.contentDocument) return focused(el.contentDocument); } catch (e) { return null; }
+    }
+    return el;
+  };
+  const boxes = groupOf(focused(document));
+  if (!boxes) return null;
+  const proto = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+  boxes.forEach((field, index) => {
+    proto.set.call(field, "");
+    field.setAttribute("data-rakazo-code", String(index));
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  boxes[0].focus();
+  return { size: boxes.length };
+})()"""
+
+_CODE_READ = r"""(() => {
+  const docs = [document];
+  const walk = (doc) => {
+    for (const frame of doc.querySelectorAll("iframe,frame")) {
+      try { if (frame.contentDocument) { docs.push(frame.contentDocument); walk(frame.contentDocument); } }
+      catch (e) { /* cross-origin */ }
+    }
+  };
+  walk(document);
+  for (const doc of docs) {
+    const boxes = [...doc.querySelectorAll("[data-rakazo-code]")]
+      .sort((a, b) => Number(a.getAttribute("data-rakazo-code")) - Number(b.getAttribute("data-rakazo-code")));
+    if (boxes.length) return boxes.map((field) => field.value);
+  }
+  return null;
+})()"""
+
+
+def _press_char(client: CdpClient, session_id: str, char: str) -> None:
+    if char.isdigit():
+        code, vk = f"Digit{char}", ord(char)
+    elif char.isascii() and char.isalpha():
+        code, vk = f"Key{char.upper()}", ord(char.upper())
+    else:
+        code, vk = "", ord(char) if char.isascii() else 0
+    down = {"type": "keyDown", "key": char, "text": char, "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk}
+    up = {"type": "keyUp", "key": char, "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk}
+    if code:
+        down["code"] = up["code"] = code
+    client.call("Input.dispatchKeyEvent", down, session_id=session_id)
+    client.call("Input.dispatchKeyEvent", up, session_id=session_id)
+
+
+def _frame_sessions(client: CdpClient, root: str) -> list[str]:
+    sessions = [root]
+    try:
+        sessions += [session for session in auto_attach(client, root) if session not in sessions]
+    except Exception:  # noqa: BLE001
+        pass
+    return sessions[:MAX_FRAME_SESSIONS]
+
+
+def fill_code_boxes(port: int, target_id: str, text: str) -> None:
+    """Type one real key per box of a split code, including in a cross-origin frame, then check each box."""
+    if len(text) < 2:
+        raise NotACode()
+    try:
+        client = connect(port)
+    except Exception as exc:  # noqa: BLE001
+        raise NotACode() from exc
+    try:
+        root = attach(client, target_id)
+        holder: tuple[str, int] | None = None
+        for session in _frame_sessions(client, root):
+            try:
+                if session != root:
+                    client.call("Page.enable", session_id=session)
+                found = eval_page(client, session, _CODE_PREPARE)
+            except Exception:  # noqa: BLE001
+                continue
+            if isinstance(found, dict) and isinstance(found.get("size"), int) and found["size"] >= 4:
+                holder = (session, found["size"])
+                break
+        if holder is None:
+            raise NotACode()
+        session, size = holder
+        if len(text) != size:
+            raise RuntimeError(
+                f"This code has {len(text)} characters and the page has {size} boxes. "
+                "Check the boxes before asking for a new code."
+            )
+        for char in text:
+            _press_char(client, session, char)
+            time.sleep(0.05)
+        values = eval_page(client, session, _CODE_READ)
+        filled = [str(value) for value in values] if isinstance(values, list) else []
+        if "".join(filled) != text:
+            present = sum(1 for value in filled if value)
+            raise RuntimeError(
+                f"The code was not typed into every box ({present} of {size} filled). "
+                "Check the boxes before asking for a new code; it may have been only partly typed."
+            )
+    finally:
+        client.close()
+
+
+_CLICK_LOCAL = r"""(() => {
+  const wantRef = __REF__;
+  const wantText = __TEXT__;
+  const center = (el) => {
+    const rect = el.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2,
+             w: rect.width, h: rect.height, cw: document.documentElement.clientWidth,
+             ch: document.documentElement.clientHeight };
+  };
+  if (wantRef) {
+    const el = document.querySelector(`[data-rakazo-click="${wantRef}"]`);
+    return el ? center(el) : null;
+  }
+  const wanted = String(wantText || "").replace(/\s+/g, " ").trim();
+  const nodes = [...document.querySelectorAll("a,button,span,div,p,label,[role='button'],[role='link']")];
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const text = (nodes[i].innerText || nodes[i].getAttribute("aria-label") || "").replace(/\s+/g, " ").trim();
+    if (text === wanted) return center(nodes[i]);
+  }
+  return null;
+})()"""
+
+_MARK_FRAME = r"""(() => {
+  const frameNo = __FRAME__;
+  const clickableText = (el) => {
+    if (!el || el.nodeType !== 1) return "";
+    const tag = el.tagName;
+    if (["A", "BUTTON", "INPUT", "SELECT", "TEXTAREA", "IFRAME", "FRAME", "HTML", "BODY"].includes(tag)) return "";
+    const style = getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden" || style.pointerEvents === "none") return "";
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) return "";
+    const role = (el.getAttribute("role") || "").toLowerCase();
+    if (!(role === "button" || role === "link" || el.hasAttribute("onclick") || typeof el.onclick === "function"
+          || style.cursor === "pointer")) return "";
+    return (el.innerText || el.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim().slice(0, 80);
+  };
+  const marks = [];
+  let serial = 0;
+  for (const el of document.querySelectorAll("span,div,p,label,[role='button'],[role='link']")) {
+    const text = clickableText(el);
+    if (!text) continue;
+    if ([...el.querySelectorAll("span,div,p,label,[role='button'],[role='link']")].some((child) => clickableText(child) === text))
+      continue;
+    serial += 1;
+    const ref = "f" + frameNo + "e" + serial;
+    el.setAttribute("data-rakazo-click", ref);
+    marks.push({ ref, name: text, role: (el.getAttribute("role") || "button").toLowerCase() });
+  }
+  return marks;
+})()"""
+
+
+def _iframe_viewport_box(client: CdpClient, parent: str, frame_id: str) -> tuple[float, float, float, float] | None:
+    """The iframe element's box in the parent's viewport, scaled into CSS pixels."""
+    try:
+        owner = client.call("DOM.getFrameOwner", {"frameId": frame_id}, session_id=parent)
+        model = client.call("DOM.getBoxModel", {"backendNodeId": owner["backendNodeId"]}, session_id=parent)
+        node = client.call("DOM.resolveNode", {"backendNodeId": owner["backendNodeId"]}, session_id=parent)
+        size = client.call("Runtime.callFunctionOn", {
+            "objectId": node["object"]["objectId"],
+            "functionDeclaration": "function () { return { w: this.clientWidth || 0, h: this.clientHeight || 0 }; }",
+            "returnByValue": True,
+        }, session_id=parent)
+    except Exception:  # noqa: BLE001
+        return None
+    content = model.get("model", {}).get("content")
+    if not isinstance(content, list) or len(content) < 8:
+        return None
+    xs, ys = content[0::2], content[1::2]
+    metrics = eval_page(client, parent, "({sx:window.scrollX,sy:window.scrollY,"
+                         "scale:(visualViewport&&visualViewport.scale)||1,"
+                         "ox:(visualViewport&&visualViewport.offsetLeft)||0,"
+                         "oy:(visualViewport&&visualViewport.offsetTop)||0})")
+    if not isinstance(metrics, dict):
+        return None
+    scale = float(metrics.get("scale") or 1)
+    left = (min(xs) - float(metrics.get("sx") or 0) - float(metrics.get("ox") or 0)) * scale
+    top = (min(ys) - float(metrics.get("sy") or 0) - float(metrics.get("oy") or 0)) * scale
+    width = (max(xs) - min(xs)) * scale
+    height = (max(ys) - min(ys)) * scale
+    inner = (size.get("result") or {}).get("value") or {}
+    inner_w = float(inner.get("w") or 0) or width
+    inner_h = float(inner.get("h") or 0) or height
+    return left, top, width / inner_w, height / inner_h
+
+
+def cross_origin_clickables(port: int, target_id: str) -> list[dict[str, str]]:
+    """Clickable text in cross-origin frames, which a same-origin walk cannot see."""
+    try:
+        client = connect(port)
+    except Exception:  # noqa: BLE001
+        return []
+    marks: list[dict[str, str]] = []
+    try:
+        root = attach(client, target_id)
+        for index, session in enumerate(_frame_sessions(client, root)):
+            if session == root:
+                continue
+            try:
+                client.call("Page.enable", session_id=session)
+                found = eval_page(client, session, _MARK_FRAME.replace("__FRAME__", str(index + 1)))
+            except Exception:  # noqa: BLE001
+                continue
+            if isinstance(found, list):
+                marks.extend(item for item in found if isinstance(item, dict))
+    except Exception:  # noqa: BLE001
+        return marks
+    finally:
+        client.close()
+    return marks
+
+
+def cross_origin_click_point(port: int, target_id: str, *, ref: str | None, text: str | None) -> dict[str, float] | None:
+    """Viewport point of a control inside a cross-origin frame, accounting for the frame's box and scale."""
+    try:
+        client = connect(port)
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        root = attach(client, target_id)
+        script = _CLICK_LOCAL.replace("__REF__", json.dumps(ref or "")).replace("__TEXT__", json.dumps(text or ""))
+        for session in _frame_sessions(client, root):
+            if session == root:
+                continue
+            try:
+                client.call("Page.enable", session_id=session)
+                local = eval_page(client, session, script)
+                frame_id = main_frame(client, session)["id"]
+                box = _iframe_viewport_box(client, root, frame_id)
+            except Exception:  # noqa: BLE001
+                continue
+            if not isinstance(local, dict) or box is None:
+                continue
+            left, top, sx, sy = box
+            return {"x": left + float(local["x"]) * sx, "y": top + float(local["y"]) * sy}
+    except Exception:  # noqa: BLE001
+        return None
+    finally:
+        client.close()
+    return None
+
+
+def stripe_pay_token_account(port: int, target_id: str) -> str | None:
+    """The merchant account a pay token checkout names inside Stripe's frame, for the snapshot's hint."""
+    client = connect(port)
+    try:
+        session_id = attach(client, target_id)
+        frames = pay_token_frames(client, payment_frames(client, session_id))
+        accounts = [found for found in frame_eval(client, frames, "window.__rakazoPageBrowser.payTokenAccount()")
+                    if found]
+        return accounts[0] if len(accounts) == 1 else None
     finally:
         client.close()

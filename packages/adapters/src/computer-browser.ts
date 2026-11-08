@@ -145,7 +145,7 @@ export class ComputerBrowserProvider implements BrowserProvider {
       {
         command: "snapshot",
         ...(request.query ? { query: request.query } : {}),
-        downloads: request.downloads,
+        ...(request.downloads ? { downloads: request.downloads } : {}),
       },
       context,
     );

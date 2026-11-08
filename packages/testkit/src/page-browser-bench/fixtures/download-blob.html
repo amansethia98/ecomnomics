@@ -1,0 +1,12 @@
+<!doctype html>
+<title>Payouts</title>
+<button type="button" id="download">Download report</button>
+<script>
+  document.getElementById("download").onclick = () => {
+    const blob = new Blob(["outlet,amount\nmain,1\n"], { type: "text/csv" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "payout.csv";
+    link.click();
+  };
+</script>
