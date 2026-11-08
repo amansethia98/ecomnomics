@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import type { AdapterContext, JobPublisher } from "@rakazo/adapter-kit";
 import type { PrismaClient, ThreadEvents } from "@rakazo/db";
+import { SharedMachineSandboxError } from "@rakazo/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ComputerBusyError, provisionComputer } from "./computer-lifecycle.js";
 import { DockerSandboxProvider } from "./docker-sandbox.js";
@@ -91,8 +92,26 @@ async function fixture() {
 }
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+describe("restaurant computer reuse", () => {
+  it("refuses a running shared computer instead of handing it back", async () => {
+    const f = await fixture();
+    f.row.kind = "desktop";
+    vi.stubEnv("RESTAURANT_COMPUTER_ENABLED", "true");
+    try {
+      await expect(provisionComputer(f.deps, "computer", context, "bot")).rejects.toBeInstanceOf(
+        SharedMachineSandboxError,
+      );
+      expect(f.prepare).not.toHaveBeenCalled();
+      expect(f.provision).not.toHaveBeenCalled();
+    } finally {
+      await f.cleanup();
+    }
+  });
 });
 
 describe("running Docker computer reuse", () => {

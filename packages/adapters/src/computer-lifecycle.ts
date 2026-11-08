@@ -204,6 +204,9 @@ export async function provisionComputer(
     !existing.restorePending &&
     deps.sandbox.isRunning
   ) {
+    // Before reuse: a shared machine stays refused when each restaurant needs its own computer,
+    // including one that was already running when the switch was turned on.
+    assertRestaurantComputerIsolated(existing.kind);
     const ref = toComputerRef(existing);
     if (await confirmedRunning(deps.sandbox, ref, context)) {
       context.signal.throwIfAborted();
