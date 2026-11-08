@@ -12,8 +12,10 @@ permissions:
 # without stopping work already in progress. Main reruns only what the deploy needs; the pull
 # request already ran the rest against the then-current main, and the nightly run refreshes the
 # E2E screenshot baseline.
+# The group name is not the old `ci-<pr>` group. A run left queued on a runner label this
+# repository does not have stays in that group forever, and a later run would wait behind it.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  group: ci-github-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Testcontainers pulls Docker Hub images through Google's public mirror: anonymous Docker Hub pulls
