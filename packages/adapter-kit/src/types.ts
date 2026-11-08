@@ -532,12 +532,20 @@ export interface AgentRunRequest {
   routineId?: string | null;
   sourceMessageId?: string | null;
   prompt: string;
+  /** Group threads: the label ("User") the model sees on the prompt, the same as on history. */
+  promptSpeaker?: string;
   instructions: string;
   history: Array<{
     id?: string;
     createdAt?: string;
     role: "user" | "assistant" | "system";
     content: string;
+    /**
+     * Who wrote this message when it is neither this bot nor the human of a direct chat: another
+     * bot's current name, or "User" for the human in a group thread. The runtime shows such a
+     * message to the model as a user turn that starts with "[speaker]: ". Never a real person's name.
+     */
+    speaker?: string;
     /** Images attached to this message, hydrated only for recent user turns. */
     images?: AgentInputImage[];
   }>;
@@ -1073,6 +1081,8 @@ export interface BrowserNavigateResult {
 }
 
 export interface BrowserSnapshotRequest {
+  /** Words to find controls by anywhere on the page, such as "newsletter signup". */
+  query?: string;
   signal?: AbortSignal;
   /** Folder in the computer's home; a download that finished since the last page action is listed. */
   downloads?: string;
@@ -1114,7 +1124,18 @@ export type BrowserActKind = "click" | "fill" | "type" | "upload";
 export const MAX_BROWSER_UPLOAD_FILES = 10;
 
 export type BrowserActStep =
-  | { kind: "click"; ref: string }
+  /**
+   * `approved`, `site`, `label`, `amount`: the user approved this click, which completes a purchase, on
+   * that site, as the card showed the button and total. The click is refused if either has changed.
+   */
+  | {
+      kind: "click";
+      ref: string;
+      approved?: boolean;
+      site?: string;
+      label?: string;
+      amount?: string;
+    }
   /** Attaches computer files to a file input without opening a native file chooser. */
   | { kind: "upload"; ref: string; paths: string[]; roots?: string[] }
   | {
@@ -1128,7 +1149,7 @@ export type BrowserActStep =
        * field) or visible field ("username"), or an approved purchase's card detail. A card fill
        * always carries `origin`.
        */
-      field?: "username" | "password" | "card";
+      field?: "username" | "password" | "card" | "code";
     }
   | {
       kind: "fill";
@@ -1174,13 +1195,56 @@ export interface BrowserActResult {
   dialog?: string;
 }
 
+/** A purchase step as the page shows it: the label and amount are page text. */
+export interface BrowserPurchase {
+  /** The page's host. An approval holds for this site only. */
+  site: string;
+  label: string;
+  amount: string;
+  /** Whether the amount is the one the button names or the total the page shows. */
+  amountSource?: "button" | "page";
+}
+
+export interface BrowserPurchaseCheckRequest {
+  /** The steps of a browser_act call; only clicks are looked at. */
+  actions?: Array<{ kind: string; ref?: string }>;
+  /**
+   * Ask about clicks or a key on the screen, which name no element. `points` are the clicks' spots in screen
+   * pixels; `enter` is a key that submits or presses the focused control.
+   */
+  desktop?: boolean;
+  enter?: boolean;
+  points?: Array<{ x: number; y: number }>;
+  /** A click whose spot cannot be told (the page may have changed under it): the page decides. */
+  unplaced?: boolean;
+  signal?: AbortSignal;
+}
+
+/** `steps`: the indexes of the clicks that would complete the purchase. */
+export interface BrowserPurchaseCheckResult {
+  purchase: (BrowserPurchase & { steps: number[] }) | null;
+}
+
 /** A sandbox must route these commands through its owned screen, never generic host execution. */
 export type PageBrowserCommand =
   | { command: "navigate"; url: string; downloads?: string }
-  | { command: "snapshot"; downloads?: string }
-  | { command: "act"; actions: BrowserActStep[]; downloads?: string };
+  | { command: "snapshot"; query?: string; downloads?: string }
+  | { command: "act"; actions: BrowserActStep[]; downloads?: string }
+  | {
+      command: "purchase_check";
+      actions?: BrowserPurchaseCheckRequest["actions"];
+      desktop?: boolean;
+      enter?: boolean;
+      points?: BrowserPurchaseCheckRequest["points"];
+      unplaced?: boolean;
+    };
 
-export type PageBrowserResult = Partial<BrowserSnapshotResult & BrowserActResult> & { ok: boolean };
+export type PageBrowserResult = Partial<BrowserSnapshotResult & BrowserActResult> & {
+  ok: boolean;
+  /** A purchase check: the page's host, and what the purchase is as the page shows it. */
+  site?: string;
+  purchase?: unknown;
+};
 
 export type CloudAgentStatus = "running" | "finished" | "failed" | "cancelled" | "expired";
 

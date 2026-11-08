@@ -152,6 +152,7 @@ COPY --chmod=755 rakazo-zomato-reconcile /usr/local/bin/rakazo-zomato-reconcile
 COPY --chmod=644 page_secrets.py /usr/local/lib/rakazo/page_secrets.py
 COPY --chmod=644 rakazo-browser.desktop /usr/share/applications/rakazo-browser.desktop
 # Rakazo keeps credentials itself; the browser's save prompts would cover pages.
+# Pop-ups open: one a page opens after making a report would be blocked unseen.
 COPY --chmod=644 browser-policy.json /etc/chromium/policies/managed/rakazo-browser.json
 COPY --chmod=644 browser-policy.json /etc/brave/policies/managed/rakazo-browser.json
 COPY --chmod=644 fluxbox.init /etc/rakazo/fluxbox/init

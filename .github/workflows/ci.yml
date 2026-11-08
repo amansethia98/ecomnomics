@@ -12,8 +12,10 @@ permissions:
 # without stopping work already in progress. Main reruns only what the deploy needs; the pull
 # request already ran the rest against the then-current main, and the nightly run refreshes the
 # E2E screenshot baseline.
+# The group name is not the old `ci-<pr>` group. A run left queued on a runner label this
+# repository does not have stays in that group forever, and a later run would wait behind it.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  group: ci-github-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Testcontainers pulls Docker Hub images through Google's public mirror: anonymous Docker Hub pulls
@@ -578,8 +580,9 @@ jobs:
     # Only checks that catch a broken server gate the deploy; lint, E2E, and Docker drills report on their own.
     needs: [checks, test-integration, publish-server-image]
     runs-on: ubuntu-latest
-    # Matches infra/compose/deploy-main.sh's own limits, including a fallback build and rollback.
-    timeout-minutes: 45
+    # Matches infra/compose/deploy-main.sh's own limits, including a fallback build, rollback, and
+    # waiting twice for a replaced worker to finish its jobs.
+    timeout-minutes: 140
     concurrency:
       group: production
       cancel-in-progress: false
