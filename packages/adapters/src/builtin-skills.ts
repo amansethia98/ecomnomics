@@ -38,6 +38,29 @@ const RAKAZO_DOCS: ReadonlyArray<readonly [topics: string, url: string]> = [
 export const RAKAZO_DOCS_URLS = RAKAZO_DOCS.map(([, url]) => url);
 
 /**
+ * Session rules shared by the Zomato report skills. The computer already keeps the
+ * browser profile; these steps stop a signed-in restaurant from being sent through
+ * login again, and they keep the maths in the bundled scripts.
+ */
+function zomatoSession(kind: "payout" | "monthly"): string {
+  return `Read and download only. Do not change restaurant settings, menus, offers, ads, or account details.
+
+This computer keeps the restaurant's browser profile between tasks. Reuse the browser that is already open. Do not log out, clear cookies or site data, or start a new profile.
+
+Look at the page that is already open before doing anything else. If a reports or finance dashboard is visible, you are already signed in: do not open a login page and do not ask for a code. Log in only when the site itself is showing a login or verification page. Use the restaurant's email and the emailed one-time code. Never type a password, and never use Google sign-in. Do not put the code in a file, a command, or your answer.
+
+Claim this task once, before any browser work:
+
+python3 /usr/local/bin/rakazo-zomato-report begin ${kind}
+
+DUPLICATE_REFUSED means this task is already running. Do not start another download and do not repeat the click. Wait for the original to finish. The claim covers this task's processing. It does not by itself stop every browser action, so do not repeat a step that left the page unchanged.
+
+Move from what the live page shows. Use the browser tools, read the page after each meaningful step, and take a screenshot only when the page structure is not enough. Do not use fixed click positions, a shell script that clicks, a private API, or saved cookies.
+
+If you are lost, go back to the signed-in reports home and read the page again. Do not repeat one failed step more than twice, and do not restart the task more than once. On a server or browser error, try one recovery from the page you can see, then report the blocker.`;
+}
+
+/**
  * Built-in Agent Skills (SKILL.md recipes) available to every user.
  * Only generic how-tos; no account-specific content.
  * Descriptions show in the / picker (truncated at 72) and inject every turn in the skills catalog.
@@ -61,16 +84,34 @@ const SKILLS: Array<{ name: string; description: string; body: string }> = [
   {
     name: "Zomato payout reconciliation",
     description: "Download the latest paid Zomato settlement and reconcile it.",
-    body: `Reconcile one Zomato payout. Do this instead of reading the spreadsheet yourself.
+    body: `${zomatoSession("payout")}
 
-1. Open the partner site, go to Finance, then Payouts, and select the outlet the user named. If they named none and more than one outlet is listed, ask which one.
-2. Choose the most recent payout that is already paid. It has a payout date and a UTR. Do not download the current or upcoming cycle. That cycle is still unpaid and has no UTR.
-3. Download that cycle's settlement report. It is an .xlsx and lands in Downloads.
-4. Run this once, with that file's path. Do not install packages, and do not convert the workbook with another tool. The summary cells often say #REF!, and the orders are not on the first row; the script already accounts for that.
+Find Finance or Payouts for the outlet the user named. If they named none and more than one outlet is listed, ask which one.
 
-python3 /usr/local/bin/rakazo-zomato-reconcile "<path>"
+Choose the latest payout that is already paid. It has a payout date and a UTR. Do not download the current or upcoming cycle. That cycle is still unpaid and has no UTR.
 
-5. The command writes a reconciliation .csv and .xlsx next to the report and prints a short summary. Give the user that summary and both file paths. If the check is not 0.00, say so and quote the summary. If the payout page shows a pending deduction for a later cycle that the summary's outstanding line does not, mention that figure on its own and do not add it into the check. If the command is not found, the computer image is older than this skill and needs a rebuild. Do not claim a figure the summary does not show.`,
+Download that cycle's order-level settlement workbook, not a summary. It is an .xlsx in Downloads.
+
+Run this once and wait until it finishes. Do not run it again, and do not install packages or calculate the payout yourself:
+
+python3 /usr/local/bin/rakazo-zomato-report payout
+
+That waits for the new workbook and runs rakazo-zomato-reconcile. The summary cells often say #REF!, and the orders are not on the first row; the script already accounts for that. Explain only the summary it prints. Give the user that summary, the source workbook, and the reconciliation .csv and .xlsx. If the check is not 0.00, say so and quote the summary. If the payout page shows a pending deduction for a later cycle that the summary does not, mention that figure on its own and do not add it into the check. The tie-out is not a bank or contract check. If the command is not found, the computer image is older than this skill and needs a rebuild. Do not claim a figure the summary does not show.`,
+  },
+  {
+    name: "Zomato monthly analysis",
+    description: "Download two Zomato months and explain the script's comparison.",
+    body: `${zomatoSession("monthly")}
+
+Find Reporting or Business reports for the outlet the user named. If they named none and more than one outlet is listed, ask which one.
+
+Download the monthly business report for the two months they asked for. If they named none, use the last two completed months and leave the current month out. A chart or a daily overview is not the downloaded report. Confirm the outlet and both months on the page before you download.
+
+Run this once, with the outlet id and the month labels exactly as the report names them, and wait until it finishes. Do not calculate anything yourself, and do not install packages. The months below are only an example of the header shape:
+
+python3 /usr/local/bin/rakazo-zomato-report monthly --outlet "OUTLET ID" --before "Mar 2026" --after "Apr 2026"
+
+Replace the outlet and both months. The command waits for the new file and writes a .csv, .xlsx, .json and .txt beside it. Explain only those computed metrics, rates, denominators, verdicts and warnings. Counts and rates are different. Attach the source file and the analysis .csv and .xlsx. Do not invent cancellations, causes, seasonality, profitability, or a full-year result. Offer fields the script marks ambiguous stay ambiguous. Ads ROI in the export is not the derived ad-sales/spend figure. If the command is not found, the computer image is older than this skill and needs a rebuild.`,
   },
   {
     name: "Rakazo",

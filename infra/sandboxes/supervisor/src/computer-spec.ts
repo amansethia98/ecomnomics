@@ -38,6 +38,8 @@ export const COMPUTER_IMAGE_CONTEXT_FILES = [
   "rakazo-focus-or-launch",
   "rakazo-page-browser",
   "rakazo-zomato-reconcile",
+  "rakazo-zomato-monthly-analysis",
+  "rakazo-zomato-report",
   "page_secrets.py",
   "install-agent-browser.sh",
   "rakazo-browser.desktop",
@@ -102,7 +104,7 @@ export function resolveSpaceComputerLimit(
  * runaway page must not starve the host or sibling bots. Set any of these to
  * "0", "none" or "unlimited" to opt out.
  */
-const DEFAULT_COMPUTER_MEMORY = "2g";
+const DEFAULT_COMPUTER_MEMORY = "4g";
 const DEFAULT_COMPUTER_CPUS = "2";
 const DEFAULT_COMPUTER_PIDS_LIMIT = "2048";
 /** The daemon refuses HostConfig.Memory below this at container creation. */
@@ -120,12 +122,12 @@ function isUnlimited(raw: string): boolean {
   return value === "0" || value === "unlimited" || value === "none";
 }
 
-/** Bytes from a docker-style size string ("2g", "1536m", "1073741824"). */
+/** Bytes from a docker-style size string ("4g", "1536m", "1073741824"). */
 export function parseMemoryBytes(name: string, raw: string): number {
   if (isUnlimited(raw)) return 0;
   const match = /^(\d+(?:\.\d+)?)\s*([bkmg])?b?$/i.exec(raw.trim());
   if (!match) {
-    throw new Error(`${name} must be a size like "2g", "1536m" or a byte count, received "${raw}"`);
+    throw new Error(`${name} must be a size like "4g", "1536m" or a byte count, received "${raw}"`);
   }
   const scale = MEMORY_UNITS[(match[2] ?? "b").toLowerCase()] ?? 1;
   const bytes = Math.floor(Number(match[1]) * scale);
@@ -189,6 +191,32 @@ export function computerResourceLimits() {
     NanoCpus: nanoCpus,
     PidsLimit: pidsLimit,
   };
+}
+
+/**
+ * Whether an existing computer already has the current ceilings. Docker sets these at create
+ * time, so a mismatch means the computer has to be replaced. A missing field is left alone:
+ * only a reported number can force that replacement.
+ */
+export function computerResourceLimitsMatch(
+  current:
+    | {
+        Memory?: number;
+        MemorySwap?: number;
+        NanoCpus?: number;
+        PidsLimit?: number;
+      }
+    | null
+    | undefined,
+): boolean {
+  const desired = computerResourceLimits();
+  const same = (have: number | undefined, want: number) => have === undefined || have === want;
+  return (
+    same(current?.Memory, desired.Memory) &&
+    same(current?.MemorySwap, desired.MemorySwap) &&
+    same(current?.NanoCpus, desired.NanoCpus) &&
+    same(current?.PidsLimit, desired.PidsLimit)
+  );
 }
 
 export function resolveScreenNetworkMode(value: string | undefined): ScreenNetworkMode {

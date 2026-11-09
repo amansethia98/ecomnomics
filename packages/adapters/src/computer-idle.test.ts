@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { FetchError } from "@boatdev/sdk";
@@ -1927,6 +1927,25 @@ function processExit(child: ReturnType<typeof spawn>): Promise<number> {
     child.on("close", (code) => resolve(code ?? 1));
   });
 }
+
+it("stamps a background shell with the run id", () => {
+  const result = spawnSync(
+    "bash",
+    [
+      "-c",
+      BACKGROUND_WORK_LAUNCH,
+      "rakazo-background-launch",
+      "computer",
+      "run-42",
+      "stamp",
+      'printf %s "$RAKAZO_RUN_ID"',
+    ],
+    { encoding: "utf8" },
+  );
+  expect(result.status).toBe(0);
+  expect(result.stdout.trim()).toBe("run-42");
+  rmSync("/tmp/rakazo-background-computer-run-42-stamp", { force: true });
+});
 
 /** The computers whose open run each raw `gone` end closed, in order. */
 function goneRuns(harness: { prisma: { $executeRaw: ReturnType<typeof vi.fn> } }) {

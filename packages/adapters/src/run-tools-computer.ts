@@ -393,9 +393,8 @@ export const computerTools: ToolHandlers = {
                   command,
                 ],
             cwd,
-            env:
-              Object.keys(commandEnvironment.env).length > 0 ? commandEnvironment.env : undefined,
-            unsetEnv: commandEnvironment.unsetEnv,
+            env: { ...commandEnvironment.env, RAKAZO_RUN_ID: runId },
+            unsetEnv: commandEnvironment.unsetEnv.filter((name) => name !== "RAKAZO_RUN_ID"),
             timeoutMs: sandboxCommandTimeoutMs(),
           },
           context,

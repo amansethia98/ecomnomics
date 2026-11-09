@@ -1,0 +1,564 @@
+#!/usr/bin/env python3
+"""Compare two months of a Zomato business report. Standard library only.
+
+The model explains this script's numbers. It does not calculate them. Counts,
+rates, and percentage points stay separate, and a missing cancellation column
+is reported as missing rather than inferred.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import sys
+import zipfile
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
+from xml.etree import ElementTree as ET
+from xml.sax.saxutils import escape
+
+NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+
+# A lower number is the better direction for the restaurant.
+LOWER_IS_BETTER = {
+    "Bad orders",
+    "Rejected orders",
+    "KPT+10 delayed orders",
+    "Poor rated orders",
+    "Total complaints",
+    "Non-refunded complaints",
+    "Lost sales (Rs)",
+    "Offline time (in hours)",
+    "KPT (in minutes)",
+    "Discount given (Rs)",
+    "Effective discount (%)",
+}
+# A higher number is the better direction.
+HIGHER_IS_BETTER = {
+    "Sales (Rs)",
+    "Delivered orders",
+    "Placed Orders",
+    "Average rating",
+    "Online %",
+    "FOR accuracy (%)",
+    "Impressions",
+    "Menu opens",
+    "Cart builds",
+    "Impressions to menu (%)",
+    "Menu to cart (%)",
+    "Cart to orders (%)",
+    "Ads CTR (%)",
+    "Sales from ads (Rs)",
+    "Ads ROI",
+    "Ads orders",
+}
+# The export's own labels disagree about what these count. Keep them, don't derive from them.
+AMBIGUOUS = {"Orders with offers", "Gross sales from offers (Rs)"}
+REQUIRED = (
+    "Delivered orders",
+    "Sales (Rs)",
+    "Placed Orders",
+    "Bad orders",
+    "Average rating",
+    "Rated orders",
+    "Poor rated orders",
+    "Total complaints",
+    "Non-refunded complaints",
+    "Sales from ads (Rs)",
+    "Ads spend (Rs)",
+    "Discount given (Rs)",
+    "New user orders",
+    "Repeat user orders",
+    "Lapsed user orders",
+    "Impressions",
+    "Menu opens",
+    "Cart builds",
+    "KPT (in minutes)",
+    "FOR accuracy (%)",
+)
+WARNINGS = (
+    "No standalone cancellations metric is present; rejected orders are not all cancellations, "
+    "and placed minus delivered is not a verified cancellation count.",
+    "No bank or contract verification. No causal/seasonal/profitability or full-year claims "
+    "can be inferred from this two-month report.",
+    "Changes in counts and changes in rates are separate; an improved rate does not mean fewer incidents.",
+    "Offer fields Orders with offers / Gross sales from offers (Rs) have inconsistent labels/units "
+    "in the source; preserved as ambiguous, not swapped or used for derived rates.",
+    "Ads ROI is the platform-reported field; derived ad-sales/spend ROAS is separately labelled.",
+    "Complaint categories may overlap; do not sum them into total complaints.",
+)
+TEXT_FOCUS = (
+    "Sales (Rs)",
+    "Delivered orders",
+    "Placed Orders",
+    "Average order value (AOV)",
+    "Average rating",
+    "Bad orders",
+    "Bad order rate",
+    "Total complaints",
+    "Complaint rate",
+    "KPT (in minutes)",
+    "KPT+10 delayed orders",
+    "FOR accuracy (%)",
+    "Online %",
+    "Offline time (in hours)",
+    "Sales from ads (Rs)",
+    "Ads spend (Rs)",
+    "Ads ROI",
+    "Derived ad-sales/spend ROAS",
+    "Discount given (Rs)",
+    "Discount share of total sales",
+    "Repeat user orders share of placed orders",
+    "Impressions",
+    "Menu opens",
+    "Cart builds",
+    "Impressions to menu (%)",
+    "Menu to cart (%)",
+    "Cart to orders (%)",
+    "New user orders",
+    "Repeat user orders",
+    "Lapsed user orders",
+    "New user orders share of placed orders",
+    "Lapsed user orders share of placed orders",
+    "Poor rated orders",
+    "Poor-rated share",
+    "Non-refunded complaints",
+    "Non-refunded complaint share",
+    "Total complaints - Wrong order",
+    "Total complaints - Poor quality",
+    "Total complaints - Missing items",
+    "Total complaints - Poor packaging",
+    "Effective discount (%)",
+    "Late night orders",
+    "Ads CTR (%)",
+    "Ad-sales share of total sales",
+    "Ad spend as share of ad sales",
+)
+
+
+def column_index(letters: str) -> int:
+    number = 0
+    for char in letters:
+        if char.isalpha():
+            number = number * 26 + (ord(char.upper()) - 64)
+    return number
+
+
+def column_letter(index: int) -> str:
+    number = index
+    letters = ""
+    while number:
+        number, remainder = divmod(number - 1, 26)
+        letters = chr(65 + remainder) + letters
+    return letters
+
+
+def read_rows(path: Path) -> list[list[str]]:
+    if path.suffix.lower() == ".csv":
+        with path.open(encoding="utf-8-sig", newline="") as handle:
+            return list(csv.reader(handle))
+    if path.suffix.lower() != ".xlsx":
+        raise ValueError("Expected CSV or XLSX")
+    with zipfile.ZipFile(path) as archive:
+        strings: list[str] = []
+        if "xl/sharedStrings.xml" in archive.namelist():
+            root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+            strings = [
+                "".join(node.itertext()) for node in root.findall(f"{NS}si")
+            ]
+        sheets = sorted(
+            name
+            for name in archive.namelist()
+            if name.startswith("xl/worksheets/sheet") and name.endswith(".xml")
+        )
+        rows: list[list[str]] = []
+        root = ET.fromstring(archive.read(sheets[0]))
+        for row in root.findall(f".//{NS}sheetData/{NS}row"):
+            values: list[str] = []
+            for cell in row.findall(f"{NS}c"):
+                column = column_index(cell.get("r", "A1"))
+                while len(values) < column:
+                    values.append("")
+                node = cell.find(f"{NS}v")
+                text = node.text if node is not None and node.text is not None else ""
+                kind = cell.get("t")
+                if kind == "s":
+                    text = strings[int(text)]
+                elif kind == "inlineStr":
+                    inline = cell.find(f"{NS}is")
+                    text = "".join(inline.itertext()) if inline is not None else ""
+                values[column - 1] = text or ""
+            rows.append(values)
+        return rows
+
+
+def number(value: str) -> Decimal:
+    try:
+        parsed = Decimal(str(value).replace(",", "").replace("%", "").strip())
+    except InvalidOperation as exc:
+        raise ValueError("Non-numeric metric value") from exc
+    if not parsed.is_finite():
+        raise ValueError("Non-finite metric value")
+    return parsed
+
+
+def write_xlsx(path: Path, sheets: list[tuple[str, list[list[object]]]]) -> None:
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        overrides = "".join(
+            "<Override "
+            f'PartName="/xl/worksheets/sheet{index}.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            for index in range(1, len(sheets) + 1)
+        )
+        archive.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/xl/workbook.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+            f"{overrides}</Types>",
+        )
+        archive.writestr(
+            "_rels/.rels",
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+            'Target="xl/workbook.xml"/></Relationships>',
+        )
+        sheets_xml = "".join(
+            f'<sheet name="{escape(name)}" sheetId="{index}" r:id="rId{index}"/>'
+            for index, (name, _rows) in enumerate(sheets, 1)
+        )
+        archive.writestr(
+            "xl/workbook.xml",
+            '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            f"<sheets>{sheets_xml}</sheets></workbook>",
+        )
+        relations = "".join(
+            f'<Relationship Id="rId{index}" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+            f'Target="worksheets/sheet{index}.xml"/>'
+            for index in range(1, len(sheets) + 1)
+        )
+        archive.writestr(
+            "xl/_rels/workbook.xml.rels",
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            f"{relations}</Relationships>",
+        )
+        for index, (_name, rows) in enumerate(sheets, 1):
+            body: list[str] = []
+            for row_number, row in enumerate(rows, 1):
+                cells: list[str] = []
+                for column, value in enumerate(row, 1):
+                    ref = f"{column_letter(column)}{row_number}"
+                    if isinstance(value, Decimal) or (
+                        isinstance(value, (int, float)) and not isinstance(value, bool)
+                    ):
+                        cells.append(f'<c r="{ref}"><v>{value}</v></c>')
+                    else:
+                        text = escape(str("n/a" if value is None else value))
+                        cells.append(
+                            f'<c r="{ref}" t="inlineStr"><is><t xml:space="preserve">{text}</t></is></c>'
+                        )
+                body.append(f'<row r="{row_number}">{"".join(cells)}</row>')
+            archive.writestr(
+                f"xl/worksheets/sheet{index}.xml",
+                '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                f"<sheetData>{''.join(body)}</sheetData></worksheet>",
+            )
+
+
+def direction_for(metric: str) -> str:
+    if metric in AMBIGUOUS:
+        return "ambiguous"
+    if metric in LOWER_IS_BETTER or metric.startswith("Total complaints - "):
+        return "lower"
+    if metric in HIGHER_IS_BETTER:
+        return "higher"
+    return "context"
+
+
+def unit_for(metric: str) -> str:
+    if metric in AMBIGUOUS:
+        return "ambiguous"
+    if "%" in metric:
+        return "percent"
+    if "(Rs)" in metric:
+        return "rupees"
+    if "minutes" in metric:
+        return "minutes"
+    if "hours" in metric:
+        return "hours"
+    if metric in {"Average rating", "Ads ROI"}:
+        return "score"
+    return "count"
+
+
+def verdict_for(delta: Decimal, direction: str) -> str:
+    if delta == 0:
+        return "Unchanged"
+    if direction not in {"higher", "lower"}:
+        return "Context only"
+    improved = (delta > 0) == (direction == "higher")
+    return "Improved" if improved else "Declined"
+
+
+def analyze(
+    paths: list[Path],
+    before: str,
+    after: str,
+    outlet: str,
+) -> dict[str, object]:
+    if not outlet or not before or not after or before == after:
+        raise ValueError("Outlet and two different months are required")
+    data: dict[str, dict[str, object]] = {}
+    identity: list[str] | None = None
+    for path in paths:
+        rows = read_rows(Path(path))
+        header = next((row for row in rows if "Metric" in row and "Restaurant ID" in row), None)
+        if header is None:
+            raise ValueError("Missing report schema")
+        for row in rows[rows.index(header) + 1 :]:
+            if not row or not row[0]:
+                continue
+            record = dict(zip(header, row))
+            if record.get("Restaurant ID") != outlet:
+                continue
+            identity = [
+                record.get(key, "")
+                for key in ("Restaurant ID", "Restaurant name", "Subzone", "City")
+            ]
+            metric = record.get("Metric", "")
+            entry = data.setdefault(metric, {"category": record.get("Overview", ""), "values": {}})
+            values = entry["values"]
+            assert isinstance(values, dict)
+            for month in (before, after):
+                raw = record.get(month, "")
+                if raw == "":
+                    continue
+                parsed = number(raw)
+                previous = values.get(month)
+                if previous is not None and previous != parsed:
+                    raise ValueError(f"Conflicting duplicate metric: {metric}")
+                values[month] = parsed
+    if identity is None:
+        raise ValueError("Missing required month/metric: outlet")
+    for metric in REQUIRED:
+        values = data.get(metric, {}).get("values", {})
+        if not isinstance(values, dict) or any(month not in values for month in (before, after)):
+            raise ValueError(f"Missing required month/metric: {metric}")
+    for month in (before, after):
+        placed = data["Placed Orders"]["values"][month]  # type: ignore[index]
+        segments = sum(
+            data[metric]["values"][month]  # type: ignore[index]
+            for metric in ("New user orders", "Repeat user orders", "Lapsed user orders")
+        )
+        if segments != placed:
+            raise ValueError("Customer-segment counts do not match placed orders")
+    result: list[dict[str, object]] = []
+
+    def add(
+        name: str,
+        category: str,
+        earlier: Decimal,
+        later: Decimal,
+        direction: str = "context",
+        unit: str = "",
+        denominator: str = "",
+        note: str = "",
+    ) -> None:
+        delta = later - earlier
+        change = (delta / earlier * 100) if earlier else None
+        if not note and earlier == 0 and later:
+            note = "New from zero; relative change undefined."
+        result.append(
+            {
+                "metric": name,
+                "category": category,
+                "before": earlier,
+                "after": later,
+                "delta": delta,
+                "change_pct": change,
+                "percentage_point_delta": delta if unit == "percent" else None,
+                "unit": unit,
+                "direction": direction,
+                "verdict": verdict_for(delta, direction),
+                "denominator": denominator,
+                "note": note,
+            }
+        )
+
+    for metric, entry in data.items():
+        values = entry["values"]
+        assert isinstance(values, dict)
+        if any(month not in values for month in (before, after)):
+            raise ValueError(f"Incomplete metric: {metric}")
+        note = ""
+        if metric in AMBIGUOUS:
+            note = "Source labels/units ambiguous; not a reliable order-count/rupee metric."
+        add(
+            metric,
+            str(entry["category"]),
+            values[before],
+            values[after],
+            direction_for(metric),
+            unit_for(metric),
+            note=note,
+        )
+
+    def ratio(
+        name: str,
+        numerator: str,
+        denominator: str,
+        scale: int = 100,
+        direction: str = "context",
+        unit: str = "percent",
+    ) -> None:
+        pair: list[Decimal] = []
+        for month in (before, after):
+            base = data[denominator]["values"][month]  # type: ignore[index]
+            if base == 0:
+                raise ValueError(f"Zero denominator: {denominator}")
+            pair.append(data[numerator]["values"][month] / base * scale)  # type: ignore[index]
+        add(name, "Derived", pair[0], pair[1], direction, unit, denominator)
+
+    ratio("Average order value (AOV)", "Sales (Rs)", "Delivered orders", 1, "higher", "rupees")
+    ratio("Delivery rate", "Delivered orders", "Placed Orders", direction="higher")
+    for source in ("Menu to cart (%)", "Cart to orders (%)"):
+        if source in data:
+            values = data[source]["values"]
+            assert isinstance(values, dict)
+            add(
+                f"{source} drop-off complement",
+                "Derived",
+                100 - values[before],
+                100 - values[after],
+                "lower",
+                "percent",
+                note="100 minus platform-reported conversion percent.",
+            )
+    ratio("Bad order rate", "Bad orders", "Delivered orders", direction="lower")
+    ratio("Poor-rated share", "Poor rated orders", "Rated orders", direction="lower")
+    ratio("Complaint rate", "Total complaints", "Delivered orders", direction="lower")
+    ratio(
+        "Non-refunded complaint share",
+        "Non-refunded complaints",
+        "Total complaints",
+        direction="lower",
+    )
+    ratio("Ad-sales share of total sales", "Sales from ads (Rs)", "Sales (Rs)")
+    ratio("Ad spend as share of ad sales", "Ads spend (Rs)", "Sales from ads (Rs)", direction="lower")
+    ratio("Ad spend as share of total sales", "Ads spend (Rs)", "Sales (Rs)", direction="lower")
+    ratio(
+        "Derived ad-sales/spend ROAS",
+        "Sales from ads (Rs)",
+        "Ads spend (Rs)",
+        1,
+        "higher",
+        "ratio",
+    )
+    ratio("Discount share of total sales", "Discount given (Rs)", "Sales (Rs)", direction="lower")
+    for metric in (
+        "New user orders",
+        "Repeat user orders",
+        "Lapsed user orders",
+        "Breakfast orders",
+        "Lunch orders",
+        "Snacks orders",
+        "Dinner orders",
+        "Late night orders",
+    ):
+        if metric in data:
+            ratio(f"{metric} share of placed orders", metric, "Placed Orders")
+    for metric in ("KPT+10 delayed orders", "Rejected orders"):
+        if metric in data:
+            denominator = "Placed Orders" if metric == "Rejected orders" else "Delivered orders"
+            ratio(f"{metric} rate", metric, denominator, direction="lower")
+    return {
+        "outlet": identity,
+        "before_month": before,
+        "after_month": after,
+        "metrics": result,
+        "warnings": list(WARNINGS),
+        "source_files": [str(path) for path in paths],
+    }
+
+
+def format_value(value: object) -> str:
+    if value is None:
+        return "n/a"
+    if isinstance(value, Decimal):
+        return f"{value:,.2f}"
+    return str(value)
+
+
+def write_outputs(report: dict[str, object], prefix: Path) -> None:
+    prefix.parent.mkdir(parents=True, exist_ok=True)
+    # Decimal stays a string. Nothing here becomes a binary float.
+    prefix.with_suffix(".json").write_text(json.dumps(report, indent=2, default=str))
+    metrics = report["metrics"]
+    assert isinstance(metrics, list) and metrics
+    keys = list(metrics[0])
+    rows = [keys] + [[item[key] for key in keys] for item in metrics]
+    with prefix.with_suffix(".csv").open("w", newline="") as handle:
+        csv.writer(handle).writerows(rows)
+    outlet = report["outlet"]
+    assert isinstance(outlet, list)
+    notes: list[list[object]] = [
+        ["Outlet", *outlet],
+        ["Before", report["before_month"]],
+        ["After", report["after_month"]],
+    ]
+    warnings = report["warnings"]
+    assert isinstance(warnings, list)
+    notes.extend(["Caveat", warning] for warning in warnings)
+    write_xlsx(prefix.with_suffix(".xlsx"), [("Analysis", rows), ("Notes", notes)])
+    lines = [
+        f"{outlet[1]} ({outlet[0]}): {report['after_month']} vs {report['before_month']}",
+        "Deterministically computed; counts/rates and percentage points are separate.",
+    ]
+    by_name = {item["metric"]: item for item in metrics}
+    for metric in TEXT_FOCUS:
+        item = by_name.get(metric)
+        if not item:
+            continue
+        line = (
+            f"{metric}: {format_value(item['before'])} -> {format_value(item['after'])}; "
+            f"change {format_value(item['change_pct'])}%; {item['verdict']}"
+        )
+        if item["unit"] == "percent":
+            line += f"; {format_value(item['percentage_point_delta'])} percentage points"
+        if item["denominator"]:
+            line += f"; denominator: {item['denominator']}"
+        lines.append(line)
+    lines.append("CAVEATS:")
+    lines.extend(str(warning) for warning in warnings)
+    lines.append(f"Outputs: {prefix}.csv / .xlsx / .json")
+    prefix.with_suffix(".txt").write_text("\n".join(lines) + "\n")
+    print("\n".join(lines))
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Compare two months of a Zomato business report.")
+    parser.add_argument("reports", nargs="+", type=Path)
+    parser.add_argument("--before", required=True, help="Earlier month column, as the report names it")
+    parser.add_argument("--after", required=True, help="Later month column, as the report names it")
+    parser.add_argument("--outlet", required=True, help="Restaurant ID column from the report")
+    parser.add_argument("--output-prefix", type=Path)
+    args = parser.parse_args(argv)
+    report = analyze(args.reports, args.before, args.after, args.outlet)
+    prefix = args.output_prefix or args.reports[0].with_name(f"{args.reports[0].stem}-monthly-analysis")
+    write_outputs(report, prefix)
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (ValueError, OSError, KeyError, zipfile.BadZipFile) as exc:
+        print(f"REPORT VALIDATION FAILED: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
