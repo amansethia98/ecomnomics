@@ -28,6 +28,7 @@ import { markAfterPaint, markOnce } from "./lib/performance";
 import { lazyComponent } from "./lib/preload-recovery";
 import { QueryUserProvider, setQueryUser } from "./lib/query";
 import { getRemoteImagesEnabled, subscribeRemoteImages } from "./lib/remote-images-preference";
+import { restaurantSignInTarget } from "./lib/restaurant-signup";
 import { rpc } from "./lib/rpc";
 import {
   holdAnonymousGate,
@@ -53,6 +54,9 @@ const OnboardingPage = lazyComponent(() =>
 );
 const WelcomePage = lazyComponent(() =>
   import("./pages/Welcome").then((module) => module.WelcomePage),
+);
+const RestaurantWelcomePage = lazyComponent(() =>
+  import("./pages/RestaurantWelcome").then((module) => module.RestaurantWelcomePage),
 );
 const NotFoundPage = lazyComponent(() =>
   import("./pages/NotFound").then((module) => module.NotFoundPage),
@@ -114,13 +118,14 @@ function SessionApp() {
   const next = searchParams.get("next") ?? "";
   // A connector sign-in started on another device lands here signed out; finish it after sign-in.
   const signInDestination =
-    next === "/integrations/setup" ||
+    restaurantSignInTarget(next) ??
+    (next === "/integrations/setup" ||
     next === "/admin/plugins" ||
     next === "/admin/access" ||
     next.startsWith(`${MCP_OAUTH_CALLBACK_PATH}?`) ||
     next.startsWith(`${SLACK_INSTALL_CALLBACK_PATH}?`)
       ? next
-      : "/app";
+      : "/app");
   const ticketBoardEnabled = useSyncExternalStore(
     subscribeTicketBoardEnabled,
     getTicketBoardEnabled,
@@ -201,6 +206,29 @@ function SessionApp() {
                 path="/sign-up"
                 element={
                   user ? <Navigate to="/onboarding" replace /> : <AuthPage key="up" mode="up" />
+                }
+              />
+              <Route
+                path="/restaurant/sign-up"
+                element={
+                  user ? (
+                    <Navigate to="/restaurant/welcome" replace />
+                  ) : (
+                    <AuthPage key="restaurant" mode="up" intent="restaurant" />
+                  )
+                }
+              />
+              <Route
+                path="/restaurant/welcome"
+                element={
+                  user ? (
+                    <RestaurantWelcomePage />
+                  ) : (
+                    <Navigate
+                      to={`/sign-in?next=${encodeURIComponent("/restaurant/welcome")}`}
+                      replace
+                    />
+                  )
                 }
               />
               <Route

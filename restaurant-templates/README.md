@@ -8,4 +8,4 @@ Each folder is one bot. `bot.md` holds its name, one-line description, and instr
 
 Add a bot by adding a folder with `bot.md`. Put locked skills that bot should follow under `skills/`. Keep folder names in lowercase letters, numbers, and hyphens.
 
-`RESTAURANT_COMPUTER_ENABLED=true` gives each restaurant one computer shared by its bots. Leave both settings unset to keep ordinary self-hosted behavior. The computer still sleeps when idle (`SANDBOX_IDLE_MS`) and keeps its files.
+`RESTAURANT_COMPUTER_ENABLED=true` gives each restaurant one computer shared by its bots. `RESTAURANT_SIGNUP_ENABLED=true` on the API opens restaurant signup and the welcome form. Leave these settings unset to keep ordinary self-hosted behavior. The computer still sleeps when idle (`SANDBOX_IDLE_MS`) and keeps its files.

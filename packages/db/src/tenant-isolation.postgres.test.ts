@@ -33,6 +33,7 @@ type Restaurant = {
   agentSecretId: string;
   modelSecretId: string;
   credentialId: string;
+  outletId: string;
   menu: string;
   skillBody: string;
   secretBody: string;
@@ -55,6 +56,7 @@ function restaurant(key: "a" | "b", suffix: string): Restaurant {
     agentSecretId: id("agent-secret"),
     modelSecretId: id("model-secret"),
     credentialId: id("credential"),
+    outletId: id("outlet"),
     menu: `menu-${key}`,
     skillBody: `skill-${key}`,
     secretBody: `secret-${key}`,
@@ -154,6 +156,27 @@ describePostgres("tenant isolation between two organizations (PostgreSQL)", () =
           scope: "bot",
           path: "knowledge/menu.md",
           content: restaurant.menu,
+        },
+      });
+      await o.restaurantProfile.create({
+        data: {
+          spaceId: restaurant.spaceId,
+          organizationId: restaurant.organizationId,
+          name: `Restaurant ${restaurant.key}`,
+          cuisine: `cuisine-${restaurant.key}`,
+          city: `city-${restaurant.key}`,
+          contactName: `contact-${restaurant.key}`,
+          contactEmail: `${restaurant.userId}@ecomnomics.test`,
+        },
+      });
+      await o.restaurantOutlet.create({
+        data: {
+          id: restaurant.outletId,
+          spaceId: restaurant.spaceId,
+          name: `Outlet ${restaurant.key}`,
+          address: `address-${restaurant.key}`,
+          openingHours: `hours-${restaurant.key}`,
+          position: 0,
         },
       });
       await o.agentSkill.create({
@@ -264,6 +287,8 @@ describePostgres("tenant isolation between two organizations (PostgreSQL)", () =
       botSecrets,
       agentSecrets,
       credentials,
+      profiles,
+      outlets,
     ] = await Promise.all([
       db.bot.findMany({
         where: { id: { in: ids("botId") as string[] } },
@@ -309,6 +334,14 @@ describePostgres("tenant isolation between two organizations (PostgreSQL)", () =
         where: { id: { in: ids("credentialId") as string[] } },
         select: { id: true, label: true },
       }),
+      db.restaurantProfile.findMany({
+        where: { spaceId: { in: ids("spaceId") as string[] } },
+        select: { cuisine: true },
+      }),
+      db.restaurantOutlet.findMany({
+        where: { id: { in: ids("outletId") as string[] } },
+        select: { name: true, address: true },
+      }),
     ]);
     return {
       actor: restaurant.key,
@@ -322,6 +355,8 @@ describePostgres("tenant isolation between two organizations (PostgreSQL)", () =
       botSecrets: botSecrets.map((row) => row.ciphertext).sort(),
       agentSecrets: agentSecrets.map((row) => row.secretId).sort(),
       credentials: credentials.map((row) => row.label).sort(),
+      profiles: profiles.map((row) => row.cuisine).sort(),
+      outlets: outlets.map((row) => `${row.name}:${row.address}`).sort(),
     };
   }
 
@@ -341,6 +376,8 @@ describePostgres("tenant isolation between two organizations (PostgreSQL)", () =
     botSecrets: [`${restaurant.secretBody}-bot`],
     agentSecrets: [restaurant.agentSecretId],
     credentials: [`key-${restaurant.key}`],
+    profiles: [`cuisine-${restaurant.key}`],
+    outlets: [`Outlet ${restaurant.key}:address-${restaurant.key}`],
   });
 
   it("lets each restaurant read only its own bots, messages, knowledge, skills, secrets, and model keys", async () => {
@@ -363,6 +400,14 @@ describePostgres("tenant isolation between two organizations (PostgreSQL)", () =
     ).toBeNull();
     expect(
       await runAsTenant(a, () => db.secret.findUnique({ where: { id: b.spaceSecretId } })),
+    ).toBeNull();
+    expect(
+      await runAsTenant(a, () =>
+        db.restaurantProfile.findUnique({ where: { spaceId: b.spaceId } }),
+      ),
+    ).toBeNull();
+    expect(
+      await runAsTenant(a, () => db.restaurantOutlet.findUnique({ where: { id: b.outletId } })),
     ).toBeNull();
   });
 
@@ -449,6 +494,33 @@ describePostgres("tenant isolation between two organizations (PostgreSQL)", () =
         }),
       ),
     ).rejects.toThrow(/row-level security/);
+    expect(
+      await runAsTenant(a, () =>
+        db.restaurantProfile.updateMany({
+          where: { spaceId: b.spaceId },
+          data: { cuisine: "stolen" },
+        }),
+      ),
+    ).toEqual({ count: 0 });
+    expect(
+      await runAsTenant(a, () =>
+        db.restaurantOutlet.updateMany({ where: { id: b.outletId }, data: { name: "stolen" } }),
+      ),
+    ).toEqual({ count: 0 });
+    await expect(
+      runAsTenant(a, () =>
+        db.restaurantOutlet.create({
+          data: {
+            id: `stolen-outlet-${suffix}`,
+            spaceId: b.spaceId,
+            name: "stolen",
+            address: "stolen",
+            openingHours: "stolen",
+            position: 1,
+          },
+        }),
+      ),
+    ).rejects.toThrow(/row-level security/);
 
     const still = await runAsSystem("tenant isolation check", () => visible(b));
     expect(still.botNames).toEqual(["Bot a", "Bot b"]);
@@ -466,6 +538,8 @@ describePostgres("tenant isolation between two organizations (PostgreSQL)", () =
       ].sort(),
     );
     expect(still.messages).toEqual([a.threadId, b.threadId].sort());
+    expect(still.profiles).toEqual(["cuisine-a", "cuisine-b"]);
+    expect(still.outlets).toEqual(["Outlet a:address-a", "Outlet b:address-b"]);
   });
 
   it("returns nothing and rejects writes when no restaurant is selected", async () => {
@@ -476,6 +550,8 @@ describePostgres("tenant isolation between two organizations (PostgreSQL)", () =
     expect(hidden.skills).toEqual([]);
     expect(hidden.secrets).toEqual([]);
     expect(hidden.credentials).toEqual([]);
+    expect(hidden.profiles).toEqual([]);
+    expect(hidden.outlets).toEqual([]);
     await expect(
       db.message.create({
         data: { threadId: a.threadId, seq: 9, role: "user", blocks: [] },

@@ -157,6 +157,11 @@ import { ModelHeadersSchema } from "./model-headers.js";
 import { ModelRoleSchema, ModelRoleUpdateSchema, ModelRoleViewSchema } from "./model-roles.js";
 import { PaymentWalletStatusSchema } from "./payments.js";
 import { MessageReactionSchema } from "./reactions.js";
+import {
+  RestaurantCountsSchema,
+  RestaurantOnboardingInputSchema,
+  RestaurantProfileSchema,
+} from "./restaurant.js";
 import { RoutineWatchSchema } from "./routine-watch.js";
 import {
   ROUTINE_HISTORY_PAGE_SIZE,
@@ -335,6 +340,13 @@ export const appContract = {
       .output(MeSchema),
     /** Saves a detected timezone only while none is saved, so it never replaces a choice. */
     adoptTimezone: oc.input(z.object({ timezone: TimeZoneSchema })).output(MeSchema),
+  },
+  restaurant: {
+    get: oc.output(RestaurantProfileSchema.nullable()),
+    begin: oc.output(RestaurantProfileSchema),
+    save: oc.input(RestaurantOnboardingInputSchema).output(RestaurantProfileSchema),
+    /** Bots and outlets in this workspace. Read-only; nothing is capped. */
+    counts: oc.output(RestaurantCountsSchema),
   },
   spaces: {
     list: oc.output(SpaceNavigationSchema),

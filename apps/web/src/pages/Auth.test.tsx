@@ -62,6 +62,7 @@ vi.mock("../lib/auth-capabilities", () => ({ fetchAuthCapabilities: vi.fn() }));
 vi.mock("../lib/auth", () => ({
   authClient: {
     signIn: { social: vi.fn(async () => ({})), email: vi.fn(), emailOtp: vi.fn() },
+    signUp: { email: vi.fn() },
     emailOtp: { sendVerificationOtp: vi.fn() },
   },
 }));
@@ -86,11 +87,11 @@ afterEach(async () => {
   vi.restoreAllMocks();
   delete window.rakazoDesktop;
 });
-async function render(mode: "in" | "up" | "forgot" = "in") {
+async function render(mode: "in" | "up" | "forgot" = "in", intent?: "restaurant") {
   await act(async () =>
     root.render(
       <MemoryRouter>
-        <AuthPage mode={mode} />
+        <AuthPage mode={mode} intent={intent} />
       </MemoryRouter>,
     ),
   );
@@ -310,6 +311,31 @@ it("signs in with a typed password and emails a code when it is blank", async ()
     password: "example-password",
   });
   expect(authClient.emailOtp.sendVerificationOtp).not.toHaveBeenCalled();
+});
+
+it("creates a restaurant account with the restaurant signup header", async () => {
+  vi.mocked(fetchAuthCapabilities).mockResolvedValue({
+    ...capabilities,
+    passwordAuth: true,
+    restaurantSignup: true,
+  });
+  vi.mocked(authClient.signUp.email).mockResolvedValue({
+    data: { token: "session" },
+    error: null,
+  } as never);
+  await render("up", "restaurant");
+  expect(host.textContent).toContain("Create your restaurant");
+  expect(host.textContent).toContain("Ecomnomics");
+  expect(host.querySelector('[data-rakazo-surface="restaurant-signup"]')).not.toBeNull();
+  await enter(host.querySelector('input[name="email"]'), "owner@example.test");
+  await enter(host.querySelector('input[type="password"]'), "example-password");
+  await submit();
+  expect(authClient.signUp.email).toHaveBeenCalledWith(
+    expect.objectContaining({
+      email: "owner@example.test",
+      fetchOptions: { headers: { "x-restaurant-signup": "1" } },
+    }),
+  );
 });
 
 it("leaves the password form unchanged without email codes", async () => {

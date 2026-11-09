@@ -3,16 +3,18 @@ import {
   credentialIssue,
   MAX_PASSWORD_LENGTH,
   MIN_PASSWORD_LENGTH,
+  RESTAURANT_SIGNUP_HEADER,
   signupRequiresEmailVerification,
   suggestEmailCorrection,
 } from "@rakazo/core";
 import { Button, Input, InputOTP, InputOTPGroup, InputOTPSlot, Label } from "@rakazo/ui-web";
 import { useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { PasskeySignIn } from "../components/PasskeySignIn";
 import { authClient } from "../lib/auth";
 import type { AuthCapabilities } from "../lib/auth-capabilities";
 import { fetchAuthCapabilities } from "../lib/auth-capabilities";
+import { clearRestaurantSignup, markRestaurantSignup } from "../lib/restaurant-signup";
 import { clearSpaceSelection } from "../lib/rpc";
 import { runSsoFlow } from "../lib/sso-flow";
 import { authErrorText, credentialIssueText } from "../lib/user-error";
@@ -23,8 +25,9 @@ const fieldClass = "mt-2 h-12 rounded-xl px-4 text-base md:text-base";
 const CODE_LENGTH = 6;
 export const submitClass = "mt-3 h-12 w-full rounded-xl text-base";
 
-export function AuthPage({ mode }: { mode: AuthMode }) {
+export function AuthPage({ mode, intent }: { mode: AuthMode; intent?: "restaurant" }) {
   const { t } = useLingui();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -58,7 +61,11 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
     ) : mode === "in" ? (
       <Trans>Sign in to Rakazo</Trans>
     ) : mode === "up" ? (
-      <Trans>Create your Rakazo</Trans>
+      intent === "restaurant" ? (
+        <Trans>Create your restaurant</Trans>
+      ) : (
+        <Trans>Create your Rakazo</Trans>
+      )
     ) : (
       <Trans>Reset your password</Trans>
     );
@@ -82,6 +89,18 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
       active = false;
     };
   }, [mode, capabilityAttempt]);
+
+  useEffect(() => {
+    if (intent === "restaurant" && reset && !reset.restaurantSignup) {
+      navigate("/sign-up", { replace: true });
+    }
+  }, [intent, navigate, reset]);
+
+  function restaurantRequest() {
+    if (intent !== "restaurant") return {};
+    markRestaurantSignup();
+    return { fetchOptions: { headers: { [RESTAURANT_SIGNUP_HEADER]: "1" } } };
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -128,8 +147,10 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
         const request = await authClient.emailOtp.sendVerificationOtp({
           email: trimmedEmail,
           type: "sign-in",
+          ...restaurantRequest(),
         });
         if (request.error) {
+          if (intent === "restaurant") clearRestaurantSignup();
           setError(authErrorText(request.error, t`Could not continue`));
           return;
         }
@@ -143,9 +164,11 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
               email: trimmedEmail,
               password,
               name: name || trimmedEmail.split("@")[0] || "User",
+              ...restaurantRequest(),
             })
           : await authClient.signIn.email({ email: trimmedEmail, password });
       if (result.error) {
+        if (intent === "restaurant") clearRestaurantSignup();
         setError(authErrorText(result.error, t`Could not continue`));
         return;
       }
@@ -155,6 +178,7 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
       }
       enterApp();
     } catch {
+      if (intent === "restaurant") clearRestaurantSignup();
       setError(t`Could not reach the server`);
     } finally {
       if (!entering.current) setPending(false);
@@ -172,14 +196,17 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
         otp,
         // Only used when this creates the account.
         name: mode === "up" ? name || trimmedEmail.split("@")[0] || "User" : undefined,
+        ...restaurantRequest(),
       });
       if (result.error) {
+        if (intent === "restaurant") clearRestaurantSignup();
         setError(authErrorText(result.error, t`Could not continue`));
         setCode("");
         return;
       }
       enterApp();
     } catch {
+      if (intent === "restaurant") clearRestaurantSignup();
       setError(t`Could not reach the server`);
     } finally {
       if (!entering.current) setPending(false);
@@ -202,22 +229,33 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
 
   async function signInWithSso() {
     setError(null);
+    if (intent === "restaurant") markRestaurantSignup();
+    const afterSso =
+      intent === "restaurant"
+        ? "/restaurant/welcome"
+        : searchParams.get("next") === "/integrations/setup"
+          ? "/integrations/setup"
+          : "/app";
     try {
       const result = await runSsoFlow(
         (disableRedirect, callbackURL) =>
           authClient.signIn.social({
             disableRedirect,
             provider: "oidc",
-            newUserCallbackURL: callbackURL("/onboarding"),
-            callbackURL: callbackURL(
-              searchParams.get("next") === "/integrations/setup" ? "/integrations/setup" : "/app",
+            newUserCallbackURL: callbackURL(
+              intent === "restaurant" ? "/restaurant/welcome" : "/onboarding",
             ),
+            callbackURL: callbackURL(afterSso),
             errorCallbackURL: callbackURL("/sign-in"),
           }),
-        ["/app", "/onboarding", "/integrations/setup", "/sign-in"],
+        ["/app", "/onboarding", "/integrations/setup", "/sign-in", "/restaurant/welcome"],
       );
-      if (result.error) setError(authErrorText(result.error, t`Could not continue`));
+      if (result.error) {
+        if (intent === "restaurant") clearRestaurantSignup();
+        setError(authErrorText(result.error, t`Could not continue`));
+      }
     } catch {
+      if (intent === "restaurant") clearRestaurantSignup();
       setError(t`Could not continue`);
     }
   }
@@ -225,9 +263,17 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
   if (!sent && !reset && !capabilityError) {
     return <div className="h-full bg-background" />;
   }
+  if (intent === "restaurant" && reset && !reset.restaurantSignup) {
+    return <div className="h-full bg-background" />;
+  }
 
   return (
-    <AuthFrame onSubmit={submit} title={title}>
+    <AuthFrame
+      onSubmit={submit}
+      title={title}
+      eyebrow={intent === "restaurant" ? <Trans>Ecomnomics</Trans> : null}
+      surface={intent === "restaurant" ? "restaurant-signup" : undefined}
+    >
       {sent ? (
         <div className="w-full text-center">
           <Link to="/sign-in" className="font-medium text-foreground">
@@ -542,21 +588,32 @@ export function PasswordResetPage() {
 
 export function AuthFrame({
   title,
+  eyebrow,
+  surface,
   onSubmit,
   children,
 }: {
   title: React.ReactNode;
+  eyebrow?: React.ReactNode;
+  surface?: string;
   onSubmit: (event: React.FormEvent) => void;
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-full items-center justify-center bg-background px-6 py-16 text-foreground">
+    <div
+      className="flex min-h-full items-center justify-center bg-background px-6 py-16 text-foreground"
+      data-rakazo-surface={surface}
+    >
       <form onSubmit={onSubmit} className="flex w-[460px] flex-col items-center">
         <div className="flex h-[74px] w-[74px] items-center justify-center gap-[11px] rounded-full bg-muted">
           <span className="h-5 w-[9px] rounded-full bg-primary" />
           <span className="h-5 w-[9px] rounded-full bg-primary" />
         </div>
-        <h1 aria-live="polite" className="mb-9 mt-7 text-4xl font-medium tracking-tight">
+        {eyebrow ? <p className="mt-7 text-sm text-muted-foreground">{eyebrow}</p> : null}
+        <h1
+          aria-live="polite"
+          className={`text-4xl font-medium tracking-tight ${eyebrow ? "mb-9 mt-2" : "mb-9 mt-7"}`}
+        >
           {title}
         </h1>
         {children}
