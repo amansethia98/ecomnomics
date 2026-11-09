@@ -39,6 +39,7 @@ import {
   computerNetworkNamesForCleanup,
   computerNetworkOwnerFor,
   computerResourceLimits,
+  computerResourceLimitsMatch,
   containerCreateOptions,
   containerNameFor,
   controlPortPublicationMatches,
@@ -298,6 +299,8 @@ app.post("/computers", async (c) => {
           info.Config.User === computerUser &&
           // DNS is fixed when a container is created, so a changed setting replaces it.
           computerDnsMatches(info.HostConfig.Dns, computerDns) &&
+          // So is the memory ceiling. Replacing keeps the home, including the browser profile.
+          computerResourceLimitsMatch(info.HostConfig) &&
           // So are host mounts: an added, changed or removed one replaces the computer.
           computerMountsMatch(info, computerMounts) &&
           controlPublishOk &&

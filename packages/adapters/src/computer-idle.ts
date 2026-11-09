@@ -65,6 +65,8 @@ export const BACKGROUND_WORK_LAUNCH = [
   "set -o noclobber",
   'exec 9>"$marker" || exit 1',
   "set +o noclobber",
+  // The report helper uses this as the logical task id, so a second claim in the same run is refused.
+  'export RAKAZO_RUN_ID="$2"',
   'exec bash -lc "$4"',
 ].join("\n");
 

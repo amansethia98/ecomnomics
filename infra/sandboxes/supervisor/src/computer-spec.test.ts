@@ -32,6 +32,7 @@ import {
   computerNetworkNameFor,
   computerNetworkNamesForCleanup,
   computerNetworkOwnerFor,
+  computerResourceLimitsMatch,
   containerCreateOptions,
   containerNameFor,
   controlPortPublicationMatches,
@@ -1950,7 +1951,7 @@ describe("computer resource limits", () => {
 
   it("caps memory and cpu by default and keeps #343's pids ceiling", () => {
     const { HostConfig } = containerCreateOptions(createInput);
-    expect(HostConfig.Memory).toBe(2 * 1024 ** 3);
+    expect(HostConfig.Memory).toBe(4 * 1024 ** 3);
     expect(HostConfig.MemorySwap).toBe(HostConfig.Memory);
     expect(HostConfig.NanoCpus).toBe(2 * 1e9);
     expect(HostConfig.PidsLimit).toBe(2048);
@@ -1962,7 +1963,7 @@ describe("computer resource limits", () => {
     process.env.RAKAZO_COMPUTER_CPUS = "  ";
     process.env.RAKAZO_COMPUTER_PIDS_LIMIT = "";
     const { HostConfig } = containerCreateOptions(createInput);
-    expect(HostConfig.Memory).toBe(2 * 1024 ** 3);
+    expect(HostConfig.Memory).toBe(4 * 1024 ** 3);
     expect(HostConfig.NanoCpus).toBe(2e9);
     expect(HostConfig.PidsLimit).toBe(2048);
   });
@@ -2033,6 +2034,25 @@ describe("computer resource limits", () => {
 
   it("parses byte counts without a unit suffix", () => {
     expect(parseMemoryBytes("X", "1073741824")).toBe(1024 ** 3);
+  });
+
+  it("keeps a computer whose ceiling already matches and replaces a smaller one", () => {
+    expect(computerResourceLimitsMatch(undefined)).toBe(true);
+    expect(computerResourceLimitsMatch({})).toBe(true);
+    expect(
+      computerResourceLimitsMatch({
+        Memory: 4 * 1024 ** 3,
+        MemorySwap: 4 * 1024 ** 3,
+        NanoCpus: 2 * 1e9,
+        PidsLimit: 2048,
+      }),
+    ).toBe(true);
+    expect(
+      computerResourceLimitsMatch({
+        Memory: 2 * 1024 ** 3,
+        MemorySwap: 2 * 1024 ** 3,
+      }),
+    ).toBe(false);
   });
 });
 

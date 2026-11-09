@@ -3,35 +3,39 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { installZomatoReconcileCommand } from "./zomato-reconcile-install.js";
+import { installZomatoComputerCommands } from "./zomato-reconcile-install.js";
 
-const script = path.resolve(
-  import.meta.dirname,
-  "../../../infra/sandboxes/computer/rakazo-zomato-reconcile",
-);
+const scripts = [
+  "rakazo-zomato-reconcile",
+  "rakazo-zomato-monthly-analysis",
+  "rakazo-zomato-report",
+].map((name) => path.resolve(import.meta.dirname, "../../../infra/sandboxes/computer", name));
 let root: string | undefined;
 
 afterEach(() => {
   if (root) rmSync(root, { recursive: true, force: true });
 });
 
-it("writes this release's reconciler once, and again when it differs", () => {
+it("writes this release's Zomato scripts once, and again when they differ", () => {
   root = mkdtempSync(path.join(tmpdir(), "zomato-reconcile-install-"));
   execFileSync("mkdir", ["-p", `${root}/usr/local/bin`]);
-  const installed = `${root}/usr/local/bin/rakazo-zomato-reconcile`;
-  const command = installZomatoReconcileCommand()
+  const command = installZomatoComputerCommands()
     .replaceAll("/usr/local", `${root}/usr/local`)
     .replaceAll('"sudo -n"', '""');
 
   execFileSync("bash", ["-c", command], { encoding: "utf8" });
-  expect(readFileSync(installed, "utf8")).toBe(readFileSync(script, "utf8"));
-  expect(statSync(installed).mode & 0o777).toBe(0o755);
+  for (const script of scripts) {
+    const installed = `${root}/usr/local/bin/${path.basename(script)}`;
+    expect(readFileSync(installed, "utf8")).toBe(readFileSync(script, "utf8"));
+    expect(statSync(installed).mode & 0o777).toBe(0o755);
+  }
 
-  writeFileSync(installed, "edited");
+  const reconciler = `${root}/usr/local/bin/rakazo-zomato-reconcile`;
+  writeFileSync(reconciler, "edited");
   execFileSync("bash", ["-c", command], { encoding: "utf8" });
-  expect(readFileSync(installed, "utf8")).toBe("edited");
+  expect(readFileSync(reconciler, "utf8")).toBe("edited");
 
-  writeFileSync(`${root}/usr/local/lib/rakazo/zomato-reconcile.version`, "older");
+  writeFileSync(`${root}/usr/local/lib/rakazo/zomato-scripts.version`, "older");
   execFileSync("bash", ["-c", command], { encoding: "utf8" });
-  expect(readFileSync(installed, "utf8")).toBe(readFileSync(script, "utf8"));
+  expect(readFileSync(reconciler, "utf8")).toBe(readFileSync(scripts[0] ?? "", "utf8"));
 });

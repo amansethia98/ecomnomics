@@ -1,0 +1,287 @@
+#!/usr/bin/env python3
+"""Claim one Zomato report task, then process its fresh download once.
+
+The computer shell stamps RAKAZO_RUN_ID. A second claim or a second processing
+of that same run is refused, and a successful processing is returned again
+instead of being run twice. This lock covers this helper only. It does not
+intercept browser actions. Navigation stays with the bot, from the live page.
+"""
+
+from __future__ import annotations
+
+import fcntl
+import json
+import os
+import subprocess
+import sys
+import time
+import zipfile
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+KINDS = ("payout", "monthly")
+RETRY_LIMIT = 2
+
+
+def state_dir() -> Path:
+    configured = os.environ.get("RAKAZO_ZOMATO_REPORT_STATE", "").strip()
+    path = Path(configured) if configured else Path.home() / ".local/share/rakazo/zomato-report"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def resolve_label(explicit: str | None) -> str | None:
+    label = (explicit or os.environ.get("RAKAZO_RUN_ID") or "").strip()
+    if not label or "/" in label or "\x00" in label:
+        return None
+    return label
+
+
+def read_json(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def write_json(path: Path, value: dict) -> None:
+    path.write_text(json.dumps(value, indent=2))
+    path.chmod(0o600)
+
+
+def parse_args(argv: list[str]) -> tuple[list[str], dict[str, str]]:
+    positional: list[str] = []
+    options: dict[str, str] = {}
+    index = 0
+    flags = {"--label", "--outlet", "--before", "--after"}
+    while index < len(argv):
+        token = argv[index]
+        if token in flags:
+            if index + 1 >= len(argv):
+                print(f"Missing value for {token}", file=sys.stderr)
+                raise SystemExit(2)
+            options[token[2:]] = argv[index + 1]
+            index += 2
+            continue
+        positional.append(token)
+        index += 1
+    return positional, options
+
+
+def fresh_candidates(kind: str, started: float) -> list[Path]:
+    matches: list[Path] = []
+    for folder in (Path.home() / "Downloads", Path.home()):
+        if not folder.is_dir():
+            continue
+        for path in folder.iterdir():
+            if not path.is_file() or path.is_symlink():
+                continue
+            if path.stat().st_mtime < started - 1:
+                continue
+            suffix = path.suffix.lower()
+            if kind == "monthly" and path.name.startswith("business_report") and suffix in {".csv", ".xlsx"}:
+                matches.append(path)
+            elif (
+                kind == "payout"
+                and path.name.startswith("Zomato_Settlement_Report")
+                and suffix == ".xlsx"
+                and "reconciliation" not in path.name
+            ):
+                matches.append(path)
+    return sorted(matches, key=lambda path: path.stat().st_mtime, reverse=True)
+
+
+def processor(kind: str, sources: list[Path], options: dict[str, str]) -> list[str]:
+    if kind == "monthly":
+        missing = [name for name in ("outlet", "before", "after") if not options.get(name)]
+        if missing:
+            raise ValueError(
+                "Pass --outlet, --before and --after from the report page. Missing "
+                + ", ".join(missing)
+            )
+        return [
+            sys.executable,
+            str(HERE / "rakazo-zomato-monthly-analysis"),
+            *[str(source) for source in sources],
+            "--outlet",
+            options["outlet"],
+            "--before",
+            options["before"],
+            "--after",
+            options["after"],
+        ]
+    return [sys.executable, str(HERE / "rakazo-zomato-reconcile"), str(sources[0])]
+
+
+def source_is_complete(path: Path) -> bool:
+    if path.suffix.lower() != ".xlsx":
+        return path.stat().st_size > 0
+    with zipfile.ZipFile(path) as archive:
+        return archive.testzip() is None
+
+
+def process_download(kind: str, directory: Path, options: dict[str, str]) -> str:
+    marker = read_json(directory / "report-start.json")
+    started = marker.get("started_epoch")
+    if not isinstance(started, (int, float)):
+        raise ValueError("Run begin before initiating the report download")
+    wait_s = float(os.environ.get("RAKAZO_ZOMATO_REPORT_WAIT_S", "90"))
+    poll_s = float(os.environ.get("RAKAZO_ZOMATO_REPORT_POLL_S", "1"))
+    deadline = time.time() + wait_s
+    seen: dict[str, tuple[int, int]] = {}
+    errors: list[str] = []
+    while time.time() < deadline:
+        ready: list[Path] = []
+        for path in fresh_candidates(kind, float(started)):
+            signature = (path.stat().st_size, path.stat().st_mtime_ns)
+            if seen.get(str(path)) != signature:
+                seen[str(path)] = signature
+                continue
+            try:
+                if source_is_complete(path):
+                    ready.append(path)
+            except (OSError, zipfile.BadZipFile) as exc:
+                errors.append(str(exc))
+        # One complete export is enough. Two month files are analysed together
+        # only when neither file contains both months on its own.
+        groups = [[path] for path in ready]
+        if kind == "monthly" and len(ready) > 1:
+            groups.append(ready)
+        for group in groups:
+            try:
+                result = subprocess.run(
+                    processor(kind, group, options),
+                    text=True,
+                    capture_output=True,
+                    timeout=45,
+                )
+            except (ValueError, OSError, subprocess.TimeoutExpired) as exc:
+                errors.append(str(exc))
+                continue
+            if result.returncode != 0:
+                errors.append((result.stderr or result.stdout)[-300:])
+                continue
+            sources = ", ".join(str(path) for path in group)
+            return f"FRESH SOURCE: {sources}\n{result.stdout}"
+        time.sleep(poll_s)
+    detail = f" Last validation error: {errors[-1]}" if errors else ""
+    raise ValueError(
+        f"FAILED: no fresh valid {kind} report downloaded within {wait_s:g} seconds.{detail}"
+    )
+
+
+def run_claimed(kind: str, label: str, begin: bool, options: dict[str, str]) -> int:
+    directory = state_dir()
+    state_path = directory / "task-state.json"
+    state = read_json(state_path)
+    same = state.get("label") == label
+    if begin:
+        if same and state.get("kind") != kind:
+            print("WRONG_JOB_KIND: nothing executed.", file=sys.stderr)
+            return 2
+        if same:
+            print(
+                "DUPLICATE_REFUSED: this logical task was already claimed. "
+                "Do not start a second navigation/download workflow.",
+                file=sys.stderr,
+            )
+            return 2
+        write_json(directory / "report-start.json", {"started_epoch": time.time()})
+        write_json(
+            state_path,
+            {
+                "label": label,
+                "kind": kind,
+                "claimed_epoch": time.time(),
+                "attempts": 0,
+                "success": None,
+                "stdout": "",
+            },
+        )
+        print(
+            "TASK_CLAIMED. Reuse the current login and navigate from the live page. "
+            "Download one fresh report, then run processing once."
+        )
+        return 0
+    if not same:
+        print("NOT_CLAIMED: run begin for this logical task before downloading.", file=sys.stderr)
+        return 2
+    if state.get("kind") != kind:
+        print("WRONG_JOB_KIND: nothing executed.", file=sys.stderr)
+        return 2
+    if state.get("success") is True:
+        print(state.get("stdout", ""), end="")
+        print("Cached successful processing; no duplicate work performed.")
+        return 0
+    attempts = int(state.get("attempts") or 0)
+    if attempts >= RETRY_LIMIT:
+        print("RETRY_LIMIT: processing failed twice. Stop.", file=sys.stderr)
+        return 2
+    state["attempts"] = attempts + 1
+    write_json(state_path, state)
+    try:
+        text = process_download(kind, directory, options)
+    except subprocess.TimeoutExpired:
+        state["success"] = False
+        write_json(state_path, state)
+        print("PROCESSING_TIMEOUT: stop; do not duplicate navigation.", file=sys.stderr)
+        return 2
+    except (ValueError, OSError) as exc:
+        state["success"] = False
+        write_json(state_path, state)
+        print(str(exc), file=sys.stderr)
+        return 2
+    state["success"] = True
+    state["stdout"] = text
+    write_json(state_path, state)
+    print(text, end="" if text.endswith("\n") else "\n")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    positional, options = parse_args(sys.argv[1:] if argv is None else argv)
+    begin = bool(positional and positional[0] == "begin")
+    if begin and len(positional) == 2:
+        kind = positional[1]
+    elif not begin and len(positional) == 1:
+        kind = positional[0]
+    else:
+        kind = ""
+    if kind not in KINDS:
+        print(
+            "Usage: rakazo-zomato-report begin payout|monthly "
+            "OR rakazo-zomato-report payout|monthly --outlet ID --before MONTH --after MONTH",
+            file=sys.stderr,
+        )
+        return 2
+    label = resolve_label(options.get("label"))
+    if label is None:
+        print(
+            "NO_LOGICAL_JOB: this run has no task id, so no report work was started.",
+            file=sys.stderr,
+        )
+        return 2
+    directory = state_dir()
+    lock = (directory / "processing.lock").open("a")
+    try:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock.close()
+        print(
+            "DUPLICATE_REFUSED: processing is already active. "
+            "Wait for completion; do not repeat the action.",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        return run_claimed(kind, label, begin, options)
+    finally:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        lock.close()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

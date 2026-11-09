@@ -2390,14 +2390,17 @@ describe("computer network reclaim", () => {
   });
 
   describe("resuming a stopped computer", () => {
-    function stoppedComputer(networks: Record<string, { NetworkID: string }>) {
+    function stoppedComputer(
+      networks: Record<string, { NetworkID: string }>,
+      hostConfig: Record<string, unknown> = {},
+    ) {
       const info = {
         Image: "image",
         Config: {
           User: hostComputerUser(),
           Labels: { "rakazo.managed": "true", "rakazo.botId": "bot", "rakazo.spaceId": "space" },
         },
-        HostConfig: { NetworkMode: botNet, PortBindings: {} },
+        HostConfig: { NetworkMode: botNet, PortBindings: {}, ...hostConfig },
         State: { Running: false },
         NetworkSettings: { Networks: networks },
       };
@@ -2486,6 +2489,29 @@ describe("computer network reclaim", () => {
         network.connect.mock.invocationCallOrder[0]!,
       );
       expectReconnected(existing, network);
+    });
+
+    it("replaces a computer that is still on the old 2 GiB ceiling", async () => {
+      vi.stubEnv("RAKAZO_COMPUTER_MEMORY", "4g");
+      const { existing, replacement } = stoppedComputer(
+        { [botNet]: { NetworkID: "net-current" } },
+        { Memory: 2 * 1024 ** 3, MemorySwap: 2 * 1024 ** 3 },
+      );
+      mocks.docker.getNetwork.mockReturnValue(botNetwork());
+
+      const response = await provision();
+      expect(await response.json()).toMatchObject({ id: "replacement", resumed: false });
+      expect(existing.start).not.toHaveBeenCalled();
+      expect(existing.remove).toHaveBeenCalledWith({ force: true });
+      expect(mocks.docker.createContainer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          HostConfig: expect.objectContaining({
+            Memory: 4 * 1024 ** 3,
+            MemorySwap: 4 * 1024 ** 3,
+          }),
+        }),
+      );
+      expect(replacement.start).toHaveBeenCalledOnce();
     });
 
     it("restarts it without reconnecting while its endpoint is on the current network", async () => {
