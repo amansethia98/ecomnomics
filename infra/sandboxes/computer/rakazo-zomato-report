@@ -94,7 +94,7 @@ def fresh_candidates(kind: str, started: float) -> list[Path]:
     return sorted(matches, key=lambda path: path.stat().st_mtime, reverse=True)
 
 
-def processor(kind: str, source: Path, options: dict[str, str]) -> list[str]:
+def processor(kind: str, sources: list[Path], options: dict[str, str]) -> list[str]:
     if kind == "monthly":
         missing = [name for name in ("outlet", "before", "after") if not options.get(name)]
         if missing:
@@ -105,7 +105,7 @@ def processor(kind: str, source: Path, options: dict[str, str]) -> list[str]:
         return [
             sys.executable,
             str(HERE / "rakazo-zomato-monthly-analysis"),
-            str(source),
+            *[str(source) for source in sources],
             "--outlet",
             options["outlet"],
             "--before",
@@ -113,7 +113,7 @@ def processor(kind: str, source: Path, options: dict[str, str]) -> list[str]:
             "--after",
             options["after"],
         ]
-    return [sys.executable, str(HERE / "rakazo-zomato-reconcile"), str(source)]
+    return [sys.executable, str(HERE / "rakazo-zomato-reconcile"), str(sources[0])]
 
 
 def source_is_complete(path: Path) -> bool:
@@ -134,27 +134,38 @@ def process_download(kind: str, directory: Path, options: dict[str, str]) -> str
     seen: dict[str, tuple[int, int]] = {}
     errors: list[str] = []
     while time.time() < deadline:
+        ready: list[Path] = []
         for path in fresh_candidates(kind, float(started)):
             signature = (path.stat().st_size, path.stat().st_mtime_ns)
             if seen.get(str(path)) != signature:
                 seen[str(path)] = signature
                 continue
             try:
-                if not source_is_complete(path):
-                    continue
+                if source_is_complete(path):
+                    ready.append(path)
+            except (OSError, zipfile.BadZipFile) as exc:
+                errors.append(str(exc))
+        # One complete export is enough. Two month files are analysed together
+        # only when neither file contains both months on its own.
+        groups = [[path] for path in ready]
+        if kind == "monthly" and len(ready) > 1:
+            groups.append(ready)
+        for group in groups:
+            try:
                 result = subprocess.run(
-                    processor(kind, path, options),
+                    processor(kind, group, options),
                     text=True,
                     capture_output=True,
                     timeout=45,
                 )
-            except (ValueError, OSError, zipfile.BadZipFile, subprocess.TimeoutExpired) as exc:
+            except (ValueError, OSError, subprocess.TimeoutExpired) as exc:
                 errors.append(str(exc))
                 continue
             if result.returncode != 0:
                 errors.append((result.stderr or result.stdout)[-300:])
                 continue
-            return f"FRESH SOURCE: {path}\n{result.stdout}"
+            sources = ", ".join(str(path) for path in group)
+            return f"FRESH SOURCE: {sources}\n{result.stdout}"
         time.sleep(poll_s)
     detail = f" Last validation error: {errors[-1]}" if errors else ""
     raise ValueError(

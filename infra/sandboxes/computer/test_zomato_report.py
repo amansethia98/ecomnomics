@@ -187,6 +187,59 @@ class FreshFileTests(unittest.TestCase):
         self.assertEqual(again.returncode, 0, again.stderr)
         self.assertIn("Cached successful processing", again.stdout)
 
+    def test_split_month_files_are_analysed_together(self):
+        claimed = self.run_report("begin", "monthly")
+        self.assertEqual(claimed.returncode, 0, claimed.stderr)
+        header = [
+            "Overview",
+            "Restaurant ID",
+            "Restaurant name",
+            "Subzone",
+            "City",
+            "Metric",
+            "Mar 2026",
+            "Apr 2026",
+        ]
+        pairs = {
+            "Delivered orders": ("10", "8"),
+            "Sales (Rs)": ("100", "80"),
+            "Placed Orders": ("10", "8"),
+            "Bad orders": ("1", "1"),
+            "Average rating": ("4", "4"),
+            "Rated orders": ("5", "4"),
+            "Poor rated orders": ("1", "1"),
+            "Total complaints": ("1", "1"),
+            "Non-refunded complaints": ("0", "0"),
+            "Sales from ads (Rs)": ("10", "10"),
+            "Ads spend (Rs)": ("5", "5"),
+            "Discount given (Rs)": ("1", "1"),
+            "New user orders": ("4", "3"),
+            "Repeat user orders": ("4", "3"),
+            "Lapsed user orders": ("2", "2"),
+            "Impressions": ("20", "20"),
+            "Menu opens": ("10", "10"),
+            "Cart builds": ("5", "5"),
+            "KPT (in minutes)": ("12", "12"),
+            "FOR accuracy (%)": ("80", "80"),
+        }
+        for label, blank in (("mar", -1), ("apr", -2)):
+            path = self.downloads / f"business_report_{label}.csv"
+            with path.open("w", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(header)
+                for name, pair in pairs.items():
+                    row = ["Sales", "42", "North Kitchen", "Central", "Test City", name, *pair]
+                    row[blank] = ""
+                    writer.writerow(row)
+            os.utime(path, None)
+        processed = self.run_report(
+            "monthly", "--outlet", "42", "--before", "Mar 2026", "--after", "Apr 2026"
+        )
+        self.assertEqual(processed.returncode, 0, processed.stderr)
+        self.assertIn("business_report_mar.csv", processed.stdout)
+        self.assertIn("business_report_apr.csv", processed.stdout)
+        self.assertIn("Average order value (AOV)", processed.stdout)
+
     def test_an_old_file_is_not_reused(self):
         path = self.downloads / "business_report_old.csv"
         path.write_text("old\n")

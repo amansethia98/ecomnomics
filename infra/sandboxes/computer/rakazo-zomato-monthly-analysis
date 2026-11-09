@@ -364,13 +364,31 @@ def analyze(
     def add(
         name: str,
         category: str,
-        earlier: Decimal,
-        later: Decimal,
+        earlier: Decimal | None,
+        later: Decimal | None,
         direction: str = "context",
         unit: str = "",
         denominator: str = "",
         note: str = "",
     ) -> None:
+        if earlier is None or later is None:
+            result.append(
+                {
+                    "metric": name,
+                    "category": category,
+                    "before": earlier,
+                    "after": later,
+                    "delta": None,
+                    "change_pct": None,
+                    "percentage_point_delta": None,
+                    "unit": unit,
+                    "direction": direction,
+                    "verdict": "Undefined",
+                    "denominator": denominator,
+                    "note": note or "Undefined: a denominator was zero.",
+                }
+            )
+            return
         delta = later - earlier
         change = (delta / earlier * 100) if earlier else None
         if not note and earlier == 0 and later:
@@ -418,11 +436,12 @@ def analyze(
         direction: str = "context",
         unit: str = "percent",
     ) -> None:
-        pair: list[Decimal] = []
+        pair: list[Decimal | None] = []
         for month in (before, after):
             base = data[denominator]["values"][month]  # type: ignore[index]
             if base == 0:
-                raise ValueError(f"Zero denominator: {denominator}")
+                pair.append(None)
+                continue
             pair.append(data[numerator]["values"][month] / base * scale)  # type: ignore[index]
         add(name, "Derived", pair[0], pair[1], direction, unit, denominator)
 

@@ -148,11 +148,19 @@ class MonthlyAnalysisTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Customer-segment"):
             self.analyze(rows)
 
-    def test_zero_denominator_fails(self):
+    def test_zero_denominator_leaves_that_ratio_undefined(self):
         rows = [row.copy() for row in self.rows]
-        next(row for row in rows if len(row) > 5 and row[5] == "Delivered orders")[-1] = "0"
-        with self.assertRaisesRegex(ValueError, "Zero denominator"):
-            self.analyze(rows)
+        for row in rows:
+            if len(row) > 5 and row[5] in {"Sales from ads (Rs)", "Ads spend (Rs)"}:
+                row[-2] = "0"
+                row[-1] = "0"
+        values = self.metrics(self.analyze(rows))
+        self.assertEqual(values["Sales (Rs)"]["after"], Decimal("1200"))
+        self.assertEqual(values["Sales from ads (Rs)"]["after"], Decimal("0"))
+        self.assertIsNone(values["Derived ad-sales/spend ROAS"]["before"])
+        self.assertIsNone(values["Derived ad-sales/spend ROAS"]["after"])
+        self.assertEqual(values["Derived ad-sales/spend ROAS"]["verdict"], "Undefined")
+        self.assertEqual(values["Average order value (AOV)"]["after"], Decimal("15"))
 
     def test_wrong_outlet_fails(self):
         with self.assertRaises(ValueError):
