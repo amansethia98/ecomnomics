@@ -20,6 +20,8 @@ describe("Zomato report skills", () => {
     expect(skill?.content).toContain("already signed in");
     expect(skill?.content).toContain("Never type a password");
     expect(skill?.content).not.toContain("xdotool");
+    expect(skill?.content).toContain("one consolidated report");
+    expect(skill?.content).toContain("Payout reconciliation");
   });
 
   it("explains a monthly comparison only from the bundled script", () => {
@@ -30,6 +32,26 @@ describe("Zomato report skills", () => {
     expect(skill?.content).toContain("Do not calculate anything yourself");
     expect(skill?.content).toContain("Do not use fixed click positions");
     expect(skill?.content).not.toMatch(/\b24802\b/);
+  });
+});
+
+describe("Payout reconciliation", () => {
+  it("delivers one consolidated report and keeps the dashboards read-only", () => {
+    const skill = BUILTIN_AGENT_SKILLS.find((item) => item.name === "Payout reconciliation");
+    expect(skill?.description.length).toBeLessThanOrEqual(72);
+    expect(skill?.content).toContain("ALWAYS ONE CONSOLIDATED REPORT");
+    expect(skill?.content).toContain("did Zomato pay me");
+    expect(skill?.content).toContain("payout-owner-reconcile");
+    expect(skill?.content).toContain("payout-swiggy-reconcile");
+    expect(skill?.content).toContain("payout-combined");
+    expect(skill?.content).toContain("send report to mail");
+    expect(skill?.content).toContain("absolute gap strictly below");
+    expect(skill?.content).toContain("assumed rate X% (onboarding rate not yet provided)");
+    expect(skill?.content).toContain("owner-confirmed-outlet-map.csv");
+    expect(skill?.content).toContain("native Backspace");
+    expect(skill?.content).toContain("Do not use fixed click positions");
+    expect(skill?.content).not.toContain("x-ai/");
+    expect(skill?.content).not.toContain("Gemini");
   });
 });
 

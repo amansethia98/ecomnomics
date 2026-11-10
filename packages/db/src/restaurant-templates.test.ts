@@ -16,22 +16,42 @@ afterEach(() => {
 describe("restaurant templates", () => {
   it("ships Menu Manager and Reviews Replier as editable placeholders", () => {
     const templates = loadRestaurantTemplates(restaurantTemplatesRoot());
-    expect(templates.map((template) => template.name)).toEqual(["Menu Manager", "Reviews Replier"]);
+    expect(templates.map((template) => template.name)).toEqual([
+      "Menu Manager",
+      "Payouts",
+      "Reviews Replier",
+    ]);
     expect(templates.map((template) => template.spawnKey)).toEqual([
       "restaurant-template:menu-manager",
+      "restaurant-template:payouts",
       "restaurant-template:reviews-replier",
     ]);
     for (const template of templates) {
-      expect(template.instructions.startsWith("EDIT THIS:")).toBe(true);
+      if (template.id === "payouts") {
+        expect(template.instructions).toContain("Payout reconciliation");
+        expect(template.instructions).toContain("Never send a report by email");
+      } else {
+        expect(template.instructions.startsWith("EDIT THIS:")).toBe(true);
+      }
       expect(template.description.length).toBeGreaterThan(0);
+      expect(template.description.length).toBeLessThanOrEqual(72);
     }
     const skills = templates.flatMap((template) => template.skills);
-    expect(skills.map((skill) => skill.name)).toEqual(["Update menu", "Reply to reviews"]);
+    expect(skills.map((skill) => skill.name)).toEqual([
+      "Update menu",
+      "Payout reconciliation",
+      "Reply to reviews",
+    ]);
     for (const skill of skills) {
       const parsed = parseSkillMd(skill.content);
       expect(parsed).toMatchObject({ name: skill.name });
       if ("error" in parsed) throw new Error(parsed.error);
-      expect(parsed.body).toContain("EDIT THIS:");
+      if (skill.name === "Payout reconciliation") {
+        expect(parsed.body).toContain("ALWAYS ONE CONSOLIDATED REPORT");
+        expect(parsed.body).not.toContain("EDIT THIS:");
+      } else {
+        expect(parsed.body).toContain("EDIT THIS:");
+      }
       expect(skill.description.length).toBeLessThanOrEqual(72);
       expect(isSkillReadOnly("builtin")).toBe(true);
     }
@@ -42,6 +62,7 @@ describe("restaurant templates", () => {
     vi.stubEnv("RESTAURANT_STARTER_BOTS_ENABLED", "true");
     expect(restaurantSkillRecords().map((skill) => skill.name)).toEqual([
       "Update menu",
+      "Payout reconciliation",
       "Reply to reviews",
     ]);
   });

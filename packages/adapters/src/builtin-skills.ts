@@ -1,4 +1,7 @@
-import { buildSkillMd } from "@rakazo/core";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { buildSkillMd, parseSkillMd } from "@rakazo/core";
 
 const RAKAZO_DOCS: ReadonlyArray<readonly [topics: string, url: string]> = [
   ["Getting started, first bot, what Rakazo does", "https://rakazo.com/docs.md"],
@@ -65,6 +68,25 @@ If you are lost, go back to the signed-in reports home and read the page again. 
  * Only generic how-tos; no account-specific content.
  * Descriptions show in the / picker (truncated at 72) and inject every turn in the skills catalog.
  */
+function payoutReconciliationSkill(): { name: string; description: string; body: string } {
+  for (let dir = path.dirname(fileURLToPath(import.meta.url)); ; dir = path.dirname(dir)) {
+    const candidate = path.join(
+      dir,
+      "restaurant-templates",
+      "payouts",
+      "skills",
+      "payout-reconciliation",
+      "SKILL.md",
+    );
+    if (existsSync(candidate)) {
+      const parsed = parseSkillMd(readFileSync(candidate, "utf8"));
+      if ("error" in parsed) throw new Error(parsed.error);
+      return { name: parsed.name, description: parsed.description, body: parsed.body };
+    }
+    if (path.dirname(dir) === dir) throw new Error("payout reconciliation skill is missing");
+  }
+}
+
 const SKILLS: Array<{ name: string; description: string; body: string }> = [
   {
     name: "Interrogate",
@@ -96,8 +118,9 @@ Run this once and wait until it finishes. Do not run it again, and do not instal
 
 python3 /usr/local/bin/rakazo-zomato-report payout
 
-That waits for the new workbook and runs rakazo-zomato-reconcile. The summary cells often say #REF!, and the orders are not on the first row; the script already accounts for that. Explain only the summary it prints. Give the user that summary, the source workbook, and the reconciliation .csv and .xlsx. If the check is not 0.00, say so and quote the summary. If the payout page shows a pending deduction for a later cycle that the summary does not, mention that figure on its own and do not add it into the check. The tie-out is not a bank or contract check. If the command is not found, the computer image is older than this skill and needs a rebuild. Do not claim a figure the summary does not show.`,
+That waits for the new workbook and runs rakazo-zomato-reconcile. The summary cells often say #REF!, and the orders are not on the first row; the script already accounts for that. That summary is an internal check. The owner receives one consolidated report from the Payout reconciliation skill: the short note, the table image, and one workbook. Do not send this summary, the source workbook, or a Zomato-only file unless the owner explicitly asked for Zomato alone or the outlet is on Zomato only. If the check is not 0.00, say so inside that consolidated report. If the payout page shows a pending deduction for a later cycle that the summary does not, mention that figure on its own and do not add it into the check. The tie-out is not a bank or contract check. If the command is not found, the computer image is older than this skill and needs a rebuild. Do not claim a figure the summary does not show.`,
   },
+  payoutReconciliationSkill(),
   {
     name: "Zomato monthly analysis",
     description: "Download two Zomato months and explain the script's comparison.",

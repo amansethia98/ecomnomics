@@ -24,6 +24,25 @@ Docker computer topology:
 Set any of them to `0`, `none` or `unlimited` to remove that ceiling. A malformed value fails the
 supervisor at startup naming the variable, rather than surfacing later as a failed bot.
 
+## Payout reconciliation
+
+The computer image includes `payout-owner-reconcile`, `payout-swiggy-reconcile`, and
+`payout-combined`. They turn a downloaded settlement or annexure into the owner's table.
+The table image uses DejaVu Sans, which the image already installs. The commands do not
+log in and do not click.
+
+Each restaurant keeps its own files on that computer, in
+`~/.local/share/payout-reconciliation/`. The image ships no outlet id, no commission
+rate, and no confirmed outlet row. `owner-confirmed-outlet-map.csv` starts as the header
+`outlet,locality,zomato_id,swiggy_rid`. Add a row only after the owner confirms that the
+Zomato id and the Swiggy id are the same outlet. Leave `onboarding_rate_percent` empty
+until the onboarding rate is known. The calculator then labels the most common charged
+rate as an assumption.
+
+The partner dashboards stay read-only. The bot downloads the payout file and does not use
+a control that emails or shares it. A login or one-time code during reconciliation stops
+the task. A per-task spending cap is not enforced yet.
+
 Two caps bound how many computers exist. `SANDBOX_MAX_COMPUTERS_PER_USER` caps the computers one
 user's bots may have, and `SANDBOX_MAX_COMPUTERS_PER_SPACE` caps concurrent computer containers per
 Space. `SANDBOX_TEAM_SCREEN_LIMIT` caps active bot desktops on one Team Computer; desktops and

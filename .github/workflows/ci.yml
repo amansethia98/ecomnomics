@@ -185,7 +185,7 @@ jobs:
         env:
           DATABASE_URL: postgres://rakazo:rakazo@127.0.0.1:5433/rakazo
       - name: Install age for the encrypted backup round trip
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends age
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends age python3-pil python3-openpyxl fonts-dejavu-core
       - name: Unit tests
         if: steps.areas.outputs.all_packages != 'false'
         run: pnpm run test --shard=${{ matrix.shard }}/3

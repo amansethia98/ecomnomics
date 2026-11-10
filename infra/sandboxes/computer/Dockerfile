@@ -56,11 +56,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     poppler-utils \
     pandoc \
     python3-openpyxl \
+    python3-pil \
   && rm -rf /var/lib/apt/lists/* \
   && pdftotext -v \
   && pdfinfo -v \
   && pandoc --version \
-  && python3 -c 'import openpyxl; print(openpyxl.__version__)' \
+  && python3 -c 'import openpyxl; from PIL import ImageFont; ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12); ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 12)' \
   && groupadd --gid 1000 rakazo \
   && useradd --uid 1000 --gid rakazo --create-home --shell /bin/bash rakazo \
   && mkdir -p /etc/rakazo/fluxbox /etc/chromium/policies/managed /etc/brave/policies/managed \
@@ -151,6 +152,12 @@ COPY --chmod=755 rakazo-page-browser /usr/local/bin/rakazo-page-browser
 COPY --chmod=755 rakazo-zomato-reconcile /usr/local/bin/rakazo-zomato-reconcile
 COPY --chmod=755 rakazo-zomato-monthly-analysis /usr/local/bin/rakazo-zomato-monthly-analysis
 COPY --chmod=755 rakazo-zomato-report /usr/local/bin/rakazo-zomato-report
+COPY --chmod=755 payout-owner-reconcile /usr/local/bin/payout-owner-reconcile
+COPY --chmod=755 payout-swiggy-reconcile /usr/local/bin/payout-swiggy-reconcile
+COPY --chmod=755 payout-combined /usr/local/bin/payout-combined
+COPY --chmod=644 payout/reconcile_base.py payout/owner_reconcile.py payout/swiggy_reconcile.py payout/swiggy_math.py payout/combined_owner.py payout/outlet_map.py payout/reconciliation_policy.py payout/owner-confirmed-outlet-map.csv /usr/local/lib/rakazo/payout/
+COPY --chmod=644 payout/examples/outlet-settings.example.json payout/examples/swiggy-settings.example.json /usr/local/lib/rakazo/payout/examples/
+COPY --chmod=644 payout/examples/outlet-settings.example.json payout/examples/swiggy-settings.example.json payout/owner-confirmed-outlet-map.csv /usr/local/share/payout-reconciliation/
 COPY --chmod=644 page_secrets.py /usr/local/lib/rakazo/page_secrets.py
 COPY --chmod=644 rakazo-browser.desktop /usr/share/applications/rakazo-browser.desktop
 # Rakazo keeps credentials itself; the browser's save prompts would cover pages.
@@ -168,7 +175,7 @@ COPY --chmod=644 mobile-keyboard.js /usr/share/novnc/mobile-keyboard.js
 COPY --chmod=644 rakazo-local-bin.sh /etc/profile.d/rakazo-local-bin.sh
 # Strip CR so shebangs work even if the build context came from a CRLF checkout.
 RUN ldconfig \
-  && sed -i 's/\r$//' /usr/local/bin/rakazo-computer /usr/local/lib/rakazo-user-env.sh /usr/local/bin/rakazo-computer-control /usr/local/bin/rakazo-browser /usr/local/bin/rakazo-focus-or-launch /usr/local/bin/rakazo-page-browser /usr/local/bin/rakazo-zomato-reconcile /usr/local/bin/rakazo-zomato-monthly-analysis /usr/local/bin/rakazo-zomato-report \
+  && sed -i 's/\r$//' /usr/local/bin/rakazo-computer /usr/local/lib/rakazo-user-env.sh /usr/local/bin/rakazo-computer-control /usr/local/bin/rakazo-browser /usr/local/bin/rakazo-focus-or-launch /usr/local/bin/rakazo-page-browser /usr/local/bin/rakazo-zomato-reconcile /usr/local/bin/rakazo-zomato-monthly-analysis /usr/local/bin/rakazo-zomato-report /usr/local/bin/payout-owner-reconcile /usr/local/bin/payout-swiggy-reconcile /usr/local/bin/payout-combined \
     /usr/local/lib/rakazo/page_secrets.py \
     /etc/rakazo/fluxbox/init /etc/rakazo/fluxbox/apps /etc/rakazo/fluxbox/menu \
     /etc/profile.d/rakazo-local-bin.sh
