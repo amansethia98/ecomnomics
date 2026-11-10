@@ -1,0 +1,9 @@
+{
+  "outlet_id": "<SWIGGY_RID>",
+  "outlet_name": "<Restaurant Name>",
+  "locality": "<Locality>",
+  "city": "<City>",
+  "outlets": {
+    "<SWIGGY_RID>": { "onboarding_rate_percent": null }
+  }
+}

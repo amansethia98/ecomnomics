@@ -1,0 +1,3 @@
+#!/bin/sh
+export PYTHONPATH="/usr/local/lib/rakazo/payout${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 /usr/local/lib/rakazo/payout/swiggy_reconcile.py "$@"

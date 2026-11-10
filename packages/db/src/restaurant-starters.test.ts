@@ -238,9 +238,15 @@ describe("restaurant starter bots and computers", () => {
 
     const names = (spaceId: string) =>
       db.bots.filter((bot) => bot.spaceId === spaceId).map((bot) => bot.name);
-    expect(names("restaurant-a")).toEqual(["Menu Manager", "Reviews Replier"]);
-    expect(names("restaurant-b")).toEqual(["Menu Manager", "Reviews Replier"]);
-    expect(db.bots.every((bot) => bot.instructions.startsWith("EDIT THIS:"))).toBe(true);
+    expect(names("restaurant-a")).toEqual(["Menu Manager", "Payouts", "Reviews Replier"]);
+    expect(names("restaurant-b")).toEqual(["Menu Manager", "Payouts", "Reviews Replier"]);
+    for (const bot of db.bots) {
+      if (bot.name === "Payouts") {
+        expect(bot.instructions).toContain("Never send a report by email");
+      } else {
+        expect(bot.instructions.startsWith("EDIT THIS:")).toBe(true);
+      }
+    }
 
     const computersFor = (spaceId: string) =>
       db.computers.filter((computer) => computer.spaceId === spaceId);
@@ -291,7 +297,7 @@ describe("restaurant starter bots and computers", () => {
       spawnKey: "onboarding:first",
     });
     expect(onboarding.name).toBe("Menu Manager");
-    expect(names("restaurant-a")).toEqual(["Menu Manager", "Reviews Replier", "Host"]);
+    expect(names("restaurant-a")).toEqual(["Menu Manager", "Payouts", "Reviews Replier", "Host"]);
   });
 
   it("does not copy templates or force one computer when the settings are off", async () => {
