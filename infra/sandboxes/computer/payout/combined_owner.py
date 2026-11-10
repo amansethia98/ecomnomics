@@ -69,6 +69,26 @@ def style_workbook(path):
  with zipfile.ZipFile(path,'w',zipfile.ZIP_DEFLATED) as f:
   for n,v in data.items():f.writestr(n,v)
 
+def bank_line(name, report, screen):
+ paid_gap=q(D(screen['paid_amount'])-D(report['bridged']));bits=[];failed=abs(paid_gap)>=1
+ if paid_gap and abs(paid_gap)<1:bits.append(f'{money(abs(paid_gap))} rounding')
+ elif paid_gap:bits.append(f'difference {money(paid_gap)}')
+ source=report.get('platform_net')
+ if source is not None:
+  source_gap=q(D(source)-D(report['bridged']))
+  if abs(source_gap)>=1:
+   failed=True;bits.append(f'source payout {money(source)} differs by {money(abs(source_gap))}')
+  elif source_gap:bits.append(f'source rounding {money(abs(source_gap))}')
+ if report.get('paid_match') is False and not failed:
+  failed=True;bits.append('source check failed')
+ extra=(', '+', '.join(bits)) if bits else ''
+ return f'{name} paid {money(screen["paid_amount"])} on {pretty(screen["paid_date"])} IST (UTR …{screen["utr_last4"]}) – {"MISMATCH" if failed else "matches"}{extra}.'
+def commission_line(name, report):
+ com=report.get('commission') or {};flags=len(com.get('flags') or []);flagged=f'{flags} differing-rate orders flagged';note=com.get('note')
+ if note:return f'{name} {note}, {flagged}'
+ rate=com.get('rate')
+ if rate is None:return f'{name} onboarding rate not available, {flagged}'
+ return f'{name} assumed rate {D(rate).normalize():g}% (onboarding rate not yet provided), {flagged}'
 def map_default():
  configured=os.environ.get('PAYOUT_STATE_DIR','').strip()
  root=Path(configured).expanduser() if configured else Path.home()/'.local/share/payout-reconciliation'
@@ -84,11 +104,8 @@ def main():
  total['Burn %']=str(q((1-D(total['Net Payout'])/sale)*100)) if sale else '0.00'
  period=f'Zomato {pretty(Z["period"][0])} – {pretty(Z["period"][1])} · Swiggy {pretty(S["period"][0])} – {pretty(S["period"][1])}'
  matched=pair(Z,S,a.outlet_map);confirmed=matched['confirmed'];outlet_name=matched['outlet'];locality=matched['locality'];title=f'{outlet_name} ({locality})';match='' if confirmed else 'match uncertain – please confirm: cross-platform outlet mapping is not owner-confirmed.'
- banks=[]
- for name,r,screen in [('Zomato',Z,zs),('Swiggy',S,ss)]:
-  gap=q(D(screen['paid_amount'])-D(r['bridged']));status='matches' if abs(gap)<1 else 'MISMATCH';rounding=f', {money(abs(gap))} rounding' if gap and abs(gap)<1 else (f', difference {money(gap)}' if gap else '')
-  banks.append(f'{name} paid {money(screen["paid_amount"])} on {pretty(screen["paid_date"])} IST (UTR …{screen["utr_last4"]}) – {status}{rounding}.')
- commission='Commission: '+ '; '.join(f'{n} assumed rate {D(r["commission"]["rate"]).normalize():g}% (onboarding rate not yet provided), {len(r["commission"]["flags"])} differing-rate orders flagged' for n,r in [('Zomato',Z),('Swiggy',S)])+'. These are checks, not proven overcharges.'
+ banks=[bank_line(name,r,screen) for name,r,screen in [('Zomato',Z,zs),('Swiggy',S,ss)]]
+ commission='Commission: '+ '; '.join(commission_line(n,r) for n,r in [('Zomato',Z),('Swiggy',S)])+'. These are checks, not proven overcharges.'
  ads='Ads labels: Zomato – Investment in growth services / ADS; Swiggy – Growth Investment In Ads plus ads in Other Charges.'
  notes=([match] if match else [])+banks+[commission,ads];headers=['Terms','What it means',f'Zomato (ID {Z["outlet_id"]})',f'Swiggy (RID {S["outlet_id"]})','Total'];rows=[[k,m]+[fmt(k,r[k]) for r in [Z['rows'],S['rows'],total]] for k,m in zip(labels,meanings)]
  full=['| '+' | '.join(headers)+' |','|---|---|---:|---:|---:|']

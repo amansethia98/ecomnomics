@@ -37,3 +37,9 @@ class Combined(unittest.TestCase):
   text=(self.output/'owner-message.md').read_text();self.assertNotIn('Bank bridge:',text);self.assertEqual(sum(l.startswith('|') for l in text.splitlines()),9);self.assertTrue(any('Bank bridge:' in str(c.value) for row in w['DEMO_OUTLET'] for c in row))
  def test_rounding_note_is_not_a_plug(self):
   screen=json.loads((self.root/'sscreen.json').read_text());screen['paid_amount']=str(Decimal(self.s['bridged'])+Decimal('.09'));(self.root/'sscreen.json').write_text(json.dumps(screen));self.run_builder(True);self.assertIn('₹0.09 rounding',(self.output/'owner-message.md').read_text())
+ def test_source_bridge_failure_stays_a_mismatch(self):
+  self.s['platform_net']=str(Decimal(self.s['bridged'])+Decimal('10'));self.s['paid_match']=False;(self.root/'s.json').write_text(json.dumps(self.s));self.run_builder(True);text=(self.output/'owner-message.md').read_text();self.assertIn('MISMATCH',text);self.assertIn('source payout ₹'+format(Decimal(self.s['platform_net']),'.2f')+' differs by ₹10.00',text)
+ def test_commission_note_is_kept_when_rate_is_missing_or_configured(self):
+  self.z['commission']=dict(rate=None,flags=[],note='No charged service fee % available; please provide onboarding rate.');self.s['commission']=dict(rate='21.00',flags=[{'order_id':'1'}],note='configured onboarding rate 21.00%')
+  (self.root/'z.json').write_text(json.dumps(self.z));(self.root/'s.json').write_text(json.dumps(self.s));self.run_builder(True);text=(self.output/'owner-message.md').read_text()
+  self.assertIn('No charged service fee % available; please provide onboarding rate.',text);self.assertIn('configured onboarding rate 21.00%',text);self.assertIn('1 differing-rate orders flagged',text);self.assertNotIn('assumed rate',text);self.assertNotIn('onboarding rate not yet provided',text)

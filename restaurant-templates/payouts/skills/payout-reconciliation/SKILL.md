@@ -22,15 +22,15 @@ Save a fresh screen file for this task only. Zomato `payout-screen.json` and Swi
 
 Zomato, after the fresh settlement workbook is on disk:
 
-`python3 /usr/local/bin/payout-owner-reconcile <workbook> --config ~/.local/share/payout-reconciliation/zomato-settings.json --screen <payout-screen.json>`
+`/usr/local/bin/payout-owner-reconcile <workbook> --config ~/.local/share/payout-reconciliation/zomato-settings.json --screen <payout-screen.json>`
 
 Swiggy, after the fresh annexure is on disk. Write `~/.local/share/payout-reconciliation/job.json` first, as `{"label":"<this task id>","issued_epoch":<seconds>}`. The screen file's `job_label` is that same label. The annexure must be newer than `issued_epoch`.
 
-`python3 /usr/local/bin/payout-swiggy-reconcile <annexure> --settings ~/.local/share/payout-reconciliation/swiggy-settings.json --screen <swiggy-payout-screen.json>`
+`/usr/local/bin/payout-swiggy-reconcile <annexure> --settings ~/.local/share/payout-reconciliation/swiggy-settings.json --screen <swiggy-payout-screen.json>`
 
 Then once for that outlet pair:
 
-`python3 /usr/local/bin/payout-combined --zomato <zomato json> --swiggy <swiggy json> --zscreen <payout-screen.json> --sscreen <swiggy-payout-screen.json> --outlet-map ~/.local/share/payout-reconciliation/owner-confirmed-outlet-map.csv --out <this task's folder>`
+`/usr/local/bin/payout-combined --zomato <zomato json> --swiggy <swiggy json> --zscreen <payout-screen.json> --sscreen <swiggy-payout-screen.json> --outlet-map ~/.local/share/payout-reconciliation/owner-confirmed-outlet-map.csv --out <this task's folder>`
 
 Give the owner the short chat the command prints, `combined-table.png`, and `Outlet-Payout-Report.xlsx`. Nothing else. The per-app json and markdown stay on the computer.
 
