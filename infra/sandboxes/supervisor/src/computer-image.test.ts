@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import http from "node:http";
 import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -488,7 +488,9 @@ describe("dockerode BuildKit session", () => {
     cleanups.push(() => rmSync(partial, { recursive: true, force: true }));
     for (const file of COMPUTER_IMAGE_CONTEXT_FILES) {
       if (file !== "browser-policy.json") {
-        copyFileSync(path.join(context, file), path.join(partial, file));
+        const destination = path.join(partial, file);
+        mkdirSync(path.dirname(destination), { recursive: true });
+        copyFileSync(path.join(context, file), destination);
       }
     }
     await expect(computerImageEnsurer(daemon.docker, local, partial)()).rejects.toThrow(
