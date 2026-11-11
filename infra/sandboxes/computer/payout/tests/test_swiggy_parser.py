@@ -1,3 +1,4 @@
+# All restaurant identities, dates and amounts in this file are synthetic fixtures.
 import json,os,tempfile,time,unittest
 from pathlib import Path
 import swiggy_reconcile as s
@@ -5,16 +6,16 @@ import reconcile_base as b
 class Parser(unittest.TestCase):
  def settings(self):return dict(outlet_id="SWIGGY_TEST_OUTLET",outlet_name="<Restaurant Name>")
  def fixture(self,rid='SWIGGY_TEST_OUTLET'):
-  t=tempfile.TemporaryDirectory();self.addCleanup(t.cleanup);p=Path(t.name)/'invoice_Annexure_SWIGGY_TEST_OUTLET_04112026_fixture.xlsx'
+  t=tempfile.TemporaryDirectory();self.addCleanup(t.cleanup);p=Path(t.name)/'invoice_Annexure_SWIGGY_TEST_OUTLET_10012030_SYNTHETIC.xlsx'
   h=['Order ID','Order Status','Service Fees %','Commission','Commission charged on','Net Bill Value','Total Customer Paid','GST Collected','Total Swiggy Fees','GST on Service Fee','Complaint & Cancellation Charges','Total Taxes','Net Payout for Order']
   ol=[h,['1','delivered','20%',200,1000,1000,1050,50,236,36,10,50,754]]
   br=[['','Particulars','Delivered','Total'],['','Orders',1,1],['A','Total Customer Paid',1050,1050],['1','Item Total',1000,1000],['2','Packaging Charges',100,100],['3','Restaurant Discounts (Coupon based)',-100,-100],['4','Restaurant Discounts (Trade Discounts, Freebies and others)',0,0],['5','GST Collected',50,50],['B','Swiggy Fees',-200,-200],['C','Customer Complaints & Cancellation Charges',-10,-10],['D','Growth Investment In Ads','',-60],['','HyperBoost','',-60],['E','Other Charges and Refunds','',-25],['','Co-branded Partnership','',-20],['','Packaging Material','',-5],['F','Total Taxes','',-86],['18','GST Deduction','',-50],['19','GST on Service Fee','',-36],['20','TCS','',0],['21','TDS','',0],['G','Net Payout','',669]]
-  b.write_workbook(str(p),{'Summary':[['<Restaurant Name>'],['Rest. ID - '+rid],['Payout Period','25 October - 31 October']],'Payout Breakup':br,'Order Level':ol});return p
- def screen(self):return dict(outlet_id='SWIGGY_TEST_OUTLET',period=['2026-10-25','2026-10-31'],status='paid',paid_amount='669',paid_date='2026-11-03',utr_last4='TEST')
+  b.write_workbook(str(p),{'Summary':[['<Restaurant Name>'],['Rest. ID - '+rid],['Payout Period','01 January - 07 January']],'Payout Breakup':br,'Order Level':ol});return p
+ def screen(self):return dict(outlet_id='SWIGGY_TEST_OUTLET',period=['2030-01-01','2030-01-07'],status='paid',paid_amount='669',paid_date='2030-01-09',utr_last4='TEST')
  def test_signed_ads_no_doublecount_gst_bridge(self):
   r=s.parse(self.fixture(),self.screen(),self.settings());self.assertEqual(r['rows']['Ads'],'80.00');self.assertEqual(r['rows']['Comm.+PG+GST'],'200.00');self.assertEqual(r['bridged'],'669.00');self.assertTrue(r['strict_paid_match'])
  def test_boundary_period(self):
-  x=self.screen();x['period'][0]='2026-10-24';r=s.parse(self.fixture(),x,self.settings());self.assertEqual(r['period'][0],'2026-10-25');self.assertTrue(any('boundary' in n for n in r['notes']))
+  x=self.screen();x['period'][0]='2029-12-31';r=s.parse(self.fixture(),x,self.settings());self.assertEqual(r['period'][0],'2030-01-01');self.assertTrue(any('boundary' in n for n in r['notes']))
  def test_wrong_outlet(self):
   with self.assertRaisesRegex(ValueError,'Wrong outlet'):s.parse(self.fixture('WRONG_TEST_OUTLET'),self.screen(),self.settings())
  def test_pending(self):
