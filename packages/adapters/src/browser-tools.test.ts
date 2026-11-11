@@ -1262,6 +1262,27 @@ describe("browser tools on dropdowns and stale refs", () => {
   });
 });
 
+it("passes the six ordinary legacy Zomato type actions without a private-code resolver", async () => {
+  const browser = new FakeBrowserProvider();
+  const act = vi.spyOn(browser, "act").mockResolvedValue({
+    ok: true,
+    completed: 6,
+    uncertain: false,
+    url: "https://accounts.zomato.com/verify",
+    title: "Verify",
+    tree: "",
+  });
+  const actions = [..."AB7C9D"].map((text, index) => ({
+    kind: "type",
+    ref: `e${index + 1}`,
+    text,
+  }));
+  const resolveCodeFill = vi.fn(async () => ({ error: "Must not use a private code" }));
+  await browserActFromTool(browser, computer, context, { actions }, { resolveCodeFill });
+  expect(act.mock.calls[0]?.[1].actions).toEqual(actions);
+  expect(resolveCodeFill).not.toHaveBeenCalled();
+});
+
 describe("browser_act fill_code", () => {
   const origin = "https://login.example.test";
 

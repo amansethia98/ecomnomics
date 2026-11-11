@@ -2171,67 +2171,6 @@ class SavedLoginTest(unittest.TestCase):
                 secrets.fill_focused(browser.client, "page", dict(self.STEP))
 
 
-class LegacyPrivateCodeTest(unittest.TestCase):
-    STEP = {"kind": "fill", "ref": "e19", "field": "code", "origin": "https://accounts.zomato.com", "text": "AB7C9D"}
-
-    def test_auth_site_uses_legacy_keys_as_primary_without_calling_segmented_fill(self):
-        browser = LoginFrameBrowser()
-        layout = {"inputCount": 6, "fields": [{"maxlength": 2}] * 6}
-        with patch.object(secrets, "focused_frame", return_value=("page", "main", 1)), \
-                patch.object(secrets, "frame_site_check") as site, \
-                patch.object(secrets, "call_with", return_value={"codeKeys": True, "codeLayout": layout}) as call, \
-                patch.object(secrets, "fill_code_keys") as keys:
-            self.assertEqual(secrets.fill_focused(browser.client, "page", self.STEP), layout)
-        site.assert_called_once()
-        keys.assert_called_once()
-        call.assert_called_once()
-        self.assertIn("prepareLegacyCode", call.call_args.args[3])
-        self.assertNotIn(self.STEP["text"], json.dumps(call.call_args.args[3:]))
-
-    def test_wrong_origin_is_refused_before_preparing_or_typing(self):
-        browser = LoginFrameBrowser()
-        with patch.object(secrets, "focused_frame", return_value=("page", "main", 1)), \
-                patch.object(secrets, "frame_site_check", side_effect=secrets.Refused("wrong origin")), \
-                patch.object(secrets, "call_with") as call, patch.object(secrets, "fill_code_keys") as keys:
-            with self.assertRaises(secrets.Refused):
-                secrets.fill_focused(browser.client, "page", self.STEP)
-        call.assert_not_called()
-        keys.assert_not_called()
-
-    def test_checks_each_key_and_uses_the_old_trusted_key_mechanism(self):
-        client = LoginFrameBrowser().client
-        with patch.object(secrets, "call_with", return_value=True) as call, \
-                patch.object(secrets, "_press_char") as press, patch.object(secrets.time, "sleep"):
-            secrets.fill_code_keys(client, ("page", "main", 1), self.STEP)
-        self.assertEqual([item.args[-1] for item in press.call_args_list], list(self.STEP["text"]))
-        self.assertEqual(len(call.call_args_list), 13)
-        self.assertTrue(all(self.STEP["text"] not in item.args[3] for item in call.call_args_list))
-
-    def test_untouched_focus_failure_is_refused_and_no_key_is_sent(self):
-        client = LoginFrameBrowser().client
-        with patch.object(secrets, "call_with", return_value=False), patch.object(secrets, "_press_char") as press:
-            with self.assertRaises(secrets.Refused):
-                secrets.fill_code_keys(client, ("page", "main", 1), self.STEP)
-        press.assert_not_called()
-
-    def test_lost_first_key_response_is_uncertain_without_echo_or_replay(self):
-        client = LoginFrameBrowser().client
-        with patch.object(secrets, "call_with", return_value=True), \
-                patch.object(secrets, "_press_char", side_effect=RuntimeError(self.STEP["text"])) as press:
-            with self.assertRaisesRegex(secrets.CardFieldUncertain, "Do not replay") as error:
-                secrets.fill_code_keys(client, ("page", "main", 1), self.STEP)
-        press.assert_called_once()
-        self.assertNotIn(self.STEP["text"], str(error.exception))
-
-    def test_rejected_character_is_uncertain_and_stops_remaining_keys(self):
-        client = LoginFrameBrowser().client
-        with patch.object(secrets, "call_with", side_effect=[True, False]), \
-                patch.object(secrets, "_press_char") as press, patch.object(secrets.time, "sleep"):
-            with self.assertRaisesRegex(secrets.CardFieldUncertain, "Do not replay"):
-                secrets.fill_code_keys(client, ("page", "main", 1), self.STEP)
-        press.assert_called_once()
-
-
 class FrameSocket:
     """A socket that hands out its bytes a few at a time, as a network would."""
 

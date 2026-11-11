@@ -4,7 +4,9 @@ Run inside a --network=none computer-test container with RAKAZO_BROWSER_OFFLINE_
 The real site's hostname is resolved to an in-container HTTPS fixture, never the Internet.
 Only the DOM structure is captured; its key-driven event behavior is synthetic.
 """
+import contextlib
 import http.server
+import io
 import importlib.machinery
 import importlib.util
 import json
@@ -72,7 +74,7 @@ class LegacyCodeBrowserTest(unittest.TestCase):
         cls.chrome = subprocess.Popen([shutil.which("chromium"), "--headless=new", "--no-sandbox", "--disable-gpu",
                                        "--disable-dev-shm-usage", "--ignore-certificate-errors", "--no-proxy-server",
                                        "--disable-background-networking", "--remote-debugging-port=9222",
-                                       "--host-resolver-rules=MAP portal.example.test 127.0.0.1, MAP accounts.zomato.com 127.0.0.1",
+                                       "--host-resolver-rules=MAP www.zomato.com 127.0.0.1, MAP accounts.zomato.com 127.0.0.1",
                                        "--user-data-dir=" + str(root / "profile"), "about:blank"],
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         deadline = time.monotonic() + 15
@@ -101,7 +103,7 @@ class LegacyCodeBrowserTest(unittest.TestCase):
 
     def load(self):
         # Both origins are local HTTPS fixtures inside a network-isolated container.
-        url = f"https://portal.example.test:{self.server.server_port}/?load={time.time_ns()}"
+        url = f"https://www.zomato.com:{self.server.server_port}/?load={time.time_ns()}"
         self.ab = helper.AgentBrowser(9222)
         self.ab.use_tab(self.target)
         self.client.call("Page.navigate", {"url": url}, session_id=self.session)
@@ -116,7 +118,7 @@ class LegacyCodeBrowserTest(unittest.TestCase):
                 self.fail("Offline portal did not load")
             time.sleep(0.05)
         self.client.context_id = secrets.world_in(self.client, self.session, secrets.main_frame(self.client, self.session)["id"])
-        self.page = helper.PageBrowser(9222, self.target, self.ab)
+        self.page = helper.zomato_legacy.load_browser().PageBrowser(9222, self.target, self.ab)
         deadline = time.monotonic() + 15
         while True:
             snapshot = self.page.snapshot(0)
@@ -142,50 +144,76 @@ class LegacyCodeBrowserTest(unittest.TestCase):
                        and (data.get("auxData") or {}).get("isDefault"))
         return secrets.eval_json(self.client, session, expression, context_id=context)
 
-    def act(self):
-        # Same native private action that browser_act fill_code produces. No code in argv/tool output.
-        return self.page.act([{"kind": "fill", "field": "code", "origin": "https://accounts.zomato.com",
-                               "ref": self.ref, "text": "AB7C9D"}])
+    def native(self, command, args):
+        # Exercise the actual current entrypoint and its frozen-browser dispatch.
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = helper.run(["rakazo-page-browser", command, json.dumps(args)])
+        result = json.loads(output.getvalue())
+        self.assertEqual(code, 0 if result.get("ok") else 1)
+        return result
 
-    def test_captured_structure_uses_legacy_real_keys_not_segmented_setters(self):
+    def test_complete_old_type_then_submit_through_current_entrypoint(self):
         self.load()
-        result = self.act()
-        self.assertTrue(result["ok"], result.get("error", "Private entry failed"))
-        self.assertEqual(result["completed"], 1)
-        # Equality stays in Chromium: only a boolean and event counts leave the page.
-        self.assertTrue(self.evaluate("[...document.querySelectorAll('input')].map(f=>f.value).join('') === 'AB7C9D'"))
-        self.assertEqual(self.page_evaluate("window.keyCount"), 6)
-        self.assertNotIn("AB7C9D", json.dumps(result))
-        self.assertTrue(self.evaluate("[...document.querySelectorAll('input')].every(f=>f.hasAttribute('data-rakazo-filled') && f.style.getPropertyValue('-webkit-text-security') === 'disc')"))
-        layout = json.loads(next(note.split(": ", 1)[1] for note in self.page.notes if note.startswith("Code layout before fill:")))
-        self.assertTrue(layout["inFrame"])
-        self.assertEqual(layout["inputCount"], 6)
-        self.assertEqual(layout["target"], 0)
-        for index, field in enumerate(layout["fields"]):
+        snapshot = self.native("snapshot", {})
+        fields = [node for node in snapshot["elements"] if node.get("role") == "textbox"]
+        self.assertEqual(len(fields), 6)
+        # Assert the real captured structural constraints, not maxlength=1 OTP hints.
+        layout = self.evaluate("""[...document.querySelectorAll('input')].map(f=>({
+          max:f.maxLength, mode:f.inputMode, type:f.type,
+          hints:['name','id','aria-label','autocomplete'].filter(k=>f.hasAttribute(k)),
+          path:(()=>{let a=[],n=f;while(n){const p=n.parentElement;
+            a.unshift(n.localName+'['+(p?[...p.children].indexOf(n):0)+']');n=p;}return a.join('/')})()
+        }))""")
+        captured = json.loads((HERE / "fixtures/short-code-captured-layout.json").read_text())
+        self.assertTrue(captured["inFrame"])
+        self.assertEqual(len(layout), captured["inputCount"])
+        for actual, observed in zip(layout, captured["completeCapturedFields"]):
+            self.assertEqual((actual["path"], actual["max"], actual["mode"], actual["type"], actual["hints"]),
+                             (observed["path"], observed["maxlength"], observed["inputmode"], observed["type"], []))
+        for index, field in enumerate(layout):
+            self.assertEqual((field["max"], field["mode"], field["type"], field["hints"]), (2, "text", "text", []))
             self.assertEqual(field["path"], f"html[0]/body[1]/div[5]/div[0]/div[1]/section[1]/section[0]/div[1]/div[0]/div[0]/input[{index}]")
-            self.assertEqual((field["maxlength"], field["inputmode"], field["autocomplete"], field["shaped"]), (2, "text", [], False))
-        # The unchanged generic segmented route would refuse this layout. The rollback bypasses it.
-        self.assertTrue(all(not field["singleEligible"] for field in layout["fields"]))
+        result = self.native("act", {"actions": [
+            {"kind": "type", "ref": field["ref"], "text": character}
+            for field, character in zip(fields, "AB7C9D")
+        ]})
+        self.assertTrue(result["ok"], result.get("error", "Historical type failed"))
+        self.assertEqual(result["completed"], 6)
+        self.assertTrue(self.evaluate("[...document.querySelectorAll('input')].map(f=>f.value).join('') === 'AB7C9D'"), str({"lengths": self.evaluate("[...document.querySelectorAll('input')].map(f=>f.value.length)"), "keys": self.page_evaluate("window.keyCount")}))
+        self.assertEqual(self.page_evaluate("window.trustedInputCount"), 6)
+        self.assertFalse(self.page_evaluate("window.submitted"))
+        button = next(node for node in result["elements"] if node.get("role") == "button" and node.get("name") == "Continue")
+        submitted = self.native("act", {"actions": [{"kind": "click", "ref": button["ref"]}]})
+        self.assertTrue(submitted["ok"], submitted.get("error", "Historical submit failed"))
+        self.assertTrue(self.page_evaluate("window.submitted"))
 
-    def test_partial_keys_are_uncertain_and_cannot_be_replayed(self):
+    def test_whole_code_in_first_maxlength_two_box_is_not_a_passing_fixture(self):
         self.load()
-        self.evaluate("document.querySelectorAll('input')[0].addEventListener('keyup',()=>document.querySelectorAll('input')[1].readOnly=true)")
-        result = self.act()
-        self.assertFalse(result["ok"])
-        self.assertTrue(result["uncertain"])
-        self.assertEqual(self.page_evaluate("window.keyCount"), 1)
-        self.assertIn("Do not replay", result["error"])
-        self.assertNotIn("AB7C9D", json.dumps(result))
-        self.assertFalse(self.act()["ok"])
-        self.assertEqual(self.page_evaluate("window.keyCount"), 1)
+        # The old cross-frame keyboard type sends insertText, not one key per box.
+        # Keep the failure visible: do not add a magic full-code distributor to the fixture.
+        self.native("act", {"actions": [{"kind": "type", "ref": self.ref, "text": "AB7C9D"}]})
+        self.assertFalse(self.evaluate("[...document.querySelectorAll('input')].map(f=>f.value).join('') === 'AB7C9D'"))
+        self.assertEqual(self.evaluate("[...document.querySelectorAll('input')].map(f=>f.value.length)"), [2, 0, 0, 0, 0, 0])
+        self.assertFalse(self.page_evaluate("window.submitted"))
 
-    def test_prefilled_boxes_are_refused_before_any_key(self):
+    def test_untrusted_setter_events_do_not_pass_the_fixture(self):
         self.load()
-        self.evaluate("document.querySelectorAll('input')[2].value='X'")
-        result = self.act()
+        self.evaluate("""document.querySelectorAll('input').forEach((box, i) => {
+          box.value = 'AB7C9D'[i]; box.dispatchEvent(new Event('input', {bubbles:true}));
+        })""")
+        self.assertTrue(self.evaluate("[...document.querySelectorAll('input')].every(f=>!f.value)"))
+        self.assertEqual(self.page_evaluate("window.trustedInputCount"), 0)
+        self.assertFalse(self.page_evaluate("window.submitted"))
+
+    def test_private_code_route_is_not_reused_for_zomato(self):
+        self.load()
+        result = self.native("act", {"actions": [{"kind": "fill", "field": "code", "origin": "https://accounts.zomato.com", "ref": self.ref, "text": "AB7C9D"}]})
         self.assertFalse(result["ok"])
+        self.assertEqual(result["completed"], 0)
         self.assertFalse(result["uncertain"])
         self.assertEqual(self.page_evaluate("window.keyCount"), 0)
+        self.assertNotIn("AB7C9D", json.dumps(result))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,44 @@
+{
+  "provenance": "Pre-entry native audit from 71d39ef5, retaining a truncated prefix, plus the six-textbox snapshot.",
+  "inputCount": 6,
+  "inFrame": true,
+  "completeCapturedFields": [
+    {
+      "path": "html[0]/body[1]/div[5]/div[0]/div[1]/section[1]/section[0]/div[1]/div[0]/div[0]/input[0]",
+      "type": "text",
+      "maxlength": 2,
+      "inputmode": "text",
+      "autocomplete": [],
+      "shaped": false,
+      "singleEligible": false
+    },
+    {
+      "path": "html[0]/body[1]/div[5]/div[0]/div[1]/section[1]/section[0]/div[1]/div[0]/div[0]/input[1]",
+      "type": "text",
+      "maxlength": 2,
+      "inputmode": "text",
+      "autocomplete": [],
+      "shaped": false,
+      "singleEligible": false
+    },
+    {
+      "path": "html[0]/body[1]/div[5]/div[0]/div[1]/section[1]/section[0]/div[1]/div[0]/div[0]/input[2]",
+      "type": "text",
+      "maxlength": 2,
+      "inputmode": "text",
+      "autocomplete": [],
+      "shaped": false,
+      "singleEligible": false
+    },
+    {
+      "path": "html[0]/body[1]/div[5]/div[0]/div[1]/section[1]/section[0]/div[1]/div[0]/div[0]/input[3]",
+      "type": "text",
+      "maxlength": 2,
+      "inputmode": "text",
+      "autocomplete": [],
+      "shaped": false,
+      "singleEligible": false
+    }
+  ],
+  "limitation": "The fifth field is partial in the prefix; the sixth is not retained. The six-field HTML repeats the observed sibling structure. Production event handlers were not captured."
+}

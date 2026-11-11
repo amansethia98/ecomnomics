@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSkillMd, parseSkillMd } from "@rakazo/core";
+import { LEGACY_ZOMATO_LOGIN_GUIDANCE } from "./legacy-zomato-login.js";
 
 const RAKAZO_DOCS: ReadonlyArray<readonly [topics: string, url: string]> = [
   ["Getting started, first bot, what Rakazo does", "https://rakazo.com/docs.md"],
@@ -51,6 +52,8 @@ function zomatoSession(kind: "payout" | "monthly"): string {
 This computer keeps the restaurant's browser profile between tasks. Reuse the browser that is already open. Do not log out, clear cookies or site data, or start a new profile.
 
 Look at the page that is already open before doing anything else. If a reports or finance dashboard is visible, you are already signed in: do not open a login page and do not ask for a code. Log in only when the site itself is showing a login or verification page. Use the restaurant's email and the emailed one-time code. Never type a password, and never use Google sign-in. Do not put the code in a file, a command, or your answer.
+
+${LEGACY_ZOMATO_LOGIN_GUIDANCE}
 
 Claim this task once, before any browser work:
 

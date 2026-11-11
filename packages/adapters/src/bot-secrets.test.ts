@@ -1565,3 +1565,18 @@ describe("replacing a saved login's site", () => {
     expect(await secretStore.load(row!.ciphertext, row!.id)).toBe(typed("fake-password-other"));
   });
 });
+
+it("routes Zomato auth and parent-page code requests back to the owner-reply flow", () => {
+  for (const origin of [
+    "https://accounts.zomato.com/otp",
+    "https://www.zomato.com",
+    "https://zomato.com",
+  ]) {
+    const result = resolveRequestSecretDestination({
+      oneTimeCode: oneTimeCodeArgument({ origin }),
+    });
+    expect(result.oneTimeCodeOrigin).toBeUndefined();
+    expect(result.error).toContain("owner-code reply flow");
+    expect(result.error).toContain("six ordinary type actions");
+  }
+});

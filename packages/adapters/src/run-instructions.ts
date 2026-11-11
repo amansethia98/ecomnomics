@@ -1,5 +1,6 @@
 import { FLEET_WRITE_TOOL_NAMES } from "@rakazo/contracts";
 import { runReadsThreadHistory, toolRequiresExplicitApproval } from "@rakazo/core";
+import { LEGACY_ZOMATO_LOGIN_HINT } from "./legacy-zomato-login.js";
 import { MODEL_CANNOT_SEE_MESSAGE } from "./model-vision.js";
 import { replyGuidanceForOfferedTools } from "./run-replies.js";
 import type { UserComputerState } from "./run-tools-user-computer.js";
@@ -201,7 +202,7 @@ function secretGuidance(disabled?: ReadonlySet<string>): string[] {
   }
   if (builtinOffered(disabled, "request_secret") && builtinOffered(disabled, "browser_act")) {
     clauses.push(
-      "For a code a site texts or emails, use request_secret oneTimeCode and browser_act fill_code, never chat.",
+      `For other sites, use request_secret oneTimeCode and browser_act fill_code, never chat. ${LEGACY_ZOMATO_LOGIN_HINT}`,
     );
   }
   if (builtinOffered(disabled, "generate_secret")) {

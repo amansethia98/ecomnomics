@@ -211,6 +211,7 @@ COPY --chmod=644 payout/reconcile_base.py payout/owner_reconcile.py payout/swigg
 COPY --chmod=644 payout/examples/outlet-settings.example.json payout/examples/swiggy-settings.example.json /usr/local/lib/rakazo/payout/examples/
 COPY --chmod=644 payout/examples/outlet-settings.example.json payout/examples/swiggy-settings.example.json payout/owner-confirmed-outlet-map.csv /usr/local/share/payout-reconciliation/
 COPY --chmod=644 page_secrets.py /usr/local/lib/rakazo/page_secrets.py
+COPY --chmod=644 zomato_legacy.py zomato_browser_246c11b.py zomato_secrets_246c11b.py /usr/local/lib/rakazo/
 COPY --chmod=644 rakazo-browser.desktop /usr/share/applications/rakazo-browser.desktop
 # Rakazo keeps credentials itself; the browser's save prompts would cover pages.
 # Pop-ups open: one a page opens after making a report would be blocked unseen.

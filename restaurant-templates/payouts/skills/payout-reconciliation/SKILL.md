@@ -731,7 +731,7 @@ Never initiate/request/resend an OTP during reconciliation. If logged out, stop.
 
 Observed widget failure: typing a full string with a browser action bound to box one can stop after its first character because focus auto-advances. Direct empty-value assignments can be undone by React re-renders. Do not assume prior rejected codes were caused by this without evidence.
 
-Secure method, only when authorized (Zomato and Swiggy split-code widgets):
+Secure method for other sites, only when separately authorized (not the Zomato compatibility flow below):
 
 1. After the OTP screen is actually visible, take a fresh structured snapshot and identify the first input of exactly one code group. Do not reuse a pre-OTP ref or target the email/phone field, wrapper, or button. Never read back or screenshot a code.
 2. Obtain the code through `request_secret oneTimeCode` for the exact HTTPS sign-in origin. The code stays private and run-scoped; never put it in chat, files, logs, or a native keyboard string.
@@ -739,3 +739,11 @@ Secure method, only when authorized (Zomato and Swiggy split-code widgets):
 4. Check only the non-secret fill outcome. If entry is partial/uncertain or the group is ambiguous, stop for human takeover; never replay the code or request/resend another one. Click Continue once only with explicit authorization after a successful fill; if rejected/expired, stop and respect any lockout/countdown.
 
 Dummy-only diagnostics can test distribution/autofocus; clear all dummy values before completion and never submit them. No real phone number, masked suffix, OTP or session is included here.
+
+# Zomato sign-in — restored pre-sync flow
+
+Only for a separate owner-authorized sign-in, never a routine reconciliation that is already signed in. Use the restaurant email and request one emailed code from the visible login page; no password, Google sign-in, resend or second login. Ask the owner for the code and wait for a normal owner reply. An explicitly authorized coordinator can obtain that reply from the newest sign-in email for this attempt.
+
+This is the historical owner-reply flow: **do not use `request_secret oneTimeCode` or `fill_code` for Zomato**. The code is supplied in the conversation, as before the sync. Take a fresh `browser_snapshot` of the six empty boxes and use **one batch of six ordinary `browser_act` `type` actions**, one character per fresh box ref in order. Do not type the whole code into the first maxlength=2 box. Do not use `fill`, a clipboard, shell, or a replacement private typer. The complete frozen pre-sync native browser handles the login page, including its own typing and checks. Then click the visible Continue control once as a separate action if it has not already signed in, and verify the signed-in page. If rejected, expired, partial or uncertain, stop without replay or resend.
+
+Never repeat the code in narration or output or save it in a file. This rollback restores the old model-visible owner reply; it does not use the newer masked, run-held code-card contract. Retain the signed-in browser profile. The upstream browser remains in use outside the login page, and the payout calculations and read/download-only rules above are unchanged.

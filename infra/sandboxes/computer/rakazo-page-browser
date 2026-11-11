@@ -30,6 +30,7 @@ from urllib.parse import unquote, urljoin, urlsplit
 
 sys.path[:0] = [os.path.dirname(os.path.realpath(__file__)), "/usr/local/lib/rakazo"]
 import page_secrets  # noqa: E402
+import zomato_legacy  # noqa: E402
 from page_secrets import CardFieldUncertain, Refused, payment_frame_origin  # noqa: E402
 
 discover_ws_url = page_secrets.discover_ws_url
@@ -3563,6 +3564,9 @@ def run(argv: list[str]) -> int:
                 # Only once it knows the tabs the call began with: without them, every tab would look new.
                 tabs = started
         target, address = front_tab(port)
+        legacy = zomato_legacy.dispatch(command, args, port, lambda _: (target, address))
+        if legacy is not None:
+            return legacy
         if command in ("navigate", "act") and args.get("downloads") is not None:
             # While this file exists, the background hold does not change Chromium's download setting.
             busy = download_busy_path(str(args["downloads"]))

@@ -299,6 +299,39 @@ describe("live page helper one-time code fill", () => {
   });
 
   describe("secure segmented OTP groups", () => {
+    it.each([1, 2])(
+      "accepts unlabelled maxlength=%i slots from the captured structure",
+      (maxlength) => {
+        const captured = readFileSync(
+          new URL(
+            "../../../infra/sandboxes/computer/fixtures/short-code-captured-layout.html",
+            import.meta.url,
+          ),
+          "utf8",
+        );
+        const body = captured.match(/<body>([\s\S]*)<\/body>/)?.[1];
+        if (!body) throw new Error("Captured-structure body missing");
+        const { domWindow, privateFill } = installPageHelper(
+          `${origin}/verify`,
+          body.replaceAll('maxlength="2"', `maxlength="${maxlength}"`),
+        );
+        const boxes = [...domWindow.document.querySelectorAll("input")];
+        expect(boxes).toHaveLength(6);
+        expect(
+          boxes.every(
+            (box) => !box.name && !box.id && !box.hasAttribute("aria-label") && !box.autocomplete,
+          ),
+        ).toBe(true);
+        boxes.forEach((box, index) => {
+          box.addEventListener("input", () => boxes[index + 1]?.focus());
+        });
+        boxes[0]!.focus();
+        expect(privateFill("AB7C9D", origin, "code", "e19")).toMatchObject({ codeFilled: true });
+        expect(boxes.map((box) => box.value)).toEqual([..."AB7C9D"]);
+        expect(boxes.every((box) => box.value.length === 1)).toBe(true);
+      },
+    );
+
     function group(size: number, markup = "zomato", suffix = "") {
       return `<div role="group" aria-label="Verification code">${Array.from(
         { length: size },
