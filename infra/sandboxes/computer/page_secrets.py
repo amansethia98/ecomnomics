@@ -503,6 +503,28 @@ EVAL_HELPERS = r"""
     if (fields.some((field, index) => field.value !== value[index])) return partial();
     return true;
   }
+  // Compatibility with widgets that depend on real keydown/keyup events. Select this path
+  // BEFORE any value is entered; a partly accepted setter fill must never be retried as keys.
+  let codeKeys = null;
+  function prepareCodeKeys(group, origin) {
+    const { parent, fields } = group;
+    maskCard(parent);
+    fields.forEach((field) => {
+      field.setAttribute(FILLED, "");
+      maskCard(field);
+      codeSlots.set(field, [parent]);
+    });
+    codeKeys = { parent, fields, origin, page: location.href, next: 0 };
+    return { codeKeys: true, total: fields.length };
+  }
+  function codeKeysLive() {
+    const state = codeKeys;
+    return state && location.protocol === "https:" && location.origin === state.origin
+      && location.href === state.page && state.parent.isConnected
+      && state.fields.every((field) => field.isConnected && field.ownerDocument === document
+        && field.parentElement === state.parent && field.type === "text" && [1, 2].includes(field.maxLength)
+        && visible(field) && !field.disabled && !field.readOnly);
+  }
   function numericBox(el) {
     const mode = (el.getAttribute("inputmode") || "").toLowerCase();
     const pattern = (el.getAttribute("pattern") || "").trim();
@@ -529,6 +551,44 @@ EVAL_HELPERS = r"""
     return el && el !== document.body && el !== document.documentElement ? el : null;
   }
   window.__rakazoPageBrowser = {
+    prepareLegacyCode(size, origin, ref) {
+      // A deliberately site-scoped rollback. Do not invoke fill/splitCodeGroup or try setters first.
+      if (origin !== "https://accounts.zomato.com" || location.origin !== origin
+        || location.protocol !== "https:") throw refused("The code is not on its expected HTTPS site.");
+      const input = focused();
+      const fields = [...document.querySelectorAll("input")].filter((field) => field.type !== "hidden" && visible(field));
+      if (!fields.includes(input) || size !== 6 || fields.length !== size
+        || !fields.every((field) => field.parentElement === input.parentElement && field.type === "text"
+          && [1, 2].includes(field.maxLength) && !field.disabled && !field.readOnly)) {
+        throw refused("The expected six code boxes are not available; nothing was typed.");
+      }
+      if (fields.some((field) => field.value !== "")) {
+        throw refused("The code boxes already contain input; do not replay the code.");
+      }
+      const layout = typeof ref === "string" && /^(?:f\d+)?e\d{1,8}$/.test(ref) ? codeLayout(input, ref) : null;
+      return { ...prepareCodeKeys({ parent: input.parentElement, fields }, origin), codeLayout: layout };
+    },
+    codeKeyReady(index) {
+      if (!codeKeysLive() || codeKeys.next !== index) return false;
+      const { fields } = codeKeys;
+      const active = focused();
+      if (index === 0 ? !fields.includes(active)
+        : active !== fields[index - 1] && active !== fields[index]) return false;
+      if (fields.slice(index).some((field) => field.value !== "")) return false;
+      fields[index].focus();
+      return Boolean(codeKeysLive() && focused() === fields[index]);
+    },
+    codeKeyAccepted(index, char) {
+      if (!codeKeysLive() || codeKeys.next !== index || codeKeys.fields[index].value !== char) return false;
+      codeKeys.next++;
+      return true;
+    },
+    codeKeysDone(value) {
+      const ok = Boolean(codeKeysLive() && codeKeys.next === codeKeys.fields.length
+        && codeKeys.fields.every((field, index) => field.value === value[index]));
+      codeKeys = null;
+      return ok;
+    },
     // The frame element holding focus in this document, when focus is inside one of its frames.
     focusedFrame() {
       const el = focused();
@@ -870,8 +930,17 @@ def fill_focused(client: CdpClient, session_id: str, step: dict[str, Any]) -> di
     args = [step["text"], step["origin"], step.get("field")]
     if step.get("field") == "code":
         args.append(step.get("ref"))
-    result = call_with(client, frame[0], frame[2], "function (value, origin, field, ref) { "
-              "return window.__rakazoPageBrowser.fill(value, origin, field, ref); }", *args)
+    if step.get("field") == "code" and step["origin"] == "https://accounts.zomato.com":
+        # Roll back this site's entry mechanism, not the upstream sync. The legacy trusted-key
+        # path is primary: never attempt the segmented setter fill, and never retry partial keys.
+        frame_site_check(client, frame, step)
+        result = call_with(client, frame[0], frame[2], "function (size, origin, ref) { "
+                           "return window.__rakazoPageBrowser.prepareLegacyCode(size, origin, ref); }",
+                           len(step["text"]), step["origin"], step.get("ref"))
+        fill_code_keys(client, frame, step)
+    else:
+        result = call_with(client, frame[0], frame[2], "function (value, origin, field, ref) { "
+                           "return window.__rakazoPageBrowser.fill(value, origin, field, ref); }", *args)
     layout = result.get("codeLayout") if isinstance(result, dict) else None
     if isinstance(result, dict) and result.get("loginUncertain"):
         raise CardFieldUncertain("The password field changed after filling. Do not replay or submit; ask the user to take over.")
@@ -881,6 +950,42 @@ def fill_focused(client: CdpClient, session_id: str, step: dict[str, Any]) -> di
         raise CardFieldUncertain("Code entry was partial or uncertain. Do not replay, submit, or request a new code; "
                                  "ask the user to take over." + detail)
     return layout
+
+
+def fill_code_keys(client: CdpClient, frame: tuple[str, str, int], step: dict[str, Any]) -> None:
+    """The old split-code keydown/keyup mechanism, with private-origin and per-box guards.
+
+    Never invoked following a partial fill. Values travel only as CDP arguments/key payloads;
+    no page-world reads, clearing pre-existing input, source interpolation or ordinary tool calls.
+    """
+    session, frame_id, world = frame
+    navigations = client.navigations(session, frame_id)
+    touched = False
+    try:
+        for index, char in enumerate(step["text"]):
+            if (client.navigations(session, frame_id) != navigations or call_with(
+                    client, session, world, "function (index) { return window.__rakazoPageBrowser.codeKeyReady(index); }",
+                    index) is not True):
+                if not touched:
+                    raise Refused("The code group changed before entry; nothing was typed.")
+                raise CardFieldUncertain()
+            touched = True  # Even a lost response to the first key may have entered a character.
+            _press_char(client, session, char)
+            time.sleep(0.05)
+            if call_with(client, session, world,
+                         "function (index, char) { return window.__rakazoPageBrowser.codeKeyAccepted(index, char); }",
+                         index, char) is not True:
+                raise CardFieldUncertain()
+        if (client.navigations(session, frame_id) != navigations or call_with(
+                client, session, world, "function (value) { return window.__rakazoPageBrowser.codeKeysDone(value); }",
+                step["text"]) is not True):
+            raise CardFieldUncertain()
+    except Exception:
+        if touched:
+            # Do not leak a CDP exception which may echo a private key payload.
+            raise CardFieldUncertain("Code entry was partial or uncertain. Do not replay, submit, or request a new code; "
+                                     "ask the user to take over.") from None
+        raise
 
 
 def find_card_field(client: CdpClient, session_id: str, main_frame_id: str, token: str) -> tuple[str, str, int]:
