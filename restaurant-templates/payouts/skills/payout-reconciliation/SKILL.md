@@ -4,6 +4,7 @@ description: One consolidated Zomato and Swiggy payout report. Read-only.
 ---
 
 ## Default output — ALWAYS ONE CONSOLIDATED REPORT
+
 Every payout/reconciliation request defaults to ONE consolidated owner report across all connected platforms: Zomato + Swiggy and future platforms. Never send separate per-app reports unless the owner EXPLICITLY requests them, or the outlet operates on only one platform. Even "did Zomato pay me" gets the consolidated report, with the Zomato line highlighted. Part A/B remain INTERNAL per-app collection/calculation steps; Part C is the owner-facing consolidated output. Preserve separate platform periods, source checks and bank checks inside that single report. This rule overrides older per-app-only output/scope wording below. Keep owner notes short/plain; full technical bridges only in the Excel outlet sheet.
 
 ## Installed commands on this computer
@@ -50,7 +51,6 @@ The six-box code method at the end of this skill is only for a separate sign-in 
 
 An absolute gap strictly below ₹1 passes with a rounding note. A gap of ₹1 or more fails. An exact zero stays an exact match. Never invent an adjustment so the bridge hits the paid amount.
 
-
 # Payment reconciliation – Zomato + Swiggy (standard guide for any restaurant owner)
 
 This file stands on its own. You need no other file or earlier conversation.
@@ -91,57 +91,61 @@ Lines starting with **UNSURE:** mark something not verified from real files; fol
     payout page**; any difference is explained by a **bridge in the notes** (A2 step 10 / B2 step 10).
 
 ### Finding rows when labels change (both apps)
+
 Find each row by its **meaning**, not its exact label:
-* **Orders** – "Total Orders", "Number of orders", "Orders (Delivered + Cancelled)".
-* **Sales (ST+PC)** – item total / sub total / food value **plus** packaging / packing charge (before GST).
-* **Merchant Discount Burn** – discounts **the restaurant pays for**: "Restaurant discount", "merchant-funded discount",
+
+- **Orders** – "Total Orders", "Number of orders", "Orders (Delivered + Cancelled)".
+- **Sales (ST+PC)** – item total / sub total / food value **plus** packaging / packing charge (before GST).
+- **Merchant Discount Burn** – discounts **the restaurant pays for**: "Restaurant discount", "merchant-funded discount",
   "restaurant share", "promo", "flat off", "freebies", "BOGO", "trade discount", "coupon (restaurant)". Not
   platform-funded discounts.
-* **Ads** – see each platform's "Finding Ads when labels change".
-* **Comm.+PG+GST** – platform fees: commission / service fee / base service fee, long-distance / fulfilment fee,
+- **Ads** – see each platform's "Finding Ads when labels change".
+- **Comm.+PG+GST** – platform fees: commission / service fee / base service fee, long-distance / fulfilment fee,
   payment gateway / payment mechanism / payment collection fee, other platform fees, and the GST on them where the
   owner's table says so.
-If a row's meaning cannot be found, leave the cell blank, say so in the notes, and ask the owner. Never guess.
+  If a row's meaning cannot be found, leave the cell blank, say so in the notes, and ask the owner. Never guess.
 
 ---
 
 # PART A – ZOMATO DELIVERY
 
 ## A0. The owner's Zomato format (core table – copy exactly)
+
 Source: from the dashboard, **Finance > Payouts** (and its downloadable settlement report).
 
-| Terms | What it means | Where to find it |
-|---|---|---|
-| Orders | Total number of orders | Total Orders |
-| ST+PC | Total Sales | Sub Total + Packaging Charges |
-| Merchant Discount Burn | Discounts given by restaurant | Rest flat offs + promos |
-| Effective Discount % | discount % | Merchant discount / ST PC |
-| CV | commissionable value | Sales - discount |
-| Ads | ads spent | Investment in growth |
-| Ads % | ads spent against total sales | Ads / STPC |
-| Comm.+PG+GST | commission + pg + gst | Order level deductions [Base service fees + long distance fees + payment mechanism fees + GST] |
-| Net Payout | total amount in bank account | CV - Ads - Comm+PG+Gst |
-| Payout % | % of sales in bank account | Net Payout / ST+PC |
-| Burn % | % of burn | 1 - Payout % |
+| Terms                  | What it means                 | Where to find it                                                                               |
+| ---------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------- |
+| Orders                 | Total number of orders        | Total Orders                                                                                   |
+| ST+PC                  | Total Sales                   | Sub Total + Packaging Charges                                                                  |
+| Merchant Discount Burn | Discounts given by restaurant | Rest flat offs + promos                                                                        |
+| Effective Discount %   | discount %                    | Merchant discount / ST PC                                                                      |
+| CV                     | commissionable value          | Sales - discount                                                                               |
+| Ads                    | ads spent                     | Investment in growth                                                                           |
+| Ads %                  | ads spent against total sales | Ads / STPC                                                                                     |
+| Comm.+PG+GST           | commission + pg + gst         | Order level deductions [Base service fees + long distance fees + payment mechanism fees + GST] |
+| Net Payout             | total amount in bank account  | CV - Ads - Comm+PG+Gst                                                                         |
+| Payout %               | % of sales in bank account    | Net Payout / ST+PC                                                                             |
+| Burn %                 | % of burn                     | 1 - Payout %                                                                                   |
 
 ## A1. Inputs (Zomato)
 
-| # | Input | Used for | Where (general) | Date range | Format |
-|---|---|---|---|---|---|
-| Z1 | **Settlement report** `Zomato_Settlement_Report_<ZOMATO_RES_ID>_<DD Mon YYYY>_<DD Mon YYYY>.xlsx` | All 11 rows (sheet `Payout Breakup`; `Order Level` to verify) and the bank bridge | Finance > Payouts → select the outlet → the week (or custom range) → download the settlement / payout report | Weekly: Zomato week **Mon–Sun** (e.g. 26 Oct – 01 Nov 2026). Month-end: 1st–last day of month | `.xlsx`, one per outlet |
-| Z2 | **Payouts screen** for the week | Paid amount, paid date, UTR, paid/pending status (bank check) | Finance > Payouts → the week's payout row / details | Same week | Screen (read and note) |
-| Z3 | Ads / growth invoices | Confirm the Ads row | Finance > Invoices (or the week's payout details) | Same week | PDF |
-| Z4 | **Onboarding record** of the outlet | Agreed commission % and any cap (commission check) | The restaurant's onboarding sheet / record kept by the onboarding process | Current agreement | Sheet / document |
-| Z5 | Bank statement (optional, if the owner gives it) | Tie each UTR to its bank line | Owner supplies it | Payout dates + a few days | CSV / XLSX / PDF |
-| Z6 | Outlet list (ID, name, locality, city) | Cross-app matching, coverage | Outlet picker at the top of the dashboard | – | Your own TSV/CSV |
+| #   | Input                                                                                             | Used for                                                                          | Where (general)                                                                                              | Date range                                                                                    | Format                  |
+| --- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- | ----------------------- |
+| Z1  | **Settlement report** `Zomato_Settlement_Report_<ZOMATO_RES_ID>_<DD Mon YYYY>_<DD Mon YYYY>.xlsx` | All 11 rows (sheet `Payout Breakup`; `Order Level` to verify) and the bank bridge | Finance > Payouts → select the outlet → the week (or custom range) → download the settlement / payout report | Weekly: Zomato week **Mon–Sun** (e.g. 26 Oct – 01 Nov 2026). Month-end: 1st–last day of month | `.xlsx`, one per outlet |
+| Z2  | **Payouts screen** for the week                                                                   | Paid amount, paid date, UTR, paid/pending status (bank check)                     | Finance > Payouts → the week's payout row / details                                                          | Same week                                                                                     | Screen (read and note)  |
+| Z3  | Ads / growth invoices                                                                             | Confirm the Ads row                                                               | Finance > Invoices (or the week's payout details)                                                            | Same week                                                                                     | PDF                     |
+| Z4  | **Onboarding record** of the outlet                                                               | Agreed commission % and any cap (commission check)                                | The restaurant's onboarding sheet / record kept by the onboarding process                                    | Current agreement                                                                             | Sheet / document        |
+| Z5  | Bank statement (optional, if the owner gives it)                                                  | Tie each UTR to its bank line                                                     | Owner supplies it                                                                                            | Payout dates + a few days                                                                     | CSV / XLSX / PDF        |
+| Z6  | Outlet list (ID, name, locality, city)                                                            | Cross-app matching, coverage                                                      | Outlet picker at the top of the dashboard                                                                    | –                                                                                             | Your own TSV/CSV        |
 
-UNSURE: the labels on the Zomato Finance > Payouts *screen* itself were not checked line by line for this guide (only the
+UNSURE: the labels on the Zomato Finance > Payouts _screen_ itself were not checked line by line for this guide (only the
 downloaded settlement report was). If the screen and the file differ, use the file and note the difference.
 
 What the Zomato settlement report contains (verified on real files): sheets `Summary`, `Payout Breakup`,
 `Order Level`, `Addition Deductions Details`, `Discounts Summary`, `Glossary`, `HSummary`, `HDiscount`
 (some outlets: `Distance Based Summary`).
-* `Payout Breakup` rows (Delivered | Cancelled/Rejected | Total): `Number of Orders`; `A Net order value`;
+
+- `Payout Breakup` rows (Delivered | Cancelled/Rejected | Total): `Number of Orders`; `A Net order value`;
   `1 Subtotal (items total)`; `2 Packaging charge`; `3 Delivery charge for restaurants on self logistics`;
   `4 Restaurant discount [Promo]`; `5 Restaurant Discount [BOGO, Freebies, Gold, Brand pack & others]`;
   `6 Brand pack subscription fee`; `7 Delivery charge discount / Relisting discount`; `8 Total GST collected from customers`;
@@ -154,10 +158,10 @@ What the Zomato settlement report contains (verified on real files): sheets `Sum
   `H Total Additions (24 Cancellation refund, 25 Tip for kitchen staff, 26 TDS 194H and other Res id level additions,
   27 Restaurant-level service fees rebate)`; `I Net Payout (A − B − C − D − E − F − G + H)`; settlement breakdown
   (amount settled / pending).
-* `HSummary`: period, restaurant ID, name, address, pay-out cycle (real files: `Weekly (Every Wednesday)`), UTR list.
-* `Order Level`: one row per order with the same items per order plus `Order status`, `Settlement status`,
+- `HSummary`: period, restaurant ID, name, address, pay-out cycle (real files: `Weekly (Every Wednesday)`), UTR list.
+- `Order Level`: one row per order with the same items per order plus `Order status`, `Settlement status`,
   `Settlement date`, `Bank UTR`. It also holds `Customer ID` – **customer data, never copy it**.
-* `Addition Deductions Details`: restaurant-level lines – additions (e.g. type `ADS` credit, `TDS_194H`, `TDS_194O`)
+- `Addition Deductions Details`: restaurant-level lines – additions (e.g. type `ADS` credit, `TDS_194H`, `TDS_194O`)
   and deductions `A) Investments in growth services` (one `ADS` row per ads invoice with period, Total / Adjusted /
   Outstanding), `B) Hyperpure`, `C) Other deductions`, `D) Adjustments from previous weeks`.
 
@@ -190,17 +194,18 @@ week its period starts in. Ads row = ads for the week **whether or not already d
 will be taken from a later payout – say so in the notes and in the bridge).
 
 #### Finding Ads when labels change (Zomato)
-* Ads = the amount on **any line, column, row type or heading** that mentions ads or a synonym: **Ads, Ad, Advertisement,
+
+- Ads = the amount on **any line, column, row type or heading** that mentions ads or a synonym: **Ads, Ad, Advertisement,
   Advertising, Ad spend, Investment in growth, Growth investment(s), Growth Investments in Ads, Promoted listing(s), CPC,
   Sponsored, Marketing / Ad campaigns**. When the word is in a **heading**, every line under that heading is Ads.
   "Investment in growth" is today's Zomato label, not a fixed rule.
-* **Sum every ads line found**, but never count the same money twice: if a total and its sub-lines both appear
+- **Sum every ads line found**, but never count the same money twice: if a total and its sub-lines both appear
   (e.g. `E Investment in growth services` and its rows 19–21, or "Total Ads & miscellaneous services" and the invoice
   rows), take **either** the total **or** the sub-lines.
-* Add a note naming the label(s) used, e.g. "Ads = 'Investment in growth services' (7 ADS invoices)".
-* Ads **credits / refunds** under an ads label (e.g. an `ADS` line under Additions) are not netted into the Ads row;
+- Add a note naming the label(s) used, e.g. "Ads = 'Investment in growth services' (7 ADS invoices)".
+- Ads **credits / refunds** under an ads label (e.g. an `ADS` line under Additions) are not netted into the Ads row;
   they go in the notes and the bank bridge as "Ads credit".
-* If **no ads-like label** is found but money is deducted under a label you do not recognise, **flag it to the owner**
+- If **no ads-like label** is found but money is deducted under a label you do not recognise, **flag it to the owner**
   (label + amount) rather than guessing whether it is ads. Lines that clearly are not ads (Hyperpure, TDS, carry-forwards)
   go to the notes/bridge as adjustments.
 
@@ -223,6 +228,7 @@ If ST+PC is 0, all % are 0.
 
 **Step 10 – Bank check and bridge.** Read the **paid amount, paid date and UTR** for the week on the Payouts screen (Z2)
 (the file's `HSummary` / `Bank UTR` show the same UTRs). Then write the bridge in the notes:
+
 ```
 Net Payout (format)
  − TDS 194O                                      (Payout Breakup row 14)
@@ -234,44 +240,48 @@ Net Payout (format)
  + ads not yet deducted (Outstanding)            (if the ads were not taken from this payout)
  = Zomato's own Net Payout (I)  → compare with the amount paid under the UTR
 ```
-* One UTR can cover several outlets or several weeks: group payouts by UTR and compare the **sum** under that UTR.
-* If the owner gives a bank statement, find each UTR on it and check amount and date.
-* Before payout day everything shows `pending` and no UTR – the bank check waits; say "not paid yet".
+
+- One UTR can cover several outlets or several weeks: group payouts by UTR and compare the **sum** under that UTR.
+- If the owner gives a bank statement, find each UTR on it and check amount and date.
+- Before payout day everything shows `pending` and no UTR – the bank check waits; say "not paid yet".
 
 ## A3. Known traps (Zomato)
-* **Summary sheets read blank**: `Summary` and `Payout Breakup` are formula sheets; read by a script (or opened without
+
+- **Summary sheets read blank**: `Summary` and `Payout Breakup` are formula sheets; read by a script (or opened without
   recalculation) they show 0 / `#REF!`. Then compute the rows from `Order Level` (same column names) and
   `Addition Deductions Details` – that is the allowed "summary is blank" case.
-* **Three template versions** of `Order Level` (square vs round brackets; "Service fees %" vs "Base service fee %";
+- **Three template versions** of `Order Level` (square vs round brackets; "Service fees %" vs "Base service fee %";
   extra distance/fulfilment columns). Match by meaning/header text, never by column position.
-* **Ads are restaurant-level and may be deducted later** (Outstanding > 0); an invoice can span two weeks. Count it once,
+- **Ads are restaurant-level and may be deducted later** (Outstanding > 0); an invoice can span two weeks. Count it once,
   in the week its period starts; show the outstanding part in the bridge.
-* **Ads credits** (e.g. ₹<amount> `ADS` addition in a week with ₹<amount> of ads) – notes and bridge, not the Ads row.
-* **TDS is withheld but is a tax credit**, not a cost – bridge only (e.g. ₹<amount> for a week).
-* **Customer GST is not the restaurant's money** on delivery orders (u/s 9(5) Zomato pays it); a few paise between
+- **Ads credits** (e.g. ₹<amount> `ADS` addition in a week with ₹<amount> of ads) – notes and bridge, not the Ads row.
+- **TDS is withheld but is a tax credit**, not a cost – bridge only (e.g. ₹<amount> for a week).
+- **Customer GST is not the restaurant's money** on delivery orders (u/s 9(5) Zomato pays it); a few paise between
   collected and paid is normal.
-* **Cancelled/rejected orders** count in Orders; they carry no commission and their refund is an addition (bridge).
-* **Month-end**: the week that crosses a month (26 Oct – 1 Nov) is split between month reports; the last week of a
+- **Cancelled/rejected orders** count in Orders; they carry no commission and their refund is an addition (bridge).
+- **Month-end**: the week that crosses a month (26 Oct – 1 Nov) is split between month reports; the last week of a
   month report is usually still pending on the 1st–2nd.
-* Comm.+PG+GST summed from rounded columns can differ by a paisa from the unrounded total – normal.
-* Payment mechanism fee can be 0 for an outlet – take it as shown.
-* Duplicate downloads (`… (1).xlsx`) – use one copy per outlet and period.
+- Comm.+PG+GST summed from rounded columns can differ by a paisa from the unrounded total – normal.
+- Payment mechanism fee can be 0 for an outlet – take it as shown.
+- Duplicate downloads (`… (1).xlsx`) – use one copy per outlet and period.
 
 ## A4. What correct looks like (Zomato)
+
 - [ ] One report per outlet; outlets in the picker = files + outlets with no orders (listed).
 - [ ] All 11 rows filled from the payout file, labels exactly as A0; nothing extra as a row.
 - [ ] CV = file `Commissionable value` (or the difference explained); Comm.+PG+GST = Σ order-level B + GST on B (±₹0.05).
 - [ ] Ads lines found by meaning, summed once, label named in the notes; unknown deductions flagged.
 - [ ] Commission check done (OK / orders flagged / "assumed rate X% (onboarding rate not yet provided)").
 - [ ] Bridge from Net Payout to Zomato's Net Payout (I) closes with an **absolute difference strictly below ₹1 per outlet per week**, and I = amount paid
-      under the UTR on the Payouts screen with an absolute difference strictly below ₹1 (sum all outlets/weeks under one UTR).
+  under the UTR on the Payouts screen with an absolute difference strictly below ₹1 (sum all outlets/weeks under one UTR).
 
 ## A5. Escalation (Zomato) – only after the owner says yes
-* Amount paid under a UTR ≠ bridged Net Payout by ₹1 or more and the file does not explain it; UTR missing after
+
+- Amount paid under a UTR ≠ bridged Net Payout by ₹1 or more and the file does not explain it; UTR missing after
   payout Wednesday + 2 working days; UTR not on the owner's bank statement.
-* Commission % different from the onboarding rate (flagged orders).
-* Ads invoices the owner did not approve, or one invoice deducted twice.
-* Penalties / recoupments / promo recoveries the owner disputes; missing cancellation refunds.
+- Commission % different from the onboarding rate (flagged orders).
+- Ads invoices the owner did not approve, or one invoice deducted twice.
+- Penalties / recoupments / promo recoveries the owner disputes; missing cancellation refunds.
 
 ```
 Subject: Payout discrepancy – <Restaurant Name>, <Locality> (Res ID <ZOMATO_RES_ID>) – week <DD Mon> – <DD Mon YYYY>
@@ -298,38 +308,40 @@ Regards,
 # PART B – SWIGGY DELIVERY
 
 ## B0. The owner's Swiggy format (core table – copy exactly)
+
 Source: from the dashboard (**Payouts / payout breakup**, and the downloadable invoice annexure).
 
-| Terms | What it means | Where to find it |
-|---|---|---|
-| Orders | Total number of orders | Total Orders |
-| ST+PC | Total Sales | Item total + Packaging charge |
-| Merchant Discount Burn | Discounts given by restaurant | Restaurant Discount |
-| Effective Discount % | discount % | Merchant discount / ST PC |
-| CV | commisionable value | Sales - discount |
-| Ads | ads spend | Other Charges in payout break up |
-| Ads % | ads spent against total sales | Ads / ST+PC |
-| Comm.+PG+GST | commission + pg + gst | Total fees |
-| Net Payout | total amount in bank account | CV - Ads - Comm+PG+GST |
-| Payout % | % of sales in bank account | Net Payout / ST+PC |
-| Burn % | % of burn | 1 - Payout % |
+| Terms                  | What it means                 | Where to find it                 |
+| ---------------------- | ----------------------------- | -------------------------------- |
+| Orders                 | Total number of orders        | Total Orders                     |
+| ST+PC                  | Total Sales                   | Item total + Packaging charge    |
+| Merchant Discount Burn | Discounts given by restaurant | Restaurant Discount              |
+| Effective Discount %   | discount %                    | Merchant discount / ST PC        |
+| CV                     | commisionable value           | Sales - discount                 |
+| Ads                    | ads spend                     | Other Charges in payout break up |
+| Ads %                  | ads spent against total sales | Ads / ST+PC                      |
+| Comm.+PG+GST           | commission + pg + gst         | Total fees                       |
+| Net Payout             | total amount in bank account  | CV - Ads - Comm+PG+GST           |
+| Payout %               | % of sales in bank account    | Net Payout / ST+PC               |
+| Burn %                 | % of burn                     | 1 - Payout %                     |
 
 ## B1. Inputs (Swiggy)
 
-| # | Input | Used for | Where (general) | Date range | Format |
-|---|---|---|---|---|---|
-| S1 | **Invoice annexure** `invoice_Annexure_<SWIGGY_RID>_<DDMMYYYY>_<13 digits>.xlsx` | All 11 rows (sheet `Payout Breakup`, Total column) and the bridge | Finance → Payouts (past payouts) → select outlet → the cycle → download invoice / annexure | One payout cycle, normally **Sunday–Saturday** (e.g. 25–31 Oct 2026), split at month end (e.g. 1–3 Oct) | `.xlsx`, one per outlet per cycle |
-| S2 | **Payouts screen / payout breakup** for the cycle | Paid amount, date, UTR, status; numbers for cycles with no annexure yet ("estimated") | Finance → Payouts → the cycle → details (expand every row) | Same cycle | Screen |
-| S3 | Ads invoices | Confirm the Ads row | Finance → Invoices | Same cycle | PDF |
-| S4 | **Onboarding record** of the outlet | Agreed commission % and cap | Restaurant's onboarding sheet / record | Current agreement | Sheet / document |
-| S5 | Bank statement (optional) | Tie each UTR to its bank line | Owner supplies it | Settlement dates + a few days | CSV / XLSX / PDF |
-| S6 | Outlet list (RID, name, locality, city) | Matching, coverage | Outlet selector; first lines of the annexure `Summary` | – | Your own TSV/CSV |
+| #   | Input                                                                            | Used for                                                                              | Where (general)                                                                            | Date range                                                                                              | Format                            |
+| --- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| S1  | **Invoice annexure** `invoice_Annexure_<SWIGGY_RID>_<DDMMYYYY>_<13 digits>.xlsx` | All 11 rows (sheet `Payout Breakup`, Total column) and the bridge                     | Finance → Payouts (past payouts) → select outlet → the cycle → download invoice / annexure | One payout cycle, normally **Sunday–Saturday** (e.g. 25–31 Oct 2026), split at month end (e.g. 1–3 Oct) | `.xlsx`, one per outlet per cycle |
+| S2  | **Payouts screen / payout breakup** for the cycle                                | Paid amount, date, UTR, status; numbers for cycles with no annexure yet ("estimated") | Finance → Payouts → the cycle → details (expand every row)                                 | Same cycle                                                                                              | Screen                            |
+| S3  | Ads invoices                                                                     | Confirm the Ads row                                                                   | Finance → Invoices                                                                         | Same cycle                                                                                              | PDF                               |
+| S4  | **Onboarding record** of the outlet                                              | Agreed commission % and cap                                                           | Restaurant's onboarding sheet / record                                                     | Current agreement                                                                                       | Sheet / document                  |
+| S5  | Bank statement (optional)                                                        | Tie each UTR to its bank line                                                         | Owner supplies it                                                                          | Settlement dates + a few days                                                                           | CSV / XLSX / PDF                  |
+| S6  | Outlet list (RID, name, locality, city)                                          | Matching, coverage                                                                    | Outlet selector; first lines of the annexure `Summary`                                     | –                                                                                                       | Your own TSV/CSV                  |
 
 What the Swiggy annexure contains (verified on real files): sheets `Summary`, `Payout Breakup`, `Order Level`,
 (`Item Level`), `Unresolved Customer Complaints`, `Growth Investments and Other De…`, `Discount Summary`, `Glossary`.
-* `Summary`: outlet name / locality / city above `Rest. ID - <SWIGGY_RID>`, `Payout Period`, `Payout Settlement Date`,
+
+- `Summary`: outlet name / locality / city above `Rest. ID - <SWIGGY_RID>`, `Payout Period`, `Payout Settlement Date`,
   `Total Payout`, `Total Orders (Delivered + Cancelled)`, `Bank UTR`.
-* `Payout Breakup` (Delivered | Cancelled | **Total** – always use Total; deductions are negative): `Orders`;
+- `Payout Breakup` (Delivered | Cancelled | **Total** – always use Total; deductions are negative): `Orders`;
   `A Total Customer Paid` (`1 Item Total`, `2 Packaging Charges`, `3 Restaurant Discounts (Coupon based)`,
   `4 Restaurant Discounts (Trade Discounts, Freebies and others)`, `5 GST Collected`); `B Swiggy Fees` (= **Total fees**:
   commission, long distance, payment collection, Pocket Hero, Swiggy One, restaurant cancellation, call centre,
@@ -339,7 +351,7 @@ What the Swiggy annexure contains (verified on real files): sheets `Summary`, `P
   `E Other Charges and Refunds` (sub-lines seen: ads lines, Packaging Material, Onboarding Fees, TDS (Refund),
   Previous week outstanding); `F Total Taxes` (`GST Deduction (paid by Swiggy on behalf of the restaurant)`,
   `GST on Service Fee @18%`, `TCS`, `TDS`); `G Net Payout [A+B+C+D+E+F]` = Swiggy's paid amount.
-* `Order Level`: one row per order (verification only); also has customer-linked fields – never copy them.
+- `Order Level`: one row per order (verification only); also has customer-linked fields – never copy them.
 
 ## B2. Step-by-step logic (Swiggy) – fill the 11 rows, then check
 
@@ -366,20 +378,21 @@ or is not ads, use the line whose heading contains "Ads" (today: `D Growth Inves
 sum every ads line found (Ads lines in E **plus** D), once each.
 
 #### Finding Ads when labels change (Swiggy)
-* Ads = the amount on **any line, column or heading** that mentions ads or a synonym: **Ads, Ad, Advertisement,
+
+- Ads = the amount on **any line, column or heading** that mentions ads or a synonym: **Ads, Ad, Advertisement,
   Advertising, Ad spend, Investment in growth, Growth investment(s), Growth Investments in Ads, Promoted listing(s), CPC,
   Sponsored, Marketing / Ad campaigns**. When the word is in a **heading**, every sub-line under it is Ads (e.g.
   HyperBoost, Top Picks, Brandverse under "Growth Investment In Ads"). "Other Charges" and "Growth Investment In Ads"
   are today's Swiggy labels, not fixed rules.
-* **Sum every ads line found**, never twice: when a section total and its sub-lines both appear (e.g. `D` and
+- **Sum every ads line found**, never twice: when a section total and its sub-lines both appear (e.g. `D` and
   "Cost Per Click - Ads"; "Total Ads Investments" in the Growth sheet and its rows), take **either** the total **or**
   the sub-lines.
-* Other Charges lines that are **not** ads (Packaging Material, Onboarding Fees, TDS (Refund), previous-week
+- Other Charges lines that are **not** ads (Packaging Material, Onboarding Fees, TDS (Refund), previous-week
   outstanding) are adjustments → notes and bridge, not the Ads row.
-* Add a note naming the label(s) used, e.g. "Ads = 'Growth Investment In Ads' (Cost Per Click - Ads); Other Charges ₹<amount>".
-* If **no ads-like label** is found but money is deducted under an unknown label, **flag it to the owner** (label +
+- Add a note naming the label(s) used, e.g. "Ads = 'Growth Investment In Ads' (Cost Per Click - Ads); Other Charges ₹<amount>".
+- If **no ads-like label** is found but money is deducted under an unknown label, **flag it to the owner** (label +
   amount) rather than guessing.
-* A negative Ads total (refund larger than spend) can push Payout % above 100% – keep it, flag it, list the sub-lines.
+- A negative Ads total (refund larger than spend) can push Payout % above 100% – keep it, flag it, list the sub-lines.
 
 **Step 8 – Ads %** = Ads ÷ ST+PC.
 
@@ -395,6 +408,7 @@ onboarding %, charged %, ₹ difference) – **do not guess why**. No onboarding
 
 **Step 10 – Bank check and bridge.** Read the **paid amount, settlement date and UTR** on the Payouts screen / annexure
 `Summary` (`Total Payout`, `Bank UTR`). Bridge in the notes:
+
 ```
 Net Payout (format)
  − GST on Service Fee @18%                         (F row "GST on Service Fee @18%")
@@ -404,36 +418,40 @@ Net Payout (format)
  ± Other Charges that are not ads (adjustments in E)
  = Swiggy Net Payout (G) → compare with the amount paid under the UTR
 ```
-* One UTR can cover several outlets or cycles: sum the payouts under that UTR before comparing.
-* If the owner gives a bank statement, tie each UTR to its line (amount and date).
+
+- One UTR can cover several outlets or cycles: sum the payouts under that UTR before comparing.
+- If the owner gives a bank statement, tie each UTR to its line (amount and date).
 
 ## B3. Known traps (Swiggy)
-* **Use the Total column**: ads and other charges appear only there; the Delivered column of G is not the payout.
-* **Total fees excludes GST on fees**; Order Level "Total Swiggy Fees" includes it – don't double count.
-* **Other Charges can be ads, non-ads or a mix**, and can be positive (refunds). Split by meaning (Step 7).
-* **Two dates**: annexure settlement date (Sat + 3) vs file code / order settlement date (Sat + 4) – not an error.
-* **Month-split cycles** (1–3 Oct): a week or month can contain two cycles – sum them per outlet.
-* **Rounding**: the bridge built from rounded breakup lines can differ from G by a few paise (real: ₹0.04–₹0.13);
+
+- **Use the Total column**: ads and other charges appear only there; the Delivered column of G is not the payout.
+- **Total fees excludes GST on fees**; Order Level "Total Swiggy Fees" includes it – don't double count.
+- **Other Charges can be ads, non-ads or a mix**, and can be positive (refunds). Split by meaning (Step 7).
+- **Two dates**: annexure settlement date (Sat + 3) vs file code / order settlement date (Sat + 4) – not an error.
+- **Month-split cycles** (1–3 Oct): a week or month can contain two cycles – sum them per outlet.
+- **Rounding**: the bridge built from rounded breakup lines can differ from G by a few paise (real: ₹0.04–₹0.13);
   Σ order-level payouts − ads matched G exactly.
-* **Processing cycles**: no annexure until paid; on-screen numbers are "estimated".
-* Re-downloads (`(1).xlsx`) – keep one per RID and cycle.
-* Previous-week outstanding / unsettled deductions move money between cycles – bridge items, check over 2–3 cycles.
+- **Processing cycles**: no annexure until paid; on-screen numbers are "estimated".
+- Re-downloads (`(1).xlsx`) – keep one per RID and cycle.
+- Previous-week outstanding / unsettled deductions move money between cycles – bridge items, check over 2–3 cycles.
 
 ## B4. What correct looks like (Swiggy)
+
 - [ ] One annexure per outlet per cycle (or a listed reason / estimated from screen).
 - [ ] All 11 rows from the Payout Breakup Total column, labels exactly as B0; nothing extra as a row.
 - [ ] CV = Σ order-level Net Bill Value (±₹0.05); Total fees = Σ order-level fees excl. GST (±₹0.10).
 - [ ] Ads lines found by meaning, summed once, label named; non-ad Other Charges in the bridge; unknown deductions flagged.
 - [ ] Commission check done (OK / orders flagged / "assumed rate X% (onboarding rate not yet provided)").
 - [ ] Bridge from Net Payout to G closes with an **absolute difference strictly below ₹1 per outlet per cycle**; G = Summary `Total Payout` = amount paid
-      under the UTR on the payout page (sum per UTR).
+  under the UTR on the payout page (sum per UTR).
 
 ## B5. Escalation (Swiggy) – only after the owner says yes
-* Amount paid under a UTR ≠ G (or ≠ bridged Net Payout) by ₹1 or more; no UTR 2 working days after the settlement date;
+
+- Amount paid under a UTR ≠ G (or ≠ bridged Net Payout) by ₹1 or more; no UTR 2 working days after the settlement date;
   UTR not on the owner's bank statement.
-* Commission % different from the onboarding rate (flagged orders).
-* Ads lines or invoices the owner did not approve, or one invoice in two cycles; Other Charges the owner does not recognise.
-* Complaint refunds / cancellation charges the owner disputes; restaurant share % on a coupon higher than agreed.
+- Commission % different from the onboarding rate (flagged orders).
+- Ads lines or invoices the owner did not approve, or one invoice in two cycles; Other Charges the owner does not recognise.
+- Complaint refunds / cancellation charges the owner disputes; restaurant share % on a coupon higher than agreed.
 
 ```
 Subject: Payout discrepancy – <Restaurant Name>, <Locality> (RID <SWIGGY_RID>) – cycle <DD Mon> – <DD Mon YYYY>
@@ -460,29 +478,33 @@ Regards,
 # PART C – SHARED SECTIONS
 
 ## 6. Purpose
+
 Reconciliation in the owner's format proves, per outlet and per app:
+
 1. **How much of sales reaches the bank** (Net Payout, Payout %) and **where the rest goes** (discounts, ads,
    commission + PG + GST → Burn %), in the same 11 rows every week so outlets and weeks compare directly.
 2. **That the platform paid what its own statement says** – Net Payout bridged to the amount paid under each UTR.
 3. **That commission matches the onboarding agreement**, and every ads line was one the owner approved.
-Small errors (an unapproved ads invoice, a wrong commission %, a missing refund) repeat every week across outlets; this
-catches them and tells the owner where to cut discounts or ads.
+   Small errors (an unapproved ads invoice, a wrong commission %, a missing refund) repeat every week across outlets; this
+   catches them and tells the owner where to cut discounts or ads.
 
 ## 7. Differences (Zomato vs Swiggy, in format terms)
 
-| Row / topic | Zomato | Swiggy |
-|---|---|---|
-| Source | Finance > Payouts; settlement report `Payout Breakup` (often blank → `Order Level`) | Payouts / payout breakup; annexure `Payout Breakup` (Total column) |
-| Period / paid | Week Mon–Sun; paid following Wednesday | Cycle Sun–Sat (split at month end); paid Saturday + 3 (file code Sat + 4) |
-| ST+PC | Sub Total + Packaging Charges | Item total + Packaging charge |
-| Merchant Discount Burn | Rest flat offs + promos (`[Promo]` + `[BOGO, Freebies, Gold, Brand pack & others]`) | Restaurant Discount (coupon based + trade/freebies) |
-| Ads (today's label) | Investment in growth (services) | Other Charges when ads; else "Growth Investment In Ads" |
-| Comm.+PG+GST | Base service fee + long distance + payment mechanism fee + GST on them | Total fees (`B Swiggy Fees`); GST @18% on fees is outside → bridge |
-| Typical bridge items | TDS 194O, TCS, GST 9(5) paise, additions (cancellation refunds, Ads credit, TDS 194H), ads outstanding, penalties, Hyperpure | GST @18% on fees, TDS, TCS, GST paise, complaints & cancellations, non-ad Other Charges |
-| Paid amount / UTR | Payouts screen; `HSummary` / `Bank UTR` per order | Payouts screen; annexure `Summary` `Total Payout` / `Bank UTR` |
+| Row / topic            | Zomato                                                                                                                       | Swiggy                                                                                  |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Source                 | Finance > Payouts; settlement report `Payout Breakup` (often blank → `Order Level`)                                          | Payouts / payout breakup; annexure `Payout Breakup` (Total column)                      |
+| Period / paid          | Week Mon–Sun; paid following Wednesday                                                                                       | Cycle Sun–Sat (split at month end); paid Saturday + 3 (file code Sat + 4)               |
+| ST+PC                  | Sub Total + Packaging Charges                                                                                                | Item total + Packaging charge                                                           |
+| Merchant Discount Burn | Rest flat offs + promos (`[Promo]` + `[BOGO, Freebies, Gold, Brand pack & others]`)                                          | Restaurant Discount (coupon based + trade/freebies)                                     |
+| Ads (today's label)    | Investment in growth (services)                                                                                              | Other Charges when ads; else "Growth Investment In Ads"                                 |
+| Comm.+PG+GST           | Base service fee + long distance + payment mechanism fee + GST on them                                                       | Total fees (`B Swiggy Fees`); GST @18% on fees is outside → bridge                      |
+| Typical bridge items   | TDS 194O, TCS, GST 9(5) paise, additions (cancellation refunds, Ads credit, TDS 194H), ads outstanding, penalties, Hyperpure | GST @18% on fees, TDS, TCS, GST paise, complaints & cancellations, non-ad Other Charges |
+| Paid amount / UTR      | Payouts screen; `HSummary` / `Bank UTR` per order                                                                            | Payouts screen; annexure `Summary` `Total Payout` / `Bank UTR`                          |
 
 ## 8. Combined view
+
 Read the restaurant’s `owner-confirmed-outlet-map.csv` first (columns: outlet, locality, zomato_id, swiggy_rid). An owner-confirmed ID pair is a confirmed match: do not label it uncertain. Use the fallback matching rules below only when no confirmed mapping exists or evidence conflicts.
+
 1. **Match outlets across apps by restaurant NAME** (IDs differ); **locality + city as tiebreaker**. Normalise names
    (lower case, "&" → "and", no punctuation, drop "The"). Same name + same locality → pair; same name, locality unclear →
    pair and mark "match uncertain – please confirm"; same brand in different localities or several candidates → do not
@@ -495,88 +517,95 @@ Read the restaurant’s `owner-confirmed-outlet-map.csv` first (columns: outlet,
    bank-check mismatches).
 
 ## 9. Output (exact format the owner gets)
+
 Title per outlet: `<Restaurant Name> (<Locality>, <City>) | Payout Report | Zomato <DD Mon> – <DD Mon YYYY> · Swiggy <DD>–<DD Mon YYYY>`.
 Rows and labels exactly as A0 / B0. Money `₹#,##,##0.00`, percentages `0.00%`, missing app `—`. Net Payout and
 Payout % in bold. Notes below the table: source and period, Ads label(s) used, commission check, bank bridge.
 
 ### 9.1 Zomato example (week 26 Oct – 1 Nov 2026, anonymised synthetic template)
+
 `<Restaurant Name> (<Locality>, <City>)` – Zomato Delivery, ID `<ZOMATO_RES_ID>`
 
-| Terms | What it means | Zomato (ID <ZOMATO_RES_ID>) |
-|---|---|---:|
-| Orders | Total number of orders | <orders> | <orders> | <orders> |
-| ST+PC | Total Sales | ₹<amount> |
-| Merchant Discount Burn | Discounts given by restaurant | ₹<amount> |
-| Effective Discount % | discount % | <rate>% |
-| CV | commissionable value | ₹<amount> |
-| Ads | ads spent | ₹<amount> |
-| Ads % | ads spent against total sales | <rate>% |
-| Comm.+PG+GST | commission + pg + gst | ₹<amount> |
-| **Net Payout** | total amount in bank account | **₹<amount>** |
-| **Payout %** | % of sales in bank account | **<rate>%** |
-| Burn % | % of burn | <rate>% |
+| Terms                  | What it means                 | Zomato (ID <ZOMATO_RES_ID>) |
+| ---------------------- | ----------------------------- | --------------------------: |
+| Orders                 | Total number of orders        |                    <orders> | <orders> | <orders> |
+| ST+PC                  | Total Sales                   |                   ₹<amount> |
+| Merchant Discount Burn | Discounts given by restaurant |                   ₹<amount> |
+| Effective Discount %   | discount %                    |                     <rate>% |
+| CV                     | commissionable value          |                   ₹<amount> |
+| Ads                    | ads spent                     |                   ₹<amount> |
+| Ads %                  | ads spent against total sales |                     <rate>% |
+| Comm.+PG+GST           | commission + pg + gst         |                   ₹<amount> |
+| **Net Payout**         | total amount in bank account  |               **₹<amount>** |
+| **Payout %**           | % of sales in bank account    |                 **<rate>%** |
+| Burn %                 | % of burn                     |                     <rate>% |
 
 Notes:
-* Source: Zomato settlement report for 26 Oct – 1 Nov 2026 (summary sheet blank → rows computed from Order Level and
+
+- Source: Zomato settlement report for 26 Oct – 1 Nov 2026 (summary sheet blank → rows computed from Order Level and
   Addition Deductions Details). <example-count> orders, all delivered.
-* ST+PC = Sub Total ₹<amount> + Packaging ₹<amount>. Discount = promos ₹<amount> + flat offs/BOGO/freebies ₹<amount>.
-* Ads label used: "Investment in growth services" – <example-count> ADS invoices ₹<amount> (incl. <rate>% GST per the heading), still
+- ST+PC = Sub Total ₹<amount> + Packaging ₹<amount>. Discount = promos ₹<amount> + flat offs/BOGO/freebies ₹<amount>.
+- Ads label used: "Investment in growth services" – <example-count> ADS invoices ₹<amount> (incl. <rate>% GST per the heading), still
   outstanding at download (to be deducted from the payout).
-* Comm.+PG+GST = base service fee ₹<amount> (<rate>%) + long distance ₹<amount> + payment mechanism fee ₹<amount> + GST ₹<amount>.
-* Commission check: charged <rate>% on all <example-count> orders → compare with the onboarding rate (OK / flagged orders / "assumed rate X% (onboarding rate not yet provided)").
-* Bank bridge: Net ₹<amount> − TDS ₹<amount> − TCS ₹<amount> − GST 9(5) paise ₹<amount> + Ads credit ₹<amount> = **₹<amount>**
+- Comm.+PG+GST = base service fee ₹<amount> (<rate>%) + long distance ₹<amount> + payment mechanism fee ₹<amount> + GST ₹<amount>.
+- Commission check: charged <rate>% on all <example-count> orders → compare with the onboarding rate (OK / flagged orders / "assumed rate X% (onboarding rate not yet provided)").
+- Bank bridge: Net ₹<amount> − TDS ₹<amount> − TCS ₹<amount> − GST 9(5) paise ₹<amount> + Ads credit ₹<amount> = **₹<amount>**
   = Zomato's Net Payout for the week; compare with the amount paid under `UTR …<last 4>` on the Payouts screen (payout day Wed 4 Nov 2026).
   UNSURE: the paid amount and UTR for this example week were not read from the Payouts screen when this guide was
   written (the report was downloaded before payout day, all orders `pending`); the bridge stops at Zomato's own payout figure.
 
 ### 9.2 Swiggy example (cycle 25–31 Oct 2026, anonymised synthetic template)
+
 `<Restaurant Name> (<Locality>, <City>)` – Swiggy Delivery, RID `<SWIGGY_RID>`
 
-| Terms | What it means | Swiggy (RID <SWIGGY_RID>) |
-|---|---|---:|
-| Orders | Total number of orders | <orders> | <orders> | <orders> |
-| ST+PC | Total Sales | ₹<amount> |
-| Merchant Discount Burn | Discounts given by restaurant | ₹<amount> |
-| Effective Discount % | discount % | <rate>% |
-| CV | commisionable value | ₹<amount> |
-| Ads | ads spend | ₹<amount> |
-| Ads % | ads spent against total sales | <rate>% |
-| Comm.+PG+GST | commission + pg + gst | ₹<amount> |
-| **Net Payout** | total amount in bank account | **₹<amount>** |
-| **Payout %** | % of sales in bank account | **<rate>%** |
-| Burn % | % of burn | <rate>% |
+| Terms                  | What it means                 | Swiggy (RID <SWIGGY_RID>) |
+| ---------------------- | ----------------------------- | ------------------------: |
+| Orders                 | Total number of orders        |                  <orders> | <orders> | <orders> |
+| ST+PC                  | Total Sales                   |                 ₹<amount> |
+| Merchant Discount Burn | Discounts given by restaurant |                 ₹<amount> |
+| Effective Discount %   | discount %                    |                   <rate>% |
+| CV                     | commisionable value           |                 ₹<amount> |
+| Ads                    | ads spend                     |                 ₹<amount> |
+| Ads %                  | ads spent against total sales |                   <rate>% |
+| Comm.+PG+GST           | commission + pg + gst         |                 ₹<amount> |
+| **Net Payout**         | total amount in bank account  |             **₹<amount>** |
+| **Payout %**           | % of sales in bank account    |               **<rate>%** |
+| Burn %                 | % of burn                     |                   <rate>% |
 
 Notes:
-* Source: Swiggy invoice annexure, payout period 25 October – 31 October 2026 (file code 04112026), Payout Breakup Total column.
+
+- Source: Swiggy invoice annexure, payout period 25 October – 31 October 2026 (file code 04112026), Payout Breakup Total column.
   <example-count> orders (<example-count> delivered + 1 cancelled).
-* ST+PC = Item total ₹<amount> + Packaging ₹<amount>. Restaurant Discount = coupon ₹<amount> + trade/freebies ₹<amount>.
-* Ads label used: Other Charges was ₹<amount> so Ads = "Growth Investment In Ads" (Cost Per Click - Ads) ₹<amount>.
-* Comm.+PG+GST = Total fees ₹<amount> (as given).
-* Commission check: compare each order's Service Fees % with the onboarding rate; flag orders that differ (in this
+- ST+PC = Item total ₹<amount> + Packaging ₹<amount>. Restaurant Discount = coupon ₹<amount> + trade/freebies ₹<amount>.
+- Ads label used: Other Charges was ₹<amount> so Ads = "Growth Investment In Ads" (Cost Per Click - Ads) ₹<amount>.
+- Comm.+PG+GST = Total fees ₹<amount> (as given).
+- Commission check: compare each order's Service Fees % with the onboarding rate; flag orders that differ (in this
   real file the charged % varied by order) or write "assumed rate X% (onboarding rate not yet provided)".
-* Bank bridge: Net ₹<amount> − GST @<rate>% on fees ₹<amount> − TDS ₹<amount> − TCS ₹<amount> − complaints ₹<amount> = ₹<amount>
+- Bank bridge: Net ₹<amount> − GST @<rate>% on fees ₹<amount> − TDS ₹<amount> − TCS ₹<amount> − complaints ₹<amount> = ₹<amount>
   vs paid **₹<amount>** on 03 Nov 2026 under `UTR …<last 4>` → ₹<amount> rounding, **OK**.
 
 ### 9.3 Combined example (owner's standard layout)
+
 `<Restaurant Name> (<Locality>, <City>) | Payout Report | Zomato 26 Oct – 1 Nov 2026 · Swiggy 25–31 Oct 2026`
 
-| Terms | What it means | Zomato (ID <ZOMATO_RES_ID>) | Swiggy (RID <SWIGGY_RID>) | Total |
-|---|---|---:|---:|---:|
-| Orders | Total number of orders | <orders> | <orders> | <orders> |
-| ST+PC | Total Sales | ₹<amount> | ₹<amount> | ₹<amount> |
-| Merchant Discount Burn | Discounts given by restaurant | ₹<amount> | ₹<amount> | ₹<amount> |
-| Effective Discount % | discount % | <rate>% | <rate>% | <rate>% |
-| CV | commissionable value | ₹<amount> | ₹<amount> | ₹<amount> |
-| Ads | ads spent | ₹<amount> | ₹<amount> | ₹<amount> |
-| Ads % | ads spent against total sales | <rate>% | <rate>% | <rate>% |
-| Comm.+PG+GST | commission + pg + gst | ₹<amount> | ₹<amount> | ₹<amount> |
-| **Net Payout** | total amount in bank account | **₹<amount>** | **₹<amount>** | **₹<amount>** |
-| **Payout %** | % of sales in bank account | **<rate>%** | **<rate>%** | **<rate>%** |
-| Burn % | % of burn | <rate>% | <rate>% | <rate>% |
+| Terms                  | What it means                 | Zomato (ID <ZOMATO_RES_ID>) | Swiggy (RID <SWIGGY_RID>) |         Total |
+| ---------------------- | ----------------------------- | --------------------------: | ------------------------: | ------------: |
+| Orders                 | Total number of orders        |                    <orders> |                  <orders> |      <orders> |
+| ST+PC                  | Total Sales                   |                   ₹<amount> |                 ₹<amount> |     ₹<amount> |
+| Merchant Discount Burn | Discounts given by restaurant |                   ₹<amount> |                 ₹<amount> |     ₹<amount> |
+| Effective Discount %   | discount %                    |                     <rate>% |                   <rate>% |       <rate>% |
+| CV                     | commissionable value          |                   ₹<amount> |                 ₹<amount> |     ₹<amount> |
+| Ads                    | ads spent                     |                   ₹<amount> |                 ₹<amount> |     ₹<amount> |
+| Ads %                  | ads spent against total sales |                     <rate>% |                   <rate>% |       <rate>% |
+| Comm.+PG+GST           | commission + pg + gst         |                   ₹<amount> |                 ₹<amount> |     ₹<amount> |
+| **Net Payout**         | total amount in bank account  |               **₹<amount>** |             **₹<amount>** | **₹<amount>** |
+| **Payout %**           | % of sales in bank account    |                 **<rate>%** |               **<rate>%** |   **<rate>%** |
+| Burn %                 | % of burn                     |                     <rate>% |                   <rate>% |       <rate>% |
 
 Notes: Zomato notes as in 9.1; Swiggy notes as in 9.2; outlet matched by name + locality.
 
 Short chat message (sent with the table image):
+
 ```
 *<Restaurant Name> (<Locality>, <City>) – Weekly Payouts 26 Oct – 1 Nov 2026*
 Zomato 26 Oct – 1 Nov 2026 · Swiggy 25–31 Oct 2026
@@ -596,6 +625,7 @@ _Swiggy paid ₹<amount> = Net − GST @<rate>% on fees ₹<amount> − TDS ₹<
 ```
 
 Overall summary after all outlets:
+
 ```
 *Payout reconciliation – Zomato <DD Mon> – <DD Mon YYYY> · Swiggy <DD>–<DD Mon YYYY>*
 <N> outlets: <a> on both apps, <b> Zomato only, <c> Swiggy only.
@@ -613,16 +643,17 @@ Swiggy Net Payout | Swiggy Payout % | Swiggy Burn % | Total Net Payout | Total P
 Commission check), then one sheet per outlet with the 9.3 table and its notes.
 
 ## 10. Approval points (need the owner's explicit yes first)
-* **Any message to a platform, account manager, support or anyone other than the owner** – dispute emails, tickets,
+
+- **Any message to a platform, account manager, support or anyone other than the owner** – dispute emails, tickets,
   chats, help forms. Show the full draft (to, subject, body, attachments) first.
-* **Raising or escalating a dispute**, or accepting / rejecting a platform's resolution.
-* **Any change on a dashboard** (settings, menu, prices, offers, ads campaigns or budgets, outlet status, bank or tax
+- **Raising or escalating a dispute**, or accepting / rejecting a platform's resolution.
+- **Any change on a dashboard** (settings, menu, prices, offers, ads campaigns or budgets, outlet status, bank or tax
   details, programme opt-ins). Default: never – dashboards are read-only.
-* Treating an **uncertain outlet match** as final; treating an **unknown deduction** as ads or not ads.
-* Treating an assumed rate as contractually agreed, or changing the configured actual onboarding rate without owner confirmation.
-* Adding a row, changing a row's source, or moving a bridge item into a row.
-* Sending corrections that replace an earlier report (say "this replaces the earlier message").
-* Sharing reports with anyone else (accountant, staff) or uploading them outside the owner's chat.
+- Treating an **uncertain outlet match** as final; treating an **unknown deduction** as ads or not ads.
+- Treating an assumed rate as contractually agreed, or changing the configured actual onboarding rate without owner confirmation.
+- Adding a row, changing a row's source, or moving a bridge item into a row.
+- Sending corrections that replace an earlier report (say "this replaces the earlier message").
+- Sharing reports with anyone else (accountant, staff) or uploading them outside the owner's chat.
 
 Never needs approval: downloading reports, reading screens, calculating, building the workbook, and sending the report
 to the owner in the chat where they asked for it.
@@ -634,11 +665,13 @@ OWNER-FACING PRESENTATION RULE (10 Nov 2026): Chat, image and owner Markdown not
 These guides are part of this skill. The installed commands above are the ones to run.
 
 # Default output: ONE consolidated payout report
+
 Every payout/reconciliation request defaults to one consolidated report across all connected platforms (Zomato + Swiggy, with future platforms added through adapters). Never send separate per-app reports unless explicitly requested or the outlet operates on only one platform. Even “did Zomato pay me” gets the consolidated report, highlighting the Zomato line. Part A/B are INTERNAL collection/calculation steps; Part C is owner output.
 
 No hardcoded outlet, week, paid amount or commission contract. Read the restaurant's private configuration at runtime; none is shipped here.
 
 ## Safety and retained sessions
+
 - View/download only. Never change menus, prices, ads, offers, bank/account settings or outlet status; never accept programmes, raise disputes/tickets or type into platform chat/help/AI panels.
 - NEVER email/send-to-mail/send-report/envelope actions, even icons resembling downloads. If a direct-file control cannot be distinguished safely, stop.
 - Retain the browser profile; if either platform needs login/OTP, stop and report. No OTP requests/resends during reconciliation. No cookies, tokens, private APIs, CDP or shell-driven browsing. The separately documented OTP method is only for an explicitly authorized onboarding/sign-in task.
@@ -646,6 +679,7 @@ No hardcoded outlet, week, paid amount or commission contract. Read the restaura
 - Use an enforced per-task budget and stop reserve. Never start another run automatically.
 
 ## Adaptive workflow
+
 1. Read configured outlet scope and `owner-confirmed-outlet-map.csv`. Verify selected name/ID BEFORE reading payout figures on each app; a preselected different outlet is not authority. Fail closed on a wrong outlet, conflicting IDs or ambiguous selection.
 2. On Zomato Finance/Payouts, find the latest FULLY PAID Mon–Sun week, skipping processing/unpaid weeks. On Swiggy Finance/Past Payouts (`https://partner.swiggy.com/food/finance`), take fully paid cycle(s) ending inside that week. Discover dates from live evidence, not example dates or stale downloads. State both service periods.
 3. Directly download fresh correct-outlet settlement/annexure files. Read same-period status, amount paid, paid date and UTR last four from the live payout screen; do not call estimates paid. Keep source files private.
@@ -654,6 +688,7 @@ No hardcoded outlet, week, paid amount or commission contract. Read the restaura
 6. Give the owner Part C 9.3 short chat message (title, both periods, seven-row Term/Zomato/Swiggy/Total table, italic paid lines), the full eleven-row combined PNG, and ONE workbook with Summary then outlet sheet(s). Bold Net Payout and Payout %. Missing app: em dash; no fabricated zero report.
 
 ## Plain owner notes; technical Excel only
+
 One short bank-check line per app: “<Platform> paid <amount> on <date> (UTR …<last4>) – matches, <amount> rounding”. One commission-flags line and one ads-labels line. Do not show bridge equations, source residual jargon or every order flag in chat/image. Full bridge, source inconsistencies, source labels and individual flags belong ONLY in the Excel outlet sheet. Never hide a real mismatch.
 
 Absolute bank gap <₹1 is accepted with “rounding difference ₹X” or a plain “₹X rounding” paid line. Exactly ₹1 and larger fail. Zero is an exact match. Never invent an adjustment to hit the paid amount. No bank statement checked means no claim that funds were independently received.
@@ -661,6 +696,7 @@ Absolute bank gap <₹1 is accepted with “rounding difference ₹X” or a pla
 Owner-confirmed map wins over name/locality inference. Store only owner-confirmed rows, never guesses. When no confirmed mapping exists, same normalized name with unclear locality remains “match uncertain – please confirm”; different cities/localities or multiple candidates are not paired. Never silently label an unknown mapping confirmed.
 
 # Zomato internal reconciliation adapter
+
 The consolidated-default and safety rules in installed-combined-instructions.md always apply. A platform-specific question does not authorize a separate owner report.
 
 Read configured restaurant scope; verify selected outlet name/ID before figures. Navigate by meaning/live DOM to Finance/Payouts. Select the most recent FULLY PAID Mon–Sun week, not merely the most recently completed but unpaid week. Download the correct settlement directly; an Actions/envelope/send-report/send-to-mail control is forbidden. Stop when ambiguous or logged out; no OTP request.
@@ -674,6 +710,7 @@ Commission contract is a per-outlet setting. When absent, assume the modal charg
 The calculator's per-app technical JSON/Markdown is INTERNAL input to the combined builder, not another owner attachment. Output only the consolidated short chat + combined PNG + workbook. Short owner notes; full bridge/flags Excel-only. Absolute paid/bridge gap <₹1 accepted with a rounding note; ≥₹1 fails.
 
 # Swiggy internal reconciliation adapter
+
 The consolidated-default and safety rules in installed-combined-instructions.md always apply. No per-app owner attachment unless explicitly requested or single-platform outlet.
 
 Use retained session at https://partner.swiggy.com/food/finance and navigate by current page meaning/live DOM. Before reading figures verify the configured restaurant NAME and RID; never read whatever other outlet happens to be selected. On Past Payouts select fully paid cycle(s) ending in the chosen Zomato week. Skip newer processing/estimated cycles. If login/OTP appears STOP; no OTP request/resend. No email/envelope/send-to-mail/report-to-mail actions or settings changes.
@@ -689,11 +726,13 @@ Assume the modal charged commission percentage only when the per-outlet onboardi
 Pass bank rounding only for absolute gap <₹1; exactly ₹1 and more fail. Retain exact-zero diagnostic separately. Owner paid lines are plain/short; full technical bridge, GST detail and all flags ONLY in combined Excel outlet sheet. Hand generated per-app JSON to payout-combined; owner receives one consolidated message, image and workbook.
 
 # Swiggy split-box OTP entry — onboarding only
+
 Never initiate/request/resend an OTP during reconciliation. If logged out, stop. This method is only for a separate, explicitly authorized owner sign-in task.
 
 Observed widget failure: typing a full string with a browser action bound to box one can stop after its first character because focus auto-advances. Direct empty-value assignments can be undone by React re-renders. Do not assume prior rejected codes were caused by this without evidence.
 
 Corrected method, only when authorized:
+
 1. Focus the LAST box and send native Backspace six times. Confirm six empty boxes using filled-count state, not logged digit values.
 2. Focus FIRST box and use native desktop keyboard string entry once, allowing normal auto-advance. Do not use page typing bound to the first input.
 3. Check only that six boxes are filled. Never screenshot, read back, echo or store a real code; never write it into files/logs or use Enter automatically.

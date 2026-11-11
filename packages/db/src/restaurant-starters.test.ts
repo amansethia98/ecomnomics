@@ -51,9 +51,12 @@ function memoryDb(computerHost: string | null = null) {
   let threadSeq = 0;
 
   function hydrate(row: BotRow) {
+    const thread = threads.find((item) => item.botId === row.id);
     return {
       ...row,
-      thread: threads.find((thread) => thread.botId === row.id) ?? null,
+      thread: thread
+        ? { id: thread.id, reads: [{ unread: thread.unread, snoozedUntil: null }] }
+        : null,
       computer: computers.find((computer) => computer.id === row.computerId) ?? null,
     };
   }
@@ -167,6 +170,11 @@ function memoryDb(computerHost: string | null = null) {
   };
 
   const computer = {
+    findUnique: async ({ where }: { where: { homeKey?: string; scopeKey?: string } }) => {
+      if (where.homeKey) return computers.find((row) => row.homeKey === where.homeKey) ?? null;
+      if (where.scopeKey) return computers.find((row) => row.scopeKey === where.scopeKey) ?? null;
+      return null;
+    },
     upsert: async ({ where, create }: { where: { scopeKey: string }; create: ComputerRow }) => {
       const existing = computers.find((row) => row.scopeKey === where.scopeKey);
       if (existing) return existing;
@@ -180,6 +188,8 @@ function memoryDb(computerHost: string | null = null) {
     $queryRaw: async () => [],
     spaceMember: {
       findUnique: async () => ({ organizationId: "org", space: { deletingAt: null } }),
+      // No membership row: the computer stays with the person who created the bot.
+      findFirst: async () => null,
     },
     bot,
     computer,

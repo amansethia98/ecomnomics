@@ -13,6 +13,7 @@ import type {
 import { afterEach, describe, expect, it } from "vitest";
 import { ES_MESSAGES } from "./locales/es.js";
 import { HE_MESSAGES } from "./locales/he.js";
+import { PL_MESSAGES } from "./locales/pl.js";
 
 type DesktopSetupResult = Awaited<ReturnType<RakazoSetup["save"]>>;
 
@@ -405,6 +406,37 @@ describe("setup", () => {
     expect(element<HTMLButtonElement>("continue").disabled).toBe(false);
   });
 
+  // The follow may be waiting on the stack, or reading the app's state after the stack became
+  // ready, when the person switches to an existing instance.
+  for (const leaveAfterReady of [false, true]) {
+    it(`saves nothing when This computer is left ${leaveAfterReady ? "after the stack became ready" : "before the stack is ready"}`, async () => {
+      const ui = await boot(null);
+      selectMode("new");
+      submitForm();
+      ui.startResult.resolve(stackState("pulling"));
+      await flush();
+      expect(element("stack-phase").textContent).toBe("Downloading Rakazo…");
+
+      if (leaveAfterReady) {
+        ui.resolveStackState(stackState("ready"));
+        await flush();
+      }
+      selectMode("existing");
+      await flush();
+      // Answer every read a follow could still make, so a save it would start has started.
+      for (let round = 0; round < 3; round += 1) {
+        ui.pushStackState(stackState("ready"));
+        ui.resolveStackState(stackState("ready"));
+        await flush();
+        ui.resolveAppState(null);
+        await flush();
+      }
+
+      expect(ui.saves).toEqual([]);
+      expect(element<HTMLButtonElement>("continue").disabled).toBe(false);
+    });
+  }
+
   it("lays a right-to-left language out right to left", async () => {
     await boot(null, { lang: "he", dir: "rtl", messages: HE_MESSAGES });
     expect(document.documentElement.lang).toBe("he");
@@ -445,5 +477,38 @@ describe("setup", () => {
     await flush();
     expect(element("stack-phase").textContent).toBe("Descargando Rakazo…");
     expect(element("stack-detail").textContent).toBe("3 MB descargados");
+  });
+
+  it("renders Polish setup controls and interpolates connection and download status", async () => {
+    const ui = await boot(null, { lang: "pl", dir: "ltr", messages: PL_MESSAGES });
+    expect(document.documentElement.lang).toBe("pl");
+    expect(document.documentElement.dir).toBe("ltr");
+    expect(document.querySelector("h1")?.textContent).toBe("Witaj w Rakazo");
+    expect(element("continue").textContent).toBe(PL_MESSAGES.Continue);
+    expect(element("stack-details").getAttribute("aria-label")).toBe(
+      PL_MESSAGES["Technical details"],
+    );
+    expect(element<HTMLTextAreaElement>("server-headers").placeholder).toBe(
+      PL_MESSAGES["Name: value"],
+    );
+
+    selectMode("existing");
+    await flush();
+    element<HTMLInputElement>("server-url").value = "one.example";
+    element<HTMLButtonElement>("check").click();
+    await flush();
+    expect(element("status").textContent).toBe(PL_MESSAGES["Checking…"]);
+    ui.resolveCheck({ ok: true, url: "https://one.example" });
+    await flush();
+    expect(element("status").textContent).toBe(
+      "Rakazo odpowiedziało pod adresem https://one.example.",
+    );
+
+    selectMode("new");
+    submitForm();
+    ui.startResult.resolve({ ...stackState("pulling"), layerBytes: { layer: 2.5e6 } });
+    await flush();
+    expect(element("stack-phase").textContent).toBe(PL_MESSAGES["Downloading Rakazo…"]);
+    expect(element("stack-detail").textContent).toBe("Pobrano 3 MB");
   });
 });
