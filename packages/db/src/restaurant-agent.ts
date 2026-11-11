@@ -651,11 +651,9 @@ export async function transitionAction(
   }
   if (step === "same") {
     if (input.result === undefined) return actionJson(existing);
-    const updated = await db.action.update({
-      where: { id: existing.id },
-      data: { result: jsonOrNull(input.result) },
+    return writeAction(db, existing, scope, {
+      result: jsonOrNull(input.result),
     });
-    return actionJson(updated);
   }
   if (to === "approved" || to === "executing" || to === "executed") {
     const messageId = to === "approved" ? input.approvedByMessageId : existing.approvedByMessageId;
@@ -675,15 +673,41 @@ export async function transitionAction(
     }
   }
   const stamp = actionStamp(to);
-  const updated = await db.action.update({
-    where: { id: existing.id },
-    data: {
-      status: to,
-      ...(to === "approved" ? { approvedByMessageId: input.approvedByMessageId } : {}),
-      ...(stamp && existing[stamp] == null ? { [stamp]: now } : {}),
-      ...(input.result !== undefined ? { result: jsonOrNull(input.result) } : {}),
-    },
+  return writeAction(db, existing, scope, {
+    status: to,
+    ...(to === "approved" ? { approvedByMessageId: input.approvedByMessageId } : {}),
+    ...(stamp && existing[stamp] == null ? { [stamp]: now } : {}),
+    ...(input.result !== undefined ? { result: jsonOrNull(input.result) } : {}),
   });
+}
+
+/** Writes only if the status is still the one just validated, so a second instance cannot overwrite it. */
+async function writeAction(
+  db: PrismaClient,
+  existing: { id: string; status: string },
+  scope: RestaurantScope,
+  data: Parameters<PrismaClient["action"]["update"]>[0]["data"],
+) {
+  const written = await db.action.updateMany({
+    where: {
+      id: existing.id,
+      status: existing.status,
+      restaurantId: scope.restaurantId,
+      spaceId: scope.spaceId,
+    },
+    data,
+  });
+  if (written.count !== 1) {
+    throw new RestaurantAgentError(
+      "invalid_transition",
+      409,
+      "This action changed before the update was saved.",
+    );
+  }
+  const updated = await db.action.findFirst({
+    where: { id: existing.id, restaurantId: scope.restaurantId, spaceId: scope.spaceId },
+  });
+  if (!updated) throw new RestaurantAgentError("not_found", 404, "Action not found");
   return actionJson(updated);
 }
 

@@ -418,6 +418,35 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
     expect(foreign.status).toBe(404);
   });
 
+  it("lets only one of two overlapping status changes win", async () => {
+    const created = await call("POST", "/agent/v1/actions", tokenA, {
+      outletId: null,
+      platform: "swiggy",
+      type: "other",
+      title: "Race",
+      details: {},
+      estCostPaise: null,
+      chatMessageId: null,
+      clientNonce: `race-${suffix}`,
+    });
+    const action = (await created.json()) as { actionId: string };
+    const approved = await call("PATCH", `/agent/v1/actions/${action.actionId}`, tokenA, {
+      status: "approved",
+      approvedByMessageId: approvalMessage,
+    });
+    expect(approved.status).toBe(200);
+    const [rejected, executing] = await Promise.all([
+      call("PATCH", `/agent/v1/actions/${action.actionId}`, tokenA, { status: "rejected" }),
+      call("PATCH", `/agent/v1/actions/${action.actionId}`, tokenA, { status: "executing" }),
+    ]);
+    const statuses = [rejected.status, executing.status].sort();
+    expect(statuses).toEqual([200, 409]);
+    const stored = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.action.findFirst({ where: { id: action.actionId }, select: { status: true } }),
+    );
+    expect(stored?.status === "rejected" || stored?.status === "executing").toBe(true);
+  });
+
   it("stores a report file behind the signed upload link", async () => {
     const created = await call("POST", "/agent/v1/reports", tokenA, {
       type: "weekly",

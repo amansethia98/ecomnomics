@@ -9,6 +9,7 @@ export const MAX_RPC_REQUEST_BYTES = 16 * 1024 * 1024;
 export function requestBodyLimit(
   maxSize: number,
   tooLargeMessage = "Request body is too large.",
+  code?: string,
 ): MiddlewareHandler {
   if (!Number.isSafeInteger(maxSize) || maxSize <= 0) {
     throw new Error("Request body limit must be a positive integer");
@@ -22,7 +23,7 @@ export function requestBodyLimit(
       const declared = /^[0-9]+$/.test(contentLength) ? Number(contentLength) : Number.NaN;
       if (!Number.isSafeInteger(declared) || declared < 0 || declared > maxSize) {
         cancelBody(request.body);
-        return c.json({ error: tooLargeMessage }, 413);
+        return c.json(code ? { error: tooLargeMessage, code } : { error: tooLargeMessage }, 413);
       }
       return next();
     }
@@ -37,7 +38,7 @@ export function requestBodyLimit(
         size += value.byteLength;
         if (size > maxSize) {
           cancelBody(reader);
-          return c.json({ error: tooLargeMessage }, 413);
+          return c.json(code ? { error: tooLargeMessage, code } : { error: tooLargeMessage }, 413);
         }
         chunks.push(value);
       }

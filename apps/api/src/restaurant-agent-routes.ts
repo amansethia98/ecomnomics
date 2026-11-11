@@ -26,12 +26,15 @@ import {
 } from "@rakazo/db";
 import type { Context } from "hono";
 import { Hono } from "hono";
+import { requestBodyLimit } from "./request-body-limit.js";
 import {
   MAX_UPLOAD_BYTES,
   UPLOAD_TTL_MS,
   uploadSignature,
   uploadSignatureMatches,
 } from "./restaurant-upload.js";
+
+const MAX_AGENT_JSON_BYTES = 1024 * 1024;
 
 type AgentEnv = { Variables: { restaurantId: string; spaceId: string; userId: string } };
 
@@ -46,6 +49,23 @@ export interface RestaurantAgentRouteOptions {
 
 export function restaurantAgentRoutes(options: RestaurantAgentRouteOptions) {
   const app = new Hono<AgentEnv>();
+  const jsonLimit = requestBodyLimit(
+    MAX_AGENT_JSON_BYTES,
+    "Request body is too large.",
+    "invalid_body",
+  );
+  const fileLimit = requestBodyLimit(
+    MAX_UPLOAD_BYTES,
+    "File is larger than 20 MB.",
+    "invalid_body",
+  );
+  app.use("/agent/v1/reports/:reportId/files/:name", fileLimit);
+  app.use("/agent/v1/actions/:actionId/files/:name", fileLimit);
+  app.use("/agent/v1/metrics", jsonLimit);
+  app.use("/agent/v1/reports", jsonLimit);
+  app.use("/agent/v1/actions", jsonLimit);
+  app.use("/agent/v1/actions/:actionId", jsonLimit);
+  app.use("/agent/v1/runs", jsonLimit);
 
   app.use("/agent/v1/*", async (c, next) => {
     try {

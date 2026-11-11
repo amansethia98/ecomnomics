@@ -203,7 +203,7 @@ Response `201`:
 | `rejected` | none |
 | `reverted` | none |
 
-Sending the status the action already has is a retry and does not ask for approval again.
+Sending the status the action already has is a retry and does not ask for approval again. The update is saved only if the status is still the one that was checked. If another request moved it first, this one is `409` `invalid_transition`.
 
 `approved`, `executing`, and `executed` require a chat message that a person in this restaurant sent. On the move to `approved`, send `approvedByMessageId`. Later moves re-check the message already stored. The message has to be a user message in a thread of this space, and the person who owns that thread has to be a current member of the space. A bot message, a message from another restaurant, or a person who is not a member is `409` `approval_required`. The same sentence is used for each of those, so a guess does not reveal which one it was.
 
