@@ -1,7 +1,19 @@
 ---
 name: Payout reconciliation
-description: One consolidated Zomato and Swiggy payout report. Read-only.
+description: Read first for Zomato or Swiggy payouts/reconciliation. Read-only.
 ---
+
+## Fast, verified execution (both platforms)
+
+Read this skill before acting, including separately authorized login tasks. Reuse the loaded skill across credential/code replies for this same task; do not load the Zomato-only recipe for a Swiggy-only task.
+
+Before opening a login or finance page, run `/usr/local/bin/payout-preflight --platform zomato` or `--platform swiggy` once. If it reports an absent/inaccessible installed library, stop and report that the computer image needs rebuilding. Do not spend time on login, dependency installation, permission workarounds, helper discovery or source inspection. The installed commands and private-file paths are listed below; use them directly.
+
+After sign-in, use the page returned by `browser_act`: it already contains a fresh snapshot. Do not immediately request another full snapshot unless relevant refs are missing, navigation has not settled, or the page changed. When available, use a focused snapshot query for the outlet ID or period. For an outlet switch, use the visible selector's search once with the outlet ID from this restaurant's settings, verify the selected ID/name against those settings, then continue. Never guess URLs, bypass verification, or change the separately authorized login method to save time.
+
+For every platform, determine payment scope from this restaurant's actual export and live dashboard. Do not assume a particular tab exists, that an export combines brands/components, or that a tab named All is appropriate. Select only a dashboard view covering the same components, configured outlet, period and payment reference as the export; record the observed scope in the screen JSON. If no matching view exists, or the calculator does not support that export scope, stop and explain the mismatch. Keep component-only discrepancies separate; never call them rounding or silently allocate them elsewhere. Capture the verified scope/period/payment once, download one fresh file, run the installed calculator, and stop browser exploration once required checks are complete.
+
+Do not use desktop screenshots/clicks for routine navigation when the structured page works. Use one shell call for independent path/existence checks if needed, not a sequence of exploratory `which`, `ls`, package reads and retries. A failed installed calculator is a blocker, not permission to invent the table.
 
 ## Default output — ALWAYS ONE CONSOLIDATED REPORT
 
@@ -78,7 +90,7 @@ Lines starting with **UNSURE:** mark something not verified from real files; fol
 4. **No secrets:** no passwords, OTPs, phone numbers, email addresses, bank account numbers, full UTRs or customer data
    (customer IDs, names, addresses) in this file, notes, file names or messages. Show a UTR as `UTR …<last 4>` only.
    The owner signs in or gives a one-time code; use it once, never store or repeat it.
-5. **Times** in the owner's zone (India: IST, UTC+5:30), e.g. "4 Nov 2026, 10:05 AM IST".
+5. **Times** in the owner's zone (India: IST, UTC+5:30), using the actual date, time and zone label.
 6. **Money** to two decimals while calculating; Indian grouping for the owner (₹<amount>). Percentages to two
    decimals. Totals and percentages are recomputed from sums, never averaged.
 7. **Outlet-wise.** One table per outlet (Zomato restaurant ID / Swiggy RID), then a combined view.
@@ -129,14 +141,14 @@ Source: from the dashboard, **Finance > Payouts** (and its downloadable settleme
 
 ## A1. Inputs (Zomato)
 
-| #   | Input                                                                                             | Used for                                                                          | Where (general)                                                                                              | Date range                                                                                    | Format                  |
-| --- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- | ----------------------- |
-| Z1  | **Settlement report** `Zomato_Settlement_Report_<ZOMATO_RES_ID>_<DD Mon YYYY>_<DD Mon YYYY>.xlsx` | All 11 rows (sheet `Payout Breakup`; `Order Level` to verify) and the bank bridge | Finance > Payouts → select the outlet → the week (or custom range) → download the settlement / payout report | Weekly: Zomato week **Mon–Sun** (e.g. 26 Oct – 01 Nov 2026). Month-end: 1st–last day of month | `.xlsx`, one per outlet |
-| Z2  | **Payouts screen** for the week                                                                   | Paid amount, paid date, UTR, paid/pending status (bank check)                     | Finance > Payouts → the week's payout row / details                                                          | Same week                                                                                     | Screen (read and note)  |
-| Z3  | Ads / growth invoices                                                                             | Confirm the Ads row                                                               | Finance > Invoices (or the week's payout details)                                                            | Same week                                                                                     | PDF                     |
-| Z4  | **Onboarding record** of the outlet                                                               | Agreed commission % and any cap (commission check)                                | The restaurant's onboarding sheet / record kept by the onboarding process                                    | Current agreement                                                                             | Sheet / document        |
-| Z5  | Bank statement (optional, if the owner gives it)                                                  | Tie each UTR to its bank line                                                     | Owner supplies it                                                                                            | Payout dates + a few days                                                                     | CSV / XLSX / PDF        |
-| Z6  | Outlet list (ID, name, locality, city)                                                            | Cross-app matching, coverage                                                      | Outlet picker at the top of the dashboard                                                                    | –                                                                                             | Your own TSV/CSV        |
+| #   | Input                                                                                             | Used for                                                                          | Where (general)                                                                                              | Date range                                                                                                                    | Format                  |
+| --- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| Z1  | **Settlement report** `Zomato_Settlement_Report_<ZOMATO_RES_ID>_<DD Mon YYYY>_<DD Mon YYYY>.xlsx` | All 11 rows (sheet `Payout Breakup`; `Order Level` to verify) and the bank bridge | Finance > Payouts → select the outlet → the week (or custom range) → download the settlement / payout report | Use the actual service-period bounds requested by the owner and shown in the export/dashboard; verify any week or month split | `.xlsx`, one per outlet |
+| Z2  | **Payouts screen** for the week                                                                   | Paid amount, paid date, UTR, paid/pending status (bank check)                     | Finance > Payouts → the week's payout row / details                                                          | Same week                                                                                                                     | Screen (read and note)  |
+| Z3  | Ads / growth invoices                                                                             | Confirm the Ads row                                                               | Finance > Invoices (or the week's payout details)                                                            | Same week                                                                                                                     | PDF                     |
+| Z4  | **Onboarding record** of the outlet                                                               | Agreed commission % and any cap (commission check)                                | The restaurant's onboarding sheet / record kept by the onboarding process                                    | Current agreement                                                                                                             | Sheet / document        |
+| Z5  | Bank statement (optional, if the owner gives it)                                                  | Tie each UTR to its bank line                                                     | Owner supplies it                                                                                            | Payout dates + a few days                                                                                                     | CSV / XLSX / PDF        |
+| Z6  | Outlet list (ID, name, locality, city)                                                            | Cross-app matching, coverage                                                      | Outlet picker at the top of the dashboard                                                                    | –                                                                                                                             | Your own TSV/CSV        |
 
 UNSURE: the labels on the Zomato Finance > Payouts _screen_ itself were not checked line by line for this guide (only the
 downloaded settlement report was). If the screen and the file differ, use the file and note the difference.
@@ -158,7 +170,7 @@ What the Zomato settlement report contains (verified on real files): sheets `Sum
   `H Total Additions (24 Cancellation refund, 25 Tip for kitchen staff, 26 TDS 194H and other Res id level additions,
   27 Restaurant-level service fees rebate)`; `I Net Payout (A − B − C − D − E − F − G + H)`; settlement breakdown
   (amount settled / pending).
-- `HSummary`: period, restaurant ID, name, address, pay-out cycle (real files: `Weekly (Every Wednesday)`), UTR list.
+- `HSummary`: period, restaurant ID, name, address, pay-out cycle (use the actual header, never an example weekday), UTR list.
 - `Order Level`: one row per order with the same items per order plus `Order status`, `Settlement status`,
   `Settlement date`, `Bank UTR`. It also holds `Customer ID` – **customer data, never copy it**.
 - `Addition Deductions Details`: restaurant-level lines – additions (e.g. type `ADS` credit, `TDS_194H`, `TDS_194O`)
@@ -167,8 +179,7 @@ What the Zomato settlement report contains (verified on real files): sheets `Sum
 
 ## A2. Step-by-step logic (Zomato) – fill the 11 rows, then check
 
-**Step 1 – Period and files.** Zomato week = Monday–Sunday by order date; real files show it is paid the following
-**Wednesday** (26 Oct – 1 Nov 2026 → Wed 4 Nov). Download Z1 for every outlet; read Z2 after payout day.
+**Step 1 – Period and files.** Read the service period and settlement date from the current export and dashboard. Do not infer payout dates from a fixed weekday offset. Download Z1 for each configured outlet in scope; read Z2 when its payout is actually marked paid.
 
 **Step 2 – Orders** = `Total Orders` (Payout Breakup `Number of Orders`, Total column = delivered + cancelled/rejected).
 Verify: count of rows in `Order Level`.
@@ -259,7 +270,7 @@ Net Payout (format)
 - **Customer GST is not the restaurant's money** on delivery orders (u/s 9(5) Zomato pays it); a few paise between
   collected and paid is normal.
 - **Cancelled/rejected orders** count in Orders; they carry no commission and their refund is an addition (bridge).
-- **Month-end**: the week that crosses a month (26 Oct – 1 Nov) is split between month reports; the last week of a
+- **Month-end**: a service period that crosses a month boundary is split between month reports; the last week of a
   month report is usually still pending on the 1st–2nd.
 - Comm.+PG+GST summed from rounded columns can differ by a paisa from the unrounded total – normal.
 - Payment mechanism fee can be 0 for an outlet – take it as shown.
@@ -327,14 +338,14 @@ Source: from the dashboard (**Payouts / payout breakup**, and the downloadable i
 
 ## B1. Inputs (Swiggy)
 
-| #   | Input                                                                            | Used for                                                                              | Where (general)                                                                            | Date range                                                                                              | Format                            |
-| --- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| S1  | **Invoice annexure** `invoice_Annexure_<SWIGGY_RID>_<DDMMYYYY>_<13 digits>.xlsx` | All 11 rows (sheet `Payout Breakup`, Total column) and the bridge                     | Finance → Payouts (past payouts) → select outlet → the cycle → download invoice / annexure | One payout cycle, normally **Sunday–Saturday** (e.g. 25–31 Oct 2026), split at month end (e.g. 1–3 Oct) | `.xlsx`, one per outlet per cycle |
-| S2  | **Payouts screen / payout breakup** for the cycle                                | Paid amount, date, UTR, status; numbers for cycles with no annexure yet ("estimated") | Finance → Payouts → the cycle → details (expand every row)                                 | Same cycle                                                                                              | Screen                            |
-| S3  | Ads invoices                                                                     | Confirm the Ads row                                                                   | Finance → Invoices                                                                         | Same cycle                                                                                              | PDF                               |
-| S4  | **Onboarding record** of the outlet                                              | Agreed commission % and cap                                                           | Restaurant's onboarding sheet / record                                                     | Current agreement                                                                                       | Sheet / document                  |
-| S5  | Bank statement (optional)                                                        | Tie each UTR to its bank line                                                         | Owner supplies it                                                                          | Settlement dates + a few days                                                                           | CSV / XLSX / PDF                  |
-| S6  | Outlet list (RID, name, locality, city)                                          | Matching, coverage                                                                    | Outlet selector; first lines of the annexure `Summary`                                     | –                                                                                                       | Your own TSV/CSV                  |
+| #   | Input                                                                            | Used for                                                                              | Where (general)                                                                            | Date range                                                                                   | Format                            |
+| --- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- | --------------------------------- |
+| S1  | **Invoice annexure** `invoice_Annexure_<SWIGGY_RID>_<DDMMYYYY>_<13 digits>.xlsx` | All 11 rows (sheet `Payout Breakup`, Total column) and the bridge                     | Finance → Payouts (past payouts) → select outlet → the cycle → download invoice / annexure | The actual payout cycle shown in the current export/dashboard, including any month-end split | `.xlsx`, one per outlet per cycle |
+| S2  | **Payouts screen / payout breakup** for the cycle                                | Paid amount, date, UTR, status; numbers for cycles with no annexure yet ("estimated") | Finance → Payouts → the cycle → details (expand every row)                                 | Same cycle                                                                                   | Screen                            |
+| S3  | Ads invoices                                                                     | Confirm the Ads row                                                                   | Finance → Invoices                                                                         | Same cycle                                                                                   | PDF                               |
+| S4  | **Onboarding record** of the outlet                                              | Agreed commission % and cap                                                           | Restaurant's onboarding sheet / record                                                     | Current agreement                                                                            | Sheet / document                  |
+| S5  | Bank statement (optional)                                                        | Tie each UTR to its bank line                                                         | Owner supplies it                                                                          | Settlement dates + a few days                                                                | CSV / XLSX / PDF                  |
+| S6  | Outlet list (RID, name, locality, city)                                          | Matching, coverage                                                                    | Outlet selector; first lines of the annexure `Summary`                                     | –                                                                                            | Your own TSV/CSV                  |
 
 What the Swiggy annexure contains (verified on real files): sheets `Summary`, `Payout Breakup`, `Order Level`,
 (`Item Level`), `Unresolved Customer Complaints`, `Growth Investments and Other De…`, `Discount Summary`, `Glossary`.
@@ -355,10 +366,7 @@ What the Swiggy annexure contains (verified on real files): sheets `Summary`, `P
 
 ## B2. Step-by-step logic (Swiggy) – fill the 11 rows, then check
 
-**Step 1 – Period and files.** Cycle Sunday–Saturday, split at month end. Real files: annexure `Payout Settlement Date`
-= cycle-end Saturday + 3 days (25–31 Oct → 03 Nov); the file-name code is usually Saturday + 4 (`04112026`), a few
-files carry Saturday + 3 (`03112026`). For a weekly owner report on the Zomato Mon–Sun week, take the Swiggy cycle(s)
-ending inside that week. If a cycle is "processing" (no annexure), copy the payout-breakup screen (S2) and mark the
+**Step 1 – Period and files.** Read the actual cycle, settlement date and month-end splits from the current annexure and dashboard. Never derive them from a fixed weekday offset or a filename date. For a weekly owner report, use the requested reporting window and disclose each platform's actual service period. If a cycle is "processing" (no annexure), copy the payout-breakup screen (S2) and mark the
 outlet **estimated**; replace it when the annexure appears.
 
 **Step 2 – Orders** = `Total Orders` (Payout Breakup `Orders`, Total column; = Summary `Total Orders (Delivered + Cancelled)`).
@@ -428,8 +436,8 @@ Net Payout (format)
 - **Total fees excludes GST on fees**; Order Level "Total Swiggy Fees" includes it – don't double count.
 - **Other Charges can be ads, non-ads or a mix**, and can be positive (refunds). Split by meaning (Step 7).
 - **Two dates**: annexure settlement date (Sat + 3) vs file code / order settlement date (Sat + 4) – not an error.
-- **Month-split cycles** (1–3 Oct): a week or month can contain two cycles – sum them per outlet.
-- **Rounding**: the bridge built from rounded breakup lines can differ from G by a few paise (real: ₹0.04–₹0.13);
+- **Month-split cycles**: a week or month can contain two cycles – sum them per outlet.
+- **Rounding**: the bridge built from rounded breakup lines can differ from G by a few paise (show the actual computed gap);
   Σ order-level payouts − ads matched G exactly.
 - **Processing cycles**: no annexure until paid; on-screen numbers are "estimated".
 - Re-downloads (`(1).xlsx`) – keep one per RID and cycle.
@@ -522,7 +530,7 @@ Title per outlet: `<Restaurant Name> (<Locality>, <City>) | Payout Report | Zoma
 Rows and labels exactly as A0 / B0. Money `₹#,##,##0.00`, percentages `0.00%`, missing app `—`. Net Payout and
 Payout % in bold. Notes below the table: source and period, Ads label(s) used, commission check, bank bridge.
 
-### 9.1 Zomato example (week 26 Oct – 1 Nov 2026, anonymised synthetic template)
+### 9.1 Zomato example (<ZOMATO_PERIOD>, placeholder-only template)
 
 `<Restaurant Name> (<Locality>, <City>)` – Zomato Delivery, ID `<ZOMATO_RES_ID>`
 
@@ -542,19 +550,18 @@ Payout % in bold. Notes below the table: source and period, Ads label(s) used, c
 
 Notes:
 
-- Source: Zomato settlement report for 26 Oct – 1 Nov 2026 (summary sheet blank → rows computed from Order Level and
-  Addition Deductions Details). <example-count> orders, all delivered.
+- Source: Zomato settlement report for <ZOMATO_PERIOD> (summary sheet blank → rows computed from Order Level and
+  Addition Deductions Details). <example-count> orders; report the actual delivered/cancelled split.
 - ST+PC = Sub Total ₹<amount> + Packaging ₹<amount>. Discount = promos ₹<amount> + flat offs/BOGO/freebies ₹<amount>.
 - Ads label used: "Investment in growth services" – <example-count> ADS invoices ₹<amount> (incl. <rate>% GST per the heading), still
   outstanding at download (to be deducted from the payout).
 - Comm.+PG+GST = base service fee ₹<amount> (<rate>%) + long distance ₹<amount> + payment mechanism fee ₹<amount> + GST ₹<amount>.
 - Commission check: charged <rate>% on all <example-count> orders → compare with the onboarding rate (OK / flagged orders / "assumed rate X% (onboarding rate not yet provided)").
 - Bank bridge: Net ₹<amount> − TDS ₹<amount> − TCS ₹<amount> − GST 9(5) paise ₹<amount> + Ads credit ₹<amount> = **₹<amount>**
-  = Zomato's Net Payout for the week; compare with the amount paid under `UTR …<last 4>` on the Payouts screen (payout day Wed 4 Nov 2026).
-  UNSURE: the paid amount and UTR for this example week were not read from the Payouts screen when this guide was
-  written (the report was downloaded before payout day, all orders `pending`); the bridge stops at Zomato's own payout figure.
+  = Zomato's Net Payout for the week; compare with the amount paid under `UTR …<last 4>` on the Payouts screen (actual payout date <PAID_DATE>).
+  UNSURE: if the actual paid amount and reference have not been read from the live payout screen, stop the bank check at the platform figure and label it unverified; do not copy values from this template.
 
-### 9.2 Swiggy example (cycle 25–31 Oct 2026, anonymised synthetic template)
+### 9.2 Swiggy example (<SWIGGY_PERIOD>, placeholder-only template)
 
 `<Restaurant Name> (<Locality>, <City>)` – Swiggy Delivery, RID `<SWIGGY_RID>`
 
@@ -574,19 +581,19 @@ Notes:
 
 Notes:
 
-- Source: Swiggy invoice annexure, payout period 25 October – 31 October 2026 (file code 04112026), Payout Breakup Total column.
-  <example-count> orders (<example-count> delivered + 1 cancelled).
+- Source: Swiggy invoice annexure, payout period <SWIGGY_PERIOD> (file date <EXPORT_DATE_CODE>), Payout Breakup Total column.
+  <example-count> orders (<delivered-count> delivered + <cancelled-count> cancelled).
 - ST+PC = Item total ₹<amount> + Packaging ₹<amount>. Restaurant Discount = coupon ₹<amount> + trade/freebies ₹<amount>.
 - Ads label used: Other Charges was ₹<amount> so Ads = "Growth Investment In Ads" (Cost Per Click - Ads) ₹<amount>.
 - Comm.+PG+GST = Total fees ₹<amount> (as given).
-- Commission check: compare each order's Service Fees % with the onboarding rate; flag orders that differ (in this
-  real file the charged % varied by order) or write "assumed rate X% (onboarding rate not yet provided)".
+- Commission check: compare each order's Service Fees % with the onboarding rate; flag orders that differ (if the actual file
+  contains varying charged percentages) or write "assumed rate X% (onboarding rate not yet provided)".
 - Bank bridge: Net ₹<amount> − GST @<rate>% on fees ₹<amount> − TDS ₹<amount> − TCS ₹<amount> − complaints ₹<amount> = ₹<amount>
-  vs paid **₹<amount>** on 03 Nov 2026 under `UTR …<last 4>` → ₹<amount> rounding, **OK**.
+  vs paid **₹<amount>** on <PAID_DATE> under `UTR …<last 4>` → <ACTUAL_MATCH_OR_MISMATCH_AND_GAP>.
 
 ### 9.3 Combined example (owner's standard layout)
 
-`<Restaurant Name> (<Locality>, <City>) | Payout Report | Zomato 26 Oct – 1 Nov 2026 · Swiggy 25–31 Oct 2026`
+`<Restaurant Name> (<Locality>, <City>) | Payout Report | Zomato <ZOMATO_PERIOD> · Swiggy <SWIGGY_PERIOD>`
 
 | Terms                  | What it means                 | Zomato (ID <ZOMATO_RES_ID>) | Swiggy (RID <SWIGGY_RID>) |         Total |
 | ---------------------- | ----------------------------- | --------------------------: | ------------------------: | ------------: |
@@ -607,8 +614,8 @@ Notes: Zomato notes as in 9.1; Swiggy notes as in 9.2; outlet matched by name + 
 Short chat message (sent with the table image):
 
 ```
-*<Restaurant Name> (<Locality>, <City>) – Weekly Payouts 26 Oct – 1 Nov 2026*
-Zomato 26 Oct – 1 Nov 2026 · Swiggy 25–31 Oct 2026
+*<Restaurant Name> (<Locality>, <City>) – Weekly Payouts <ZOMATO_PERIOD>*
+Zomato <ZOMATO_PERIOD> · Swiggy <SWIGGY_PERIOD>
 
 | Term | Zomato | Swiggy | Total |
 |---|---:|---:|---:|
@@ -620,7 +627,7 @@ Zomato 26 Oct – 1 Nov 2026 · Swiggy 25–31 Oct 2026
 | Payout % | <rate>% | <rate>% | <rate>% |
 | Burn % | <rate>% | <rate>% | <rate>% |
 
-_Swiggy paid ₹<amount> = Net − GST @<rate>% on fees ₹<amount> − TDS ₹<amount> (₹<amount> rounding). Zomato payout Wed 4 Nov:
+_Swiggy paid ₹<amount> = Net − GST @<rate>% on fees ₹<amount> − TDS ₹<amount> (₹<amount> rounding). Zomato payout <PAID_DATE>:
 ₹<amount> = Net − TDS ₹<amount> + Ads credit ₹<amount> (− ₹<amount> GST paise)._
 ```
 
@@ -658,7 +665,7 @@ Commission check), then one sheet per outlet with the 9.3 table and its notes.
 Never needs approval: downloading reports, reading screens, calculating, building the workbook, and sending the report
 to the owner in the chat where they asked for it.
 
-OWNER-FACING PRESENTATION RULE (10 Nov 2026): Chat, image and owner Markdown notes must be short and plain: one bank-check line per app (paid amount/date/UTR last4, matches or mismatch, actual rounding gap); one commission line with assumed rate X% (onboarding rate not yet provided) and per-app flag counts; one ads-labels line. Keep "match uncertain – please confirm" unless the owner confirms the mapping. Full technical bridges, source inconsistencies and flagged-order detail belong ONLY in the Excel outlet sheet, never chat/image. Any ≥₹1 unexplained gap must still be shown plainly as a mismatch.
+OWNER-FACING PRESENTATION RULE: Chat, image and owner Markdown notes must be short and plain: one bank-check line per app (paid amount/date/UTR last4, matches or mismatch, actual rounding gap); one commission line with assumed rate X% (onboarding rate not yet provided) and per-app flag counts; one ads-labels line. Keep "match uncertain – please confirm" unless the owner confirms the mapping. Full technical bridges, source inconsistencies and flagged-order detail belong ONLY in the Excel outlet sheet, never chat/image. Any ≥₹1 unexplained gap must still be shown plainly as a mismatch.
 
 # Installed platform guides
 
@@ -681,7 +688,7 @@ No hardcoded outlet, week, paid amount or commission contract. Read the restaura
 ## Adaptive workflow
 
 1. Read configured outlet scope and `owner-confirmed-outlet-map.csv`. Verify selected name/ID BEFORE reading payout figures on each app; a preselected different outlet is not authority. Fail closed on a wrong outlet, conflicting IDs or ambiguous selection.
-2. On Zomato Finance/Payouts, find the latest FULLY PAID Mon–Sun week, skipping processing/unpaid weeks. On Swiggy Finance/Past Payouts (`https://partner.swiggy.com/food/finance`), take fully paid cycle(s) ending inside that week. Discover dates from live evidence, not example dates or stale downloads. State both service periods.
+2. On Zomato Finance/Payouts, find the latest FULLY PAID service period within the requested reporting window, skipping processing/unpaid periods. On Swiggy Finance/Past Payouts (`https://partner.swiggy.com/food/finance`), take fully paid cycle(s) ending inside that same reporting window. Discover dates from live evidence, not example dates or stale downloads. State both service periods.
 3. Directly download fresh correct-outlet settlement/annexure files. Read same-period status, amount paid, paid date and UTR last four from the live payout screen; do not call estimates paid. Keep source files private.
 4. Save minimal screen JSON per per-app guide and call the installed deterministic calculators once for each fresh source. Compare source outlet/period and current logical job; do not reuse an older screen JSON or cached report from another task.
 5. Call `payout-combined` with the actual freshly generated per-app JSON files, screen JSON files and owner-confirmed map. Sum Orders/money; recompute percentages from summed sales (never average percentages). Configurable onboarding rate overrides modal-rate assumption. Unknown contracts: “assumed rate X% (onboarding rate not yet provided)”, with differing-rate order counts.
@@ -731,11 +738,19 @@ Never initiate/request/resend an OTP during reconciliation. If logged out, stop.
 
 Observed widget failure: typing a full string with a browser action bound to box one can stop after its first character because focus auto-advances. Direct empty-value assignments can be undone by React re-renders. Do not assume prior rejected codes were caused by this without evidence.
 
-Corrected method, only when authorized:
+Secure method for other sites, only when separately authorized (not the Zomato compatibility flow below):
 
-1. Focus the LAST box and send native Backspace six times. Confirm six empty boxes using filled-count state, not logged digit values.
-2. Focus FIRST box and use native desktop keyboard string entry once, allowing normal auto-advance. Do not use page typing bound to the first input.
-3. Check only that six boxes are filled. Never screenshot, read back, echo or store a real code; never write it into files/logs or use Enter automatically.
-4. Click Continue once ONLY with explicit authorization. If rejected/expired, stop. No resend or alternative retry without separate owner approval. Respect any lockout/countdown.
+1. After the OTP screen is actually visible, take a fresh structured snapshot and identify the first input of exactly one code group. Do not reuse a pre-OTP ref or target the email/phone field, wrapper, or button. Never read back or screenshot a code.
+2. Obtain the code through `request_secret oneTimeCode` for the exact HTTPS sign-in origin. The code stays private and run-scoped; never put it in chat, files, logs, or a native keyboard string.
+3. Call `browser_act` once with `fill_code` and that fresh first-input ref. The host captures a value-free structural DOM snapshot before entry: selected ref, frame origin, shadow-root status, input attributes/marker flags and wrapper paths. Retain `code_layout_before_fill` (or the successful Code layout note) as a diagnostic JSON artifact; never save outerHTML, text, names/IDs, field values or a code screenshot. The secure host adapter validates the group and origin, masks all boxes, and fills one character per box. Never call it separately for each box or use ordinary `fill`, `type`, clipboard, shell, or desktop typing for a private code.
+4. Check only the non-secret fill outcome. If entry is partial/uncertain or the group is ambiguous, stop for human takeover; never replay the code or request/resend another one. Click Continue once only with explicit authorization after a successful fill; if rejected/expired, stop and respect any lockout/countdown.
 
 Dummy-only diagnostics can test distribution/autofocus; clear all dummy values before completion and never submit them. No real phone number, masked suffix, OTP or session is included here.
+
+# Zomato sign-in — restored pre-sync flow
+
+Only for a separate owner-authorized sign-in, never a routine reconciliation that is already signed in. Use the restaurant email and request one emailed code from the visible login page; no password, Google sign-in, resend or second login. Ask the owner for the code and wait for a normal owner reply. An explicitly authorized coordinator can obtain that reply from the newest sign-in email for this attempt.
+
+This is the historical owner-reply flow: **do not use `request_secret oneTimeCode` or `fill_code` for Zomato**. The code is supplied in the conversation, as before the sync. Take a fresh `browser_snapshot` of the six empty boxes and use **one batch of six ordinary `browser_act` `type` actions**, one character per fresh box ref in order. Do not type the whole code into the first maxlength=2 box. Do not use `fill`, a clipboard, shell, or a replacement private typer. The complete frozen pre-sync native browser handles the login page, including its own typing and checks. Then click the visible Continue control once as a separate action if it has not already signed in, and verify the signed-in page. If rejected, expired, partial or uncertain, stop without replay or resend.
+
+Never repeat the code in narration or output or save it in a file. This rollback restores the old model-visible owner reply; it does not use the newer masked, run-held code-card contract. Retain the signed-in browser profile. The upstream browser remains in use outside the login page, and the payout calculations and read/download-only rules above are unchanged.

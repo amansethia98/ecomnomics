@@ -98,6 +98,9 @@ jobs:
     name: Lint and typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # Validate the frozen SDK against its bundled compatibility map, not a moving remote patch map.
+    env:
+      EXPO_OFFLINE: "1"
     concurrency:
       group: ci-checks-${{ github.ref == 'refs/heads/main' && 'main' || github.run_id }}
     steps:

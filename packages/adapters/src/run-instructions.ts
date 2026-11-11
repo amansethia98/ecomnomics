@@ -1,5 +1,6 @@
 import { FLEET_WRITE_TOOL_NAMES } from "@rakazo/contracts";
 import { runReadsThreadHistory, toolRequiresExplicitApproval } from "@rakazo/core";
+import { LEGACY_ZOMATO_LOGIN_HINT } from "./legacy-zomato-login.js";
 import { MODEL_CANNOT_SEE_MESSAGE } from "./model-vision.js";
 import { replyGuidanceForOfferedTools } from "./run-replies.js";
 import type { UserComputerState } from "./run-tools-user-computer.js";
@@ -201,7 +202,7 @@ function secretGuidance(disabled?: ReadonlySet<string>): string[] {
   }
   if (builtinOffered(disabled, "request_secret") && builtinOffered(disabled, "browser_act")) {
     clauses.push(
-      "For a code a site texts or emails, use request_secret oneTimeCode and browser_act fill_code, never chat.",
+      `For other sites, use request_secret oneTimeCode and browser_act fill_code, never chat. ${LEGACY_ZOMATO_LOGIN_HINT}`,
     );
   }
   if (builtinOffered(disabled, "generate_secret")) {
@@ -399,6 +400,13 @@ export function userTurnInstructions(parts: {
         "skill_read",
         "When asked how Rakazo or you work, or how to set something up (apps, the user's own computer, billing), read the Rakazo skill before answering or acting.",
       ),
+    parts.agentSkillsLine?.includes("Payout reconciliation")
+      ? offeredBuiltinClause(
+          parts.disabledBuiltinTools,
+          "skill_read",
+          "For any Zomato or Swiggy payout/reconciliation task (including its separately authorized login), call skill_read for Payout reconciliation before browser or shell work, even if the request gives detailed steps. Read once per task; reuse its content across credential or code replies for that task.",
+        )
+      : undefined,
     parts.taughtSkillsLine,
     offeredBuiltinClause(
       parts.disabledBuiltinTools,

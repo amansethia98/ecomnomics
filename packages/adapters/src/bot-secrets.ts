@@ -49,6 +49,10 @@ import {
 import { getLogger } from "@rakazo/logging";
 import { z } from "zod";
 import { combineSignals, redactConnectorPayload } from "./connector-safety.js";
+import {
+  LEGACY_ZOMATO_LOGIN_GUIDANCE,
+  LEGACY_ZOMATO_LOGIN_ORIGINS,
+} from "./legacy-zomato-login.js";
 import type { RemoteTransportDependencies } from "./remote-mcp.js";
 import { createPrivateNetworkFetch, createSafeRemoteFetch } from "./remote-mcp.js";
 import { generateSecretValue } from "./secret-generator.js";
@@ -309,7 +313,12 @@ export function resolveRequestSecretDestination(
   if (connectionId) return { connectionId };
   if (args.oneTimeCode !== undefined) {
     const target = OneTimeCodeTarget.safeParse(args.oneTimeCode);
-    if (target.success) return { oneTimeCodeOrigin: target.data.origin };
+    if (target.success) {
+      if (LEGACY_ZOMATO_LOGIN_ORIGINS.has(target.data.origin)) {
+        return { error: LEGACY_ZOMATO_LOGIN_GUIDANCE };
+      }
+      return { oneTimeCodeOrigin: target.data.origin };
+    }
     const origin = isPlainObject(args.oneTimeCode) ? args.oneTimeCode.origin : undefined;
     return {
       error:

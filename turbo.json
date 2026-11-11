@@ -20,6 +20,7 @@
       "outputs": ["dist/**", "src/generated/**"]
     },
     "check": {
+      "env": ["EXPO_OFFLINE"],
       "dependsOn": ["^check", "^generate", "generate"]
     },
     "test": {

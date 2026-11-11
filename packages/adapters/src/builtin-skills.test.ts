@@ -31,11 +31,45 @@ describe("Zomato report skills", () => {
     expect(skill?.content).toContain("python3 /usr/local/bin/rakazo-zomato-report monthly");
     expect(skill?.content).toContain("Do not calculate anything yourself");
     expect(skill?.content).toContain("Do not use fixed click positions");
-    expect(skill?.content).not.toMatch(/\b24802\b/);
+    expect(skill?.content).toContain('--outlet "OUTLET ID"');
   });
 });
 
 describe("Payout reconciliation", () => {
+  it("requires both platforms to load the guide and preflight before browser work", () => {
+    const bot = readFileSync(repoFile("restaurant-templates/payouts/bot.md"), "utf8");
+    const skill = BUILTIN_AGENT_SKILLS.find((item) => item.name === "Payout reconciliation")!;
+    expect(bot).toContain("call `skill_read` for **Payout reconciliation**");
+    expect(bot).toContain("Zomato AND Swiggy");
+    expect(bot).toContain("Read it once per task");
+    expect(skill.description).toContain("Swiggy");
+    expect(skill.content).toContain("payout-preflight --platform zomato");
+    expect(skill.content).toContain("--platform swiggy");
+    expect(skill.content).toContain("already contains a fresh snapshot");
+    expect(skill.content).toContain("outlet ID from this restaurant's settings");
+    expect(skill.content).toContain("Do not assume a particular tab exists");
+    expect(skill.content).toContain("calculator does not support that export scope");
+    expect(skill.content).not.toContain("Swiggy + Toing");
+    expect(skill.content).not.toMatch(/\b(?:Oct|Nov)\s+2026\b/);
+    expect(skill.content).toContain("Write `~/.local/share/payout-reconciliation/job.json` first");
+  });
+
+  it("keeps operational guidance and documentation free of live dates and literal outlet IDs", () => {
+    const files = [
+      "restaurant-templates/payouts/bot.md",
+      "restaurant-templates/payouts/skills/payout-reconciliation/SKILL.md",
+      "docs/payout-installation-and-performance.md",
+    ];
+    for (const file of files) {
+      const text = readFileSync(repoFile(file), "utf8");
+      expect(text, file).not.toMatch(/\b\d{4}-\d{2}-\d{2}\b/);
+      expect(text, file).not.toMatch(/\b(?:RID|outlet_id|restaurant_id)\s*[:=]\s*["']?\d{3,}/i);
+      expect(text, file).not.toMatch(
+        /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+20\d{2}\b/,
+      );
+    }
+  });
+
   it("delivers one consolidated report and keeps the dashboards read-only", () => {
     const skill = BUILTIN_AGENT_SKILLS.find((item) => item.name === "Payout reconciliation");
     expect(skill?.description.length).toBeLessThanOrEqual(72);
@@ -48,7 +82,9 @@ describe("Payout reconciliation", () => {
     expect(skill?.content).toContain("absolute gap strictly below");
     expect(skill?.content).toContain("assumed rate X% (onboarding rate not yet provided)");
     expect(skill?.content).toContain("owner-confirmed-outlet-map.csv");
-    expect(skill?.content).toContain("native Backspace");
+    expect(skill?.content).toContain("fill_code");
+    expect(skill?.content).toContain("never replay the code");
+    expect(skill?.content).not.toContain("native Backspace");
     expect(skill?.content).toContain("Do not use fixed click positions");
     expect(skill?.content).not.toContain("x-ai/");
     expect(skill?.content).not.toContain("Gemini");

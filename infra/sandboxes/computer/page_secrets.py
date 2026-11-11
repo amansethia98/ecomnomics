@@ -356,9 +356,11 @@ EVAL_HELPERS = r"""
     codeSlots.set(el, held);
   }
   // Whether an input is made for a one-time code: it says so, or takes digits, or is named or
-  // labelled like one, or holds a code's length. One box per digit is not one: those need the user.
-  function looksLikeCodeBox(el) {
-    if (el.maxLength === 1) return false;
+  // labelled like one, or holds a code's length. Single-character inputs need a validated group.
+  function looksLikeCodeBox(el, segmentedCandidate = false) {
+    // Both maxlength=1 and maxlength=2 are used for one-character slots. Neither
+    // may accept a whole secret alone: splitCodeGroup must validate its siblings.
+    if (el.maxLength === 1 || el.maxLength === 2) return segmentedCandidate;
     if ((el.getAttribute("autocomplete") || "").toLowerCase().split(/\s+/).includes("one-time-code")) return true;
     if ((el.getAttribute("inputmode") || "").toLowerCase() === "numeric") return true;
     if (el.maxLength >= 4 && el.maxLength <= 12) return true;
@@ -370,6 +372,139 @@ EVAL_HELPERS = r"""
         .map((id) => root.getElementById?.(id)?.textContent),
     ].join(" ");
     return /otp|one.?time|code|token|2fa|mfa|verif|\bpin\b|passcode|קוד|אימות/i.test(named);
+  }
+  // A private code may span several inputs. Resolve the whole group before touching a value;
+  // the ordinary page-world split-code typer cannot consume a run-held secret safely.
+  function codePartShape(el) {
+    return el instanceof HTMLInputElement && ["text", "email", "tel", "number"].includes(el.type)
+      && visible(el) && (([1, 2].includes(el.maxLength) && looksLikeCodeBox(el, true))
+        || (el.getAttribute("inputmode") || "").toLowerCase() === "numeric"
+        || /one-time-code|otp|one.?time|verification|passcode|\bcode\b/i.test([
+          el.autocomplete, el.name, el.id, el.getAttribute("aria-label"), el.placeholder,
+        ].join(" ")));
+  }
+  // A structural DOM snapshot, never outerHTML/text/value or raw names/IDs/labels. Taken on the
+  // verified origin before code entry. It explains the exact focused ref without storing a secret.
+  function codeLayout(input, ref) {
+    const root = input.getRootNode();
+    const all = [...root.querySelectorAll("input")];
+    const start = Math.max(0, all.indexOf(input) - 16);
+    const fields = all.slice(start, start + 32);
+    const tags = new Set(["HTML", "BODY", "FORM", "DIV", "SPAN", "SECTION", "MAIN", "FIELDSET", "LABEL", "INPUT"]);
+    const tag = (el) => tags.has(el.tagName) ? el.tagName.toLowerCase() : "element";
+    const path = (el) => {
+      const parts = [];
+      for (let n = el, depth = 0; n && depth < 12; n = n.parentElement, depth++) {
+        parts.unshift(tag(n) + "[" + [...(n.parentNode?.children || [])].indexOf(n) + "]");
+      }
+      return parts.join("/");
+    };
+    const hint = (text) => /one-time-code|otp|one.?time|verification|passcode|\bcode\b/i.test(String(text || ""));
+    const modes = new Set(["", "none", "text", "decimal", "numeric", "tel", "search", "email", "url"]);
+    const tokens = new Set(["one-time-code", "username", "current-password", "new-password", "email", "tel", "on", "off"]);
+    const ancestors = [];
+    for (let n = input.parentElement, depth = 0; n && depth < 12; n = n.parentElement, depth++) {
+      const children = [...n.querySelectorAll("input")].filter((f) => visible(f) && f.type !== "hidden");
+      ancestors.push({ path: path(n), visibleInputs: children.length,
+        shapedInputs: children.filter(codePartShape).length,
+        bodyBoundary: n === document.body,
+        allMaxlengthOne: children.every((f) => f.maxLength === 1) });
+    }
+    return { version: 1, ref, origin: location.origin, inFrame: window !== window.top,
+      root: root === document ? "document" : root.host ? "shadow" : "other",
+      target: fields.indexOf(input), firstInputIndex: start, inputCount: all.length,
+      truncated: all.length > fields.length || ancestors.length === 12,
+      fields: fields.map((f) => {
+        const mode = (f.getAttribute("inputmode") || "").toLowerCase();
+        return { path: path(f), type: f.type, maxlength: f.maxLength,
+          inputmode: modes.has(mode) ? mode : "other",
+          autocomplete: [...new Set((f.autocomplete || "").toLowerCase().split(/\s+/)
+            .filter(Boolean).map((t) => tokens.has(t) ? t : "other"))],
+          nameHint: hint(f.name), idHint: hint(f.id), labelHint: hint(f.getAttribute("aria-label")),
+          placeholderHint: hint(f.placeholder), titleHint: hint(f.title),
+          associatedLabelHint: [...(f.labels || [])].some((label) => hint(label.textContent)),
+          visible: visible(f), disabled: f.disabled, readonly: f.readOnly,
+          shaped: codePartShape(f), singleEligible: looksLikeCodeBox(f) };
+      }), ancestors };
+  }
+  function splitCodeGroup(input, size) {
+    const root = input.getRootNode();
+    const shaped = codePartShape;
+    const part = (el) => shaped(el) && !el.disabled && !el.readOnly;
+    const groups = [];
+    for (const el of root.querySelectorAll("input")) {
+      if (!part(el)) continue;
+      for (let parent = el.parentElement; parent && parent.getRootNode() === root; parent = parent.parentElement) {
+        const fields = [...parent.querySelectorAll("input")].filter((node) => visible(node) && node.type !== "hidden");
+        // Several independent full-code inputs in the document are not one segmented widget.
+        if (parent === document.body && !fields.every((field) => [1, 2].includes(field.maxLength))) break;
+        if (fields.length > 12) break;
+        if (fields.includes(input) && fields.length >= 4 && fields.every(shaped) && !fields.every(part)) {
+          throw refused("A code box is disabled or read-only; nothing was typed.");
+        }
+        if (fields.length < 4 || !fields.every(part)) continue;
+        if (!groups.some((group) => group.fields.length === fields.length
+          && group.fields.every((field, index) => field === fields[index]))) groups.push({ parent, fields });
+        break;
+      }
+    }
+    const target = groups.find((group) => group.fields.includes(input));
+    if (!target) return null;
+    if (groups.length !== 1) throw refused("More than one code group is available; ask the user to take over.");
+    if (target.fields.length !== size) throw refused("The code length does not match the number of boxes.");
+    if (target.fields.some((field) => field.value !== "")) {
+      throw refused("The code boxes already contain input; ask the user to take over without replaying the code.");
+    }
+    return target;
+  }
+  function fillCodeGroup(group, value, origin) {
+    const { parent, fields } = group;
+    const doc = document;
+    const page = location.href;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+    let touched = 0;
+    const live = () => document === doc && location.href === page && location.protocol === "https:" && location.origin === origin
+      && parent.isConnected && fields.every((field) => field.isConnected && field.ownerDocument === doc
+        && parent.contains(field) && !field.disabled && !field.readOnly
+        && ["text", "email", "tel", "number"].includes(field.type));
+    const partial = () => ({ codePartial: true, filled: touched, total: fields.length });
+    // Mask the whole widget before dispatching events: a page may synchronously draw its slots.
+    maskCard(parent);
+    for (const field of fields) {
+      field.setAttribute(FILLED, "");
+      maskCard(field);
+      codeSlots.set(field, [parent]);
+    }
+    if (!live() || !fields.includes(focused())) throw refused("The code group changed before entry; nothing was typed.");
+    try {
+      for (let index = 0; index < fields.length; index++) {
+        const active = focused();
+        if (!live() || (index === 0 ? !fields.includes(active)
+          : active !== fields[index - 1] && active !== fields[index])) {
+          if (touched) return partial();
+          throw refused("Focus left the code group; nothing was typed.");
+        }
+        const field = fields[index];
+        field.focus();
+        if (!live() || focused() !== field) {
+          if (touched) return partial();
+          throw refused("The code box did not keep focus; nothing was typed.");
+        }
+        // From this point the outcome may be partial, even when the setter/event handler fails.
+        touched = index + 1;
+        setter.call(field, value[index]);
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+        field.dispatchEvent(new Event("change", { bubbles: true }));
+        if (!live() || field.value !== value[index]) return partial();
+        maskCard(parent);
+        fields.forEach((box) => { box.setAttribute(FILLED, ""); maskCard(box); });
+      }
+    } catch (error) {
+      if (touched) return partial();
+      throw error;
+    }
+    if (fields.some((field, index) => field.value !== value[index])) return partial();
+    return true;
   }
   function numericBox(el) {
     const mode = (el.getAttribute("inputmode") || "").toLowerCase();
@@ -405,7 +540,7 @@ EVAL_HELPERS = r"""
     // A saved login or a card detail, typed into the focused field only when this document is on its
     // site. Checked in the same evaluation as the fill, so a navigation cannot slip in between.
     // Private-LAN plain HTTP is not a login target, even when the page origin matches.
-    fill(value, origin, field) {
+    fill(value, origin, field, targetRef) {
       const card = field === "card";
       // A code the user entered for this page: a visible field like a username, but drawn as dots
       // and only into a box that looks made for a code.
@@ -438,12 +573,26 @@ EVAL_HELPERS = r"""
       if (password && !(input && input.type === "password")) {
         throw refused("A saved password can only be typed into a password field.");
       }
+      const layout = code && input && typeof targetRef === "string" && /^(?:f\d+)?e\d{1,8}$/.test(targetRef)
+        ? codeLayout(input, targetRef) : null;
+      const codeRefused = (message) => refused(message + (layout ? "; code_layout_before_fill=" + JSON.stringify(layout) : ""));
+      const codeResult = (result) => layout ? { ...(result === true ? { codeFilled: true } : result), codeLayout: layout } : result;
+      if (code && input) {
+        const text = numericBox(input) ? String(value).replaceAll("-", "") : String(value);
+        try {
+          const group = splitCodeGroup(input, text.length);
+          if (group) return codeResult(fillCodeGroup(group, text, saved.origin));
+        } catch (error) {
+          if (layout && String(error.message).startsWith("Refused: ")) throw codeRefused(error.message.slice(9));
+          throw error;
+        }
+      }
       if (!card && !password && !(input && ["text", "email", "tel"].includes(input.type))) {
-        throw refused(code ? "A code can only be typed into a text, email, or telephone field."
-          : "A saved username can only be typed into a text, email, or telephone field.");
+        throw code ? codeRefused("A code can only be typed into a text, email, or telephone field.")
+          : refused("A saved username can only be typed into a text, email, or telephone field.");
       }
       if (code && !looksLikeCodeBox(input)) {
-        throw refused("This field doesn't look like a code box; ask the user to take over.");
+        throw codeRefused("This field doesn't look like a code box; ask the user to take over.");
       }
       // A numeric box takes the digits of a code written with dashes.
       if (code && numericBox(input)) value = String(value).replaceAll("-", "");
@@ -463,12 +612,15 @@ EVAL_HELPERS = r"""
       else unmaskCard(input);
       input.dispatchEvent(new Event("input", { bubbles: true }));
       input.dispatchEvent(new Event("change", { bubbles: true }));
+      // React or an input listener may replace/alter a controlled password after the native setter.
+      // Do not report successful delivery (or retry) when its final value is uncertain.
+      if (password && (!input.isConnected || input.value !== String(value))) return { loginUncertain: true };
       if (code) {
         // The widget may draw its slots right away or a moment later.
         maskCodeSlots(input, value);
         setTimeout(() => { if (cardMasked.has(input)) maskCodeSlots(input, value); }, 50);
       }
-      return true;
+      return codeResult(true);
     },
     payTokenAccount() {
       const blocks = [...document.querySelectorAll(".AiAgentPaymentSteering")]
@@ -713,14 +865,25 @@ def frame_site_check(client: CdpClient, frame: tuple[str, str, int], step: dict[
                       "so nothing was filled.")
 
 
-def fill_focused(client: CdpClient, session_id: str, step: dict[str, Any]) -> None:
+def fill_focused(client: CdpClient, session_id: str, step: dict[str, Any]) -> dict[str, Any] | None:
     """A saved login, or a card detail the bot pointed to, typed into the field the page browser focused."""
     frame = focused_frame(client, session_id)
     if frame[0] != session_id or frame[2] != client.context_id:
         frame_site_check(client, frame, step)
-    call_with(client, frame[0], frame[2], "function (value, origin, field) { "
-              "return window.__rakazoPageBrowser.fill(value, origin, field); }",
-              step["text"], step["origin"], step.get("field"))
+    args = [step["text"], step["origin"], step.get("field")]
+    if step.get("field") == "code":
+        args.append(step.get("ref"))
+    result = call_with(client, frame[0], frame[2], "function (value, origin, field, ref) { "
+              "return window.__rakazoPageBrowser.fill(value, origin, field, ref); }", *args)
+    layout = result.get("codeLayout") if isinstance(result, dict) else None
+    if isinstance(result, dict) and result.get("loginUncertain"):
+        raise CardFieldUncertain("The password field changed after filling. Do not replay or submit; ask the user to take over.")
+    if isinstance(result, dict) and result.get("codePartial"):
+        # A secret may already be on the page: never restore its one-shot claim or replay it.
+        detail = "; code_layout_before_fill=" + json.dumps(layout, separators=(",", ":")) if layout else ""
+        raise CardFieldUncertain("Code entry was partial or uncertain. Do not replay, submit, or request a new code; "
+                                 "ask the user to take over." + detail)
+    return layout
 
 
 def find_card_field(client: CdpClient, session_id: str, main_frame_id: str, token: str) -> tuple[str, str, int]:
@@ -875,7 +1038,7 @@ def connect(port: int) -> CdpClient:
     return client
 
 
-def run_step(port: int, target_id: str, step: dict[str, Any]) -> None:
+def run_step(port: int, target_id: str, step: dict[str, Any]) -> dict[str, Any] | None:
     """One saved-login, card or pay-token step on the tab target_id. Raises Refused when declined."""
     client = connect(port)
     try:
@@ -885,7 +1048,7 @@ def run_step(port: int, target_id: str, step: dict[str, Any]) -> None:
         elif step.get("ref") is None:
             fill_card(client, session_id, step)
         else:
-            fill_focused(client, session_id, step)
+            return fill_focused(client, session_id, step)
     finally:
         client.close()
 
