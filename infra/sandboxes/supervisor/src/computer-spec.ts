@@ -43,6 +43,7 @@ export const COMPUTER_IMAGE_CONTEXT_FILES = [
   "rakazo-zomato-reconcile",
   "rakazo-zomato-monthly-analysis",
   "rakazo-zomato-report",
+  "payout-preflight",
   "payout-owner-reconcile",
   "payout-swiggy-reconcile",
   "payout-combined",

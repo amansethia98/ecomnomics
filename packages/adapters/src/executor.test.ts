@@ -1510,6 +1510,30 @@ describe("userTurnInstructions", () => {
     ]);
   });
 
+  it("requires the payout guide for existing bots when it is offered, but not when disabled", () => {
+    const parts = {
+      ...base,
+      groupContext: undefined,
+      messagingContext: undefined,
+      redactedMemoryContext: undefined,
+      redactedScratchpadContext: undefined,
+      hasHistoricalContext: false,
+      agentEnvironmentInstruction: undefined,
+      botDirectory: undefined,
+      pluginLine: undefined,
+      agentSkillsLine: "Payout reconciliation: Zomato and Swiggy",
+      taughtSkillsLine: undefined,
+    };
+    expect(userTurnInstructions(parts).filter(Boolean).join("\n")).toContain(
+      "call skill_read for Payout reconciliation before browser or shell work",
+    );
+    expect(
+      userTurnInstructions({ ...parts, disabledBuiltinTools: new Set(["skill_read"]) })
+        .filter(Boolean)
+        .join("\n"),
+    ).not.toContain("call skill_read for Payout reconciliation");
+  });
+
   it("ends with the untrusted-content block when no optional context exists", () => {
     const instructions = userTurnInstructions({
       backgroundHelpersAllowed: true,

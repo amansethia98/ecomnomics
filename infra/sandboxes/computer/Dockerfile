@@ -204,6 +204,7 @@ COPY --chmod=755 rakazo-page-browser /usr/local/bin/rakazo-page-browser
 COPY --chmod=755 rakazo-zomato-reconcile /usr/local/bin/rakazo-zomato-reconcile
 COPY --chmod=755 rakazo-zomato-monthly-analysis /usr/local/bin/rakazo-zomato-monthly-analysis
 COPY --chmod=755 rakazo-zomato-report /usr/local/bin/rakazo-zomato-report
+COPY --chmod=755 payout-preflight /usr/local/bin/payout-preflight
 COPY --chmod=755 payout-owner-reconcile /usr/local/bin/payout-owner-reconcile
 COPY --chmod=755 payout-swiggy-reconcile /usr/local/bin/payout-swiggy-reconcile
 COPY --chmod=755 payout-combined /usr/local/bin/payout-combined
@@ -229,10 +230,14 @@ COPY --chmod=644 mobile-keyboard.js /usr/share/novnc/mobile-keyboard.js
 COPY --chmod=644 rakazo-local-bin.sh /etc/profile.d/rakazo-local-bin.sh
 # Strip CR so shebangs work even if the build context came from a CRLF checkout.
 RUN ldconfig \
-  && sed -i 's/\r$//' /usr/local/bin/rakazo-computer /usr/local/lib/rakazo-user-env.sh /usr/local/bin/rakazo-computer-control /usr/local/bin/rakazo-browser /usr/local/bin/rakazo-focus-or-launch /usr/local/bin/rakazo-page-browser /usr/local/bin/rakazo-zomato-reconcile /usr/local/bin/rakazo-zomato-monthly-analysis /usr/local/bin/rakazo-zomato-report /usr/local/bin/payout-owner-reconcile /usr/local/bin/payout-swiggy-reconcile /usr/local/bin/payout-combined \
+  && sed -i 's/\r$//' /usr/local/bin/rakazo-computer /usr/local/lib/rakazo-user-env.sh /usr/local/bin/rakazo-computer-control /usr/local/bin/rakazo-browser /usr/local/bin/rakazo-focus-or-launch /usr/local/bin/rakazo-page-browser /usr/local/bin/rakazo-zomato-reconcile /usr/local/bin/rakazo-zomato-monthly-analysis /usr/local/bin/rakazo-zomato-report /usr/local/bin/payout-preflight /usr/local/bin/payout-owner-reconcile /usr/local/bin/payout-swiggy-reconcile /usr/local/bin/payout-combined \
     /usr/local/lib/rakazo/page_secrets.py \
     /etc/rakazo/fluxbox/init /etc/rakazo/fluxbox/apps /etc/rakazo/fluxbox/menu \
     /etc/profile.d/rakazo-local-bin.sh
+# COPY --chmod=644 can also leave newly created destination directories non-searchable.
+# Keep libraries/data readable but directories traversable by the sandbox's unprivileged user.
+RUN chmod 755 /usr/local/lib/rakazo/payout /usr/local/lib/rakazo/payout/examples /usr/local/share/payout-reconciliation \
+  && runuser -u rakazo -- /usr/local/bin/payout-preflight --platform both
 # Agent-authored scripts often use the unversioned name. Keep it on the installed Python 3.
 RUN ln -s /usr/bin/python3 /usr/local/bin/python \
   && python -c 'import sys; assert sys.version_info.major == 3'

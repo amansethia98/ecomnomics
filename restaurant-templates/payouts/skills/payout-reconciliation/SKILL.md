@@ -1,7 +1,19 @@
 ---
 name: Payout reconciliation
-description: One consolidated Zomato and Swiggy payout report. Read-only.
+description: Read first for Zomato or Swiggy payouts/reconciliation. Read-only.
 ---
+
+## Fast, verified execution (both platforms)
+
+Read this skill before acting, including separately authorized login tasks. Reuse the loaded skill across credential/code replies for this same task; do not load the Zomato-only recipe for a Swiggy-only task.
+
+Before opening a login or finance page, run `/usr/local/bin/payout-preflight --platform zomato` or `--platform swiggy` once. If it reports an absent/inaccessible installed library, stop and report that the computer image needs rebuilding. Do not spend time on login, dependency installation, permission workarounds, helper discovery or source inspection. The installed commands and private-file paths are listed below; use them directly.
+
+After sign-in, use the page returned by `browser_act`: it already contains a fresh snapshot. Do not immediately request another full snapshot unless relevant refs are missing, navigation has not settled, or the page changed. When available, use a focused snapshot query for the outlet ID or period. For an outlet switch, use the visible selector's search once with the exact configured ID, verify the selected ID/name, then continue. Never guess URLs, bypass verification, or change the separately authorized login method to save time.
+
+For Swiggy, match the annexure's payment scope. A combined Swiggy + Toing annexure is compared to **All** for the same cycle/UTR, not the Swiggy-only tab. Record that scope in the screen JSON. Keep any component-only discrepancy separate; never call it rounding or silently allocate it to another component. Use a component-only figure only with a calculator/export that explicitly supports that same component. Capture the correct scope/period/payment once, download one fresh file, run the installed calculator, and stop browser exploration once those checks are complete.
+
+Do not use desktop screenshots/clicks for routine navigation when the structured page works. Use one shell call for independent path/existence checks if needed, not a sequence of exploratory `which`, `ls`, package reads and retries. A failed installed calculator is a blocker, not permission to invent the table.
 
 ## Default output — ALWAYS ONE CONSOLIDATED REPORT
 

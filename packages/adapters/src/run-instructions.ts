@@ -400,6 +400,13 @@ export function userTurnInstructions(parts: {
         "skill_read",
         "When asked how Rakazo or you work, or how to set something up (apps, the user's own computer, billing), read the Rakazo skill before answering or acting.",
       ),
+    parts.agentSkillsLine?.includes("Payout reconciliation")
+      ? offeredBuiltinClause(
+          parts.disabledBuiltinTools,
+          "skill_read",
+          "For any Zomato or Swiggy payout/reconciliation task (including its separately authorized login), call skill_read for Payout reconciliation before browser or shell work, even if the request gives detailed steps. Read once per task; reuse its content across credential or code replies for that task.",
+        )
+      : undefined,
     parts.taughtSkillsLine,
     offeredBuiltinClause(
       parts.disabledBuiltinTools,

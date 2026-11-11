@@ -36,6 +36,20 @@ describe("Zomato report skills", () => {
 });
 
 describe("Payout reconciliation", () => {
+  it("requires both platforms to load the guide and preflight before browser work", () => {
+    const bot = readFileSync(repoFile("restaurant-templates/payouts/bot.md"), "utf8");
+    const skill = BUILTIN_AGENT_SKILLS.find((item) => item.name === "Payout reconciliation")!;
+    expect(bot).toContain("call `skill_read` for **Payout reconciliation**");
+    expect(bot).toContain("Zomato AND Swiggy");
+    expect(bot).toContain("Read it once per task");
+    expect(skill.description).toContain("Swiggy");
+    expect(skill.content).toContain("payout-preflight --platform zomato");
+    expect(skill.content).toContain("--platform swiggy");
+    expect(skill.content).toContain("already contains a fresh snapshot");
+    expect(skill.content).toContain("combined Swiggy + Toing annexure");
+    expect(skill.content).toContain("Write `~/.local/share/payout-reconciliation/job.json` first");
+  });
+
   it("delivers one consolidated report and keeps the dashboards read-only", () => {
     const skill = BUILTIN_AGENT_SKILLS.find((item) => item.name === "Payout reconciliation");
     expect(skill?.description.length).toBeLessThanOrEqual(72);
