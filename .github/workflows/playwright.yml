@@ -196,10 +196,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # The page-browser pattern also matches the reliability spec. Both need the helper.
           - spec: page-browser
+            pattern: page-browser
             workers: "1"
             agent_browser: true
           - spec: pages
+            pattern: pages.spec.ts
             workers: "2"
             agent_browser: false
     outputs:
@@ -267,7 +270,7 @@ jobs:
         env:
           E2E_SKIP_NIGHTLY: ${{ !inputs.nightly && '1' || '' }}
           E2E_WORKERS: ${{ matrix.workers }}
-        run: pnpm test:e2e -- --spec="${{ matrix.spec }}.spec.ts"
+        run: pnpm test:e2e -- --spec="${{ matrix.pattern }}"
       - name: Upload heavy results
         if: always() && steps.areas.outputs.e2e != 'false'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

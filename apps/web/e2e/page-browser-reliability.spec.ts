@@ -103,6 +103,7 @@ test("covered clicks recover and downloads land without a dialog", async () => {
 
     await page.goto(`${base}/covered.html?run=covered`);
     const covered = await command("snapshot");
+    expect(covered.ok, covered.error).toBe(true);
     const coveredAct = await command("act", {
       actions: [{ kind: "click", ref: ref(covered, "Save payout") }],
     });

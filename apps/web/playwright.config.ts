@@ -10,7 +10,9 @@ const boatSandbox = process.env.SANDBOX_PROVIDER === "boat";
 const skipNightly = Boolean(process.env.E2E_SKIP_NIGHTLY);
 // CI pulls these into their own jobs so they do not share a shard with each other and set the floor.
 const skipHeavy = process.env.E2E_SKIP_HEAVY === "1";
-const heavySpecs = ["page-browser", "pages"];
+// page-browser-reliability uses the same second Chromium as page-browser, so it
+// stays on that job. A shared shard does not install the browser helper.
+const heavySpecs = ["page-browser", "page-browser-reliability", "pages"];
 const nightlySpecs = [
   "activity-list",
   "agent-connection-approval",
