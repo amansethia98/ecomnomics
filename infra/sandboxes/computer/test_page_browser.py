@@ -2118,6 +2118,16 @@ class SavedLoginTest(unittest.TestCase):
         self.assertEqual(browser.filled_in(), [("page", 1)])
         self.assertNotIn("fake-password", json.dumps([p for m, p, _ in browser.sent if m == "Runtime.evaluate"]))
 
+    def test_partial_private_code_is_uncertain_and_never_reported_as_a_reusable_refusal(self):
+        browser = LoginFrameBrowser()
+        step = {"kind": "fill", "ref": "e2", "text": "ABC123", "origin": "https://portal.example.test",
+                "field": "code"}
+        with patch.object(secrets, "focused_frame", return_value=("page", "main", 1)), \
+                patch.object(secrets, "call_with", return_value={"codePartial": True, "filled": 1, "total": 6}):
+            with self.assertRaisesRegex(secrets.CardFieldUncertain, "Do not replay") as error:
+                secrets.fill_focused(browser.client, "page", step)
+        self.assertNotIn(step["text"], str(error.exception))
+
     def test_a_field_in_another_site_s_frame_is_refused_and_its_own_site_s_is_filled(self):
         browser = LoginFrameBrowser(focus_in_frame=True)
         with self.assertRaisesRegex(secrets.Refused, "in a frame from https://auth.example.test, and this login is "

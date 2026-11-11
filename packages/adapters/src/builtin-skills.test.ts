@@ -48,7 +48,9 @@ describe("Payout reconciliation", () => {
     expect(skill?.content).toContain("absolute gap strictly below");
     expect(skill?.content).toContain("assumed rate X% (onboarding rate not yet provided)");
     expect(skill?.content).toContain("owner-confirmed-outlet-map.csv");
-    expect(skill?.content).toContain("native Backspace");
+    expect(skill?.content).toContain("fill_code");
+    expect(skill?.content).toContain("never replay the code");
+    expect(skill?.content).not.toContain("native Backspace");
     expect(skill?.content).toContain("Do not use fixed click positions");
     expect(skill?.content).not.toContain("x-ai/");
     expect(skill?.content).not.toContain("Gemini");

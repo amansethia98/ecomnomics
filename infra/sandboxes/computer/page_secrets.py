@@ -356,7 +356,7 @@ EVAL_HELPERS = r"""
     codeSlots.set(el, held);
   }
   // Whether an input is made for a one-time code: it says so, or takes digits, or is named or
-  // labelled like one, or holds a code's length. One box per digit is not one: those need the user.
+  // labelled like one, or holds a code's length. Single-character inputs need a validated group.
   function looksLikeCodeBox(el) {
     if (el.maxLength === 1) return false;
     if ((el.getAttribute("autocomplete") || "").toLowerCase().split(/\s+/).includes("one-time-code")) return true;
@@ -370,6 +370,91 @@ EVAL_HELPERS = r"""
         .map((id) => root.getElementById?.(id)?.textContent),
     ].join(" ");
     return /otp|one.?time|code|token|2fa|mfa|verif|\bpin\b|passcode|קוד|אימות/i.test(named);
+  }
+  // A private code may span several inputs. Resolve the whole group before touching a value;
+  // the ordinary page-world split-code typer cannot consume a run-held secret safely.
+  function splitCodeGroup(input, size) {
+    const root = input.getRootNode();
+    const shaped = (el) => el instanceof HTMLInputElement && ["text", "email", "tel", "number"].includes(el.type)
+      && visible(el) && (el.maxLength === 1 || (el.getAttribute("inputmode") || "").toLowerCase() === "numeric"
+        || /one-time-code|otp|one.?time|verification|passcode|\bcode\b/i.test([
+          el.autocomplete, el.name, el.id, el.getAttribute("aria-label"), el.placeholder,
+        ].join(" ")));
+    const part = (el) => shaped(el) && !el.disabled && !el.readOnly;
+    const groups = [];
+    for (const el of root.querySelectorAll("input")) {
+      if (!part(el)) continue;
+      for (let parent = el.parentElement; parent && parent.getRootNode() === root; parent = parent.parentElement) {
+        const fields = [...parent.querySelectorAll("input")].filter((node) => visible(node) && node.type !== "hidden");
+        // Several independent full-code inputs in the document are not one segmented widget.
+        if (parent === document.body && !fields.every((field) => field.maxLength === 1)) break;
+        if (fields.length > 12) break;
+        if (fields.includes(input) && fields.length >= 4 && fields.every(shaped) && !fields.every(part)) {
+          throw refused("A code box is disabled or read-only; nothing was typed.");
+        }
+        if (fields.length < 4 || !fields.every(part)) continue;
+        if (!groups.some((group) => group.fields.length === fields.length
+          && group.fields.every((field, index) => field === fields[index]))) groups.push({ parent, fields });
+        break;
+      }
+    }
+    const target = groups.find((group) => group.fields.includes(input));
+    if (!target) return null;
+    if (groups.length !== 1) throw refused("More than one code group is available; ask the user to take over.");
+    if (target.fields.length !== size) throw refused("The code length does not match the number of boxes.");
+    if (target.fields.some((field) => field.value !== "")) {
+      throw refused("The code boxes already contain input; ask the user to take over without replaying the code.");
+    }
+    return target;
+  }
+  function fillCodeGroup(group, value, origin) {
+    const { parent, fields } = group;
+    const doc = document;
+    const page = location.href;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+    let touched = 0;
+    const live = () => document === doc && location.href === page && location.protocol === "https:" && location.origin === origin
+      && parent.isConnected && fields.every((field) => field.isConnected && field.ownerDocument === doc
+        && parent.contains(field) && !field.disabled && !field.readOnly
+        && ["text", "email", "tel", "number"].includes(field.type));
+    const partial = () => ({ codePartial: true, filled: touched, total: fields.length });
+    // Mask the whole widget before dispatching events: a page may synchronously draw its slots.
+    maskCard(parent);
+    for (const field of fields) {
+      field.setAttribute(FILLED, "");
+      maskCard(field);
+      codeSlots.set(field, [parent]);
+    }
+    if (!live() || !fields.includes(focused())) throw refused("The code group changed before entry; nothing was typed.");
+    try {
+      for (let index = 0; index < fields.length; index++) {
+        const active = focused();
+        if (!live() || (index === 0 ? !fields.includes(active)
+          : active !== fields[index - 1] && active !== fields[index])) {
+          if (touched) return partial();
+          throw refused("Focus left the code group; nothing was typed.");
+        }
+        const field = fields[index];
+        field.focus();
+        if (!live() || focused() !== field) {
+          if (touched) return partial();
+          throw refused("The code box did not keep focus; nothing was typed.");
+        }
+        // From this point the outcome may be partial, even when the setter/event handler fails.
+        touched = index + 1;
+        setter.call(field, value[index]);
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+        field.dispatchEvent(new Event("change", { bubbles: true }));
+        if (!live() || field.value !== value[index]) return partial();
+        maskCard(parent);
+        fields.forEach((box) => { box.setAttribute(FILLED, ""); maskCard(box); });
+      }
+    } catch (error) {
+      if (touched) return partial();
+      throw error;
+    }
+    if (fields.some((field, index) => field.value !== value[index])) return partial();
+    return true;
   }
   function numericBox(el) {
     const mode = (el.getAttribute("inputmode") || "").toLowerCase();
@@ -437,6 +522,11 @@ EVAL_HELPERS = r"""
       const password = !card && !code && field !== "username";
       if (password && !(input && input.type === "password")) {
         throw refused("A saved password can only be typed into a password field.");
+      }
+      if (code && input) {
+        const text = numericBox(input) ? String(value).replaceAll("-", "") : String(value);
+        const group = splitCodeGroup(input, text.length);
+        if (group) return fillCodeGroup(group, text, saved.origin);
       }
       if (!card && !password && !(input && ["text", "email", "tel"].includes(input.type))) {
         throw refused(code ? "A code can only be typed into a text, email, or telephone field."
@@ -718,9 +808,13 @@ def fill_focused(client: CdpClient, session_id: str, step: dict[str, Any]) -> No
     frame = focused_frame(client, session_id)
     if frame[0] != session_id or frame[2] != client.context_id:
         frame_site_check(client, frame, step)
-    call_with(client, frame[0], frame[2], "function (value, origin, field) { "
+    result = call_with(client, frame[0], frame[2], "function (value, origin, field) { "
               "return window.__rakazoPageBrowser.fill(value, origin, field); }",
               step["text"], step["origin"], step.get("field"))
+    if isinstance(result, dict) and result.get("codePartial"):
+        # A secret may already be on the page: never restore its one-shot claim or replay it.
+        raise CardFieldUncertain("Code entry was partial or uncertain. Do not replay, submit, or request a new code; "
+                                 "ask the user to take over.")
 
 
 def find_card_field(client: CdpClient, session_id: str, main_frame_id: str, token: str) -> tuple[str, str, int]:

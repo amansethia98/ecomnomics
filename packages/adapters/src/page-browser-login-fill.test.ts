@@ -298,6 +298,172 @@ describe("live page helper one-time code fill", () => {
     expect(domWindow.document.querySelector("input")!.value).toBe("");
   });
 
+  describe("secure segmented OTP groups", () => {
+    function group(size: number, markup = "zomato", suffix = "") {
+      return `<div role="group" aria-label="Verification code">${Array.from(
+        { length: size },
+        (_, i) => {
+          const attrs =
+            markup === "zomato"
+              ? 'maxlength="1" type="text"'
+              : markup === "swiggy"
+                ? 'inputmode="numeric" type="tel"'
+                : markup === "number"
+                  ? 'inputmode="numeric" type="number"'
+                  : markup === "autocomplete"
+                    ? 'autocomplete="one-time-code"'
+                    : `name="otp-${i}"`;
+          return `<div><input aria-label="Digit ${i + 1}${suffix}" ${attrs} /></div>`;
+        },
+      ).join("")}</div>`;
+    }
+    it.each([
+      [6, "zomato", "ABC123"],
+      [4, "zomato", "AB12"],
+      [6, "swiggy", "123456"],
+      [4, "swiggy", "1234"],
+      [4, "number", "1234"],
+      [4, "autocomplete", "AB12"],
+      [4, "name", "AB12"],
+    ])("securely distributes %i %s boxes", (size, markup, code) => {
+      const { domWindow, fill } = fillCode(group(size, markup), "Digit 1", code);
+      const inputs = [...domWindow.document.querySelectorAll("input")];
+      const masks = inputs.map((input) => vi.spyOn(input.style, "setProperty"));
+      const seen: string[] = [];
+      for (const input of inputs) {
+        input.addEventListener("input", () => {
+          expect(inputs.every((field) => field.hasAttribute("data-rakazo-filled"))).toBe(true);
+          for (const mask of masks) expect(mask).toHaveBeenCalledWith(MASK, "disc", "important");
+          seen.push(input.value);
+        });
+      }
+      expect(fill()).toBe(true);
+      expect(inputs.map((input) => input.value)).toEqual([...code]);
+      expect(seen).toEqual([...code]);
+    });
+    it.each([
+      ["telephone type", 'type="tel"'],
+      ["decimal inputmode", 'inputmode="decimal"'],
+      ["numeric pattern", 'pattern="[0-9]*"'],
+    ])("does not infer a split group from %s alone", (_label, attrs) => {
+      const boxes = `<div>${Array.from({ length: 6 }, (_, i) => `<input aria-label="Digit ${i + 1}" ${attrs} />`).join("")}</div>`;
+      const { domWindow, fill } = fillCode(boxes, "Digit 1", "123456");
+      expect(fill).toThrow(/code box/);
+      expect(
+        [...domWindow.document.querySelectorAll("input")].every((input) => input.value === ""),
+      ).toBe(true);
+    });
+    it("allows normal autofocus within the group", () => {
+      const { domWindow, fill } = fillCode(group(6), "Digit 1", "ABC123");
+      const inputs = [...domWindow.document.querySelectorAll("input")];
+      inputs.forEach((input, i) => {
+        input.addEventListener("input", () => inputs[i + 1]?.focus());
+      });
+      expect(fill()).toBe(true);
+      expect(inputs.map((input) => input.value).join("")).toBe("ABC123");
+    });
+    it("refuses ambiguous groups before touching either", () => {
+      const { domWindow, fill } = fillCode(
+        group(6) + group(6, "swiggy", " other"),
+        "Digit 1",
+        "ABC123",
+      );
+      expect(fill).toThrow(/More than one code group/);
+      expect(
+        [...domWindow.document.querySelectorAll("input")].every((input) => input.value === ""),
+      ).toBe(true);
+    });
+    it.each(["https://other.example.test/verify", "http://login.example.test/verify"])(
+      "refuses a segmented code on %s",
+      (url) => {
+        const { domWindow, fill } = fillCode(group(6), "Digit 1", "ABC123", url);
+        expect(fill).toThrow();
+        expect(
+          [...domWindow.document.querySelectorAll("input")].every((input) => input.value === ""),
+        ).toBe(true);
+      },
+    );
+    it("refuses a size mismatch and a prefilled group without changing values", () => {
+      const short = fillCode(group(6), "Digit 1", "AB12");
+      expect(short.fill).toThrow(/length does not match/);
+      const filledGroup = fillCode(
+        group(4).replace('type="text"', 'type="text" value="X"'),
+        "Digit 1",
+        "AB12",
+      );
+      expect(filledGroup.fill).toThrow(/already contain input/);
+      expect(filledGroup.domWindow.document.querySelector("input")!.value).toBe("X");
+    });
+    it("refuses disabled or read-only groups before any private input", () => {
+      for (const attribute of ["disabled", "readonly"]) {
+        const { domWindow, fill } = fillCode(
+          group(4, "swiggy").replace('aria-label="Digit 2"', `aria-label="Digit 2" ${attribute}`),
+          "Digit 1",
+          "1234",
+        );
+        expect(fill).toThrow(/disabled or read-only/);
+        expect(
+          [...domWindow.document.querySelectorAll("input")].every((input) => input.value === ""),
+        ).toBe(true);
+      }
+    });
+    it("refuses unavailable numeric boxes rather than falling back to a single-input fill", () => {
+      for (const attr of ["disabled", "readonly"]) {
+        const { domWindow, fill } = fillCode(
+          group(4, "swiggy").replace('aria-label="Digit 2"', `aria-label="Digit 2" ${attr}`),
+          "Digit 1",
+          "1234",
+        );
+        expect(fill).toThrow(/disabled or read-only/);
+        expect(
+          [...domWindow.document.querySelectorAll("input")].every((input) => input.value === ""),
+        ).toBe(true);
+      }
+    });
+    it("reports uncertainty if a later event erases an earlier character", () => {
+      const { domWindow, fill } = fillCode(group(4), "Digit 1", "AB12");
+      const inputs = [...domWindow.document.querySelectorAll("input")];
+      inputs[3]!.addEventListener("input", () => {
+        inputs[0]!.value = "";
+      });
+      expect(fill()).toEqual({ codePartial: true, filled: 4, total: 4 });
+    });
+    it("stops uncertain after focus escapes, without exposing the code or filling later boxes", () => {
+      const { domWindow, fill } = fillCode(
+        `${group(6)}<input aria-label="Search" />`,
+        "Digit 1",
+        "ABC123",
+      );
+      const inputs = [...domWindow.document.querySelectorAll("input")];
+      inputs[0]!.addEventListener("input", () => inputs.at(-1)!.focus());
+      const result = fill();
+      expect(result).toEqual({ codePartial: true, filled: 1, total: 6 });
+      expect(JSON.stringify(result)).not.toContain("ABC123");
+      expect(inputs.slice(1, 6).every((input) => input.value === "")).toBe(true);
+    });
+    it("stops uncertain after a same-origin navigation during entry", () => {
+      const { domWindow, fill } = fillCode(group(4), "Digit 1", "AB12");
+      const inputs = [...domWindow.document.querySelectorAll("input")];
+      inputs[0]!.addEventListener("input", () =>
+        domWindow.history.replaceState({}, "", "/changed"),
+      );
+      expect(fill()).toEqual({ codePartial: true, filled: 1, total: 4 });
+      expect(inputs[1]!.value).toBe("");
+    });
+    it("stops uncertain if a field is replaced or disabled during entry", () => {
+      for (const mutation of ["replace", "disable"]) {
+        const { domWindow, fill } = fillCode(group(4), "Digit 1", "AB12");
+        const inputs = [...domWindow.document.querySelectorAll("input")];
+        inputs[0]!.addEventListener("input", () => {
+          if (mutation === "replace") inputs[1]!.replaceWith(inputs[1]!.cloneNode());
+          else inputs[1]!.disabled = true;
+        });
+        expect(fill()).toEqual({ codePartial: true, filled: 1, total: 4 });
+        expect(inputs[2]!.value).toBe("");
+      }
+    });
+  });
+
   describe("a code box over slot elements that draw each digit", () => {
     const slots = `<div id="outer"><div id="widget">
       <input aria-label="Code" autocomplete="one-time-code" maxlength="6" />

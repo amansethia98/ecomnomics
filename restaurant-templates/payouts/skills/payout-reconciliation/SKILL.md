@@ -731,11 +731,11 @@ Never initiate/request/resend an OTP during reconciliation. If logged out, stop.
 
 Observed widget failure: typing a full string with a browser action bound to box one can stop after its first character because focus auto-advances. Direct empty-value assignments can be undone by React re-renders. Do not assume prior rejected codes were caused by this without evidence.
 
-Corrected method, only when authorized:
+Secure method, only when authorized (Zomato and Swiggy split-code widgets):
 
-1. Focus the LAST box and send native Backspace six times. Confirm six empty boxes using filled-count state, not logged digit values.
-2. Focus FIRST box and use native desktop keyboard string entry once, allowing normal auto-advance. Do not use page typing bound to the first input.
-3. Check only that six boxes are filled. Never screenshot, read back, echo or store a real code; never write it into files/logs or use Enter automatically.
-4. Click Continue once ONLY with explicit authorization. If rejected/expired, stop. No resend or alternative retry without separate owner approval. Respect any lockout/countdown.
+1. Take a fresh structured snapshot and identify the first input of exactly one code group. Never read back or screenshot a code.
+2. Obtain the code through `request_secret oneTimeCode` for the exact HTTPS sign-in origin. The code stays private and run-scoped; never put it in chat, files, logs, or a native keyboard string.
+3. Call `browser_act` once with `fill_code` and the first input's ref. The secure host adapter validates the group and origin, masks all boxes, and fills one character per box. Never call it separately for each box or use ordinary `fill`, `type`, clipboard, shell, or desktop typing for a private code.
+4. Check only the non-secret fill outcome. If entry is partial/uncertain or the group is ambiguous, stop for human takeover; never replay the code or request/resend another one. Click Continue once only with explicit authorization after a successful fill; if rejected/expired, stop and respect any lockout/countdown.
 
 Dummy-only diagnostics can test distribution/autofocus; clear all dummy values before completion and never submit them. No real phone number, masked suffix, OTP or session is included here.
