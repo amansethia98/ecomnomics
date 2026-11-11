@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""Fast, read-only installation check before any restaurant login or download."""
+import argparse
+import os
+from pathlib import Path
+import stat
+import subprocess
+import sys
+
+
+def check_install(platform, root=Path('/')):
+    library = root / 'usr/local/lib/rakazo/payout'
+    errors = []
+    for path in (library, library / 'examples', root / 'usr/local/share/payout-reconciliation'):
+        try:
+            available = (path.is_dir()
+                         and stat.S_IMODE(path.stat().st_mode) & 0o005 == 0o005
+                         and os.access(path, os.R_OK | os.X_OK))
+        except OSError:
+            available = False
+        if not available:
+            errors.append(f'Library/data directory is missing or not readable/searchable: {path}')
+    commands = {'zomato': 'payout-owner-reconcile', 'swiggy': 'payout-swiggy-reconcile'}
+    selected = commands if platform == 'both' else {platform: commands[platform]}
+    if not errors:
+        for name in selected.values():
+            command = root / 'usr/local/bin' / name
+            try:
+                result = subprocess.run([str(command), '--help'], stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL, timeout=10, check=False)
+                if result.returncode:
+                    errors.append(f'Installed command is unavailable: {name}')
+            except (OSError, subprocess.TimeoutExpired):
+                errors.append(f'Installed command is unavailable: {name}')
+    return errors
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--platform', choices=('zomato', 'swiggy', 'both'), default='both')
+    args = parser.parse_args()
+    errors = check_install(args.platform)
+    if errors:
+        print('PAYOUT_INSTALL_BROKEN: rebuild the computer image before login or download.')
+        print('\n'.join(errors))
+        return 1
+    print(f'PASS: {args.platform} payout installation is readable and ready.')
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

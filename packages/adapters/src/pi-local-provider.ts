@@ -1,14 +1,17 @@
-import type { Model, MutableModels, Provider } from "@earendil-works/pi-ai";
+import type { Model, MutableModels, Provider, ProviderStreams } from "@earendil-works/pi-ai";
 import { createProvider } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
-
+import type { Dispatcher } from "undici";
+import { Agent, EnvHttpProxyAgent } from "undici";
 import { declaredVisionModelIds, inputModalities } from "./model-modalities.js";
-import { LOCAL_PROVIDER_ID, localModelIds } from "./pi-local-provider-id.js";
+import { LOCAL_PROVIDER_ID, localModelIds, localModelsApiKey } from "./pi-local-provider-id.js";
+import { MODEL_STREAM_AGENT_TIMEOUTS } from "./pi-runtime-limits.js";
+import { fetchPairedWithDispatcher } from "./undici-fetch.js";
 
 /**
  * Local OpenAI-compatible model server (Ollama, LM Studio, llama.cpp, MLX).
- * The server is keyless, but `resolve` returns a placeholder because Models
- * hides providers with no resolvable auth.
+ * Without RAKAZO_LOCAL_MODELS_API_KEY the server is keyless, but `resolve` returns
+ * a placeholder because Models hides providers with no resolvable auth.
  */
 export { LOCAL_PROVIDER_ID };
 
@@ -18,6 +21,9 @@ export const LOCAL_VISION_MODELS_ENV = "RAKAZO_LOCAL_VISION_MODELS";
 export function localVisionModelIds(): ReadonlySet<string> {
   return declaredVisionModelIds(LOCAL_VISION_MODELS_ENV);
 }
+
+/** Model ids the local server serves with OpenAI-style `reasoning_effort`, declared by the operator. */
+export const LOCAL_REASONING_MODELS_ENV = "RAKAZO_LOCAL_REASONING_MODELS";
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1";
 const DEFAULT_CONTEXT_WINDOW = 32_768;
@@ -49,19 +55,54 @@ function tokenLimit(name: string, fallback: number): number {
 }
 
 function localModel(id: string): Model<"openai-completions"> {
+  // Same comma-separated id list as the vision opt-in.
+  const reasoning = declaredVisionModelIds(LOCAL_REASONING_MODELS_ENV).has(id);
   return {
     id,
     name: id,
     api: "openai-completions",
     provider: LOCAL_PROVIDER_ID,
     baseUrl: localBaseUrl(),
-    reasoning: false,
-    compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
+    reasoning,
+    compat: reasoning
+      ? { supportsDeveloperRole: false, supportsReasoningEffort: true, thinkingFormat: "openai" }
+      : { supportsDeveloperRole: false, supportsReasoningEffort: false },
+    // Mirrors openAiCompatibleModel's reasoning levels.
+    ...(reasoning ? { thinkingLevelMap: { off: "none", xhigh: "xhigh", max: "max" } } : {}),
     input: inputModalities(localVisionModelIds().has(id)),
     // Runs on the operator's own hardware, so there is nothing to bill.
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: tokenLimit("RAKAZO_LOCAL_CONTEXT_WINDOW", DEFAULT_CONTEXT_WINDOW),
     maxTokens: tokenLimit("RAKAZO_LOCAL_MAX_TOKENS", DEFAULT_MAX_TOKENS),
+  };
+}
+
+let localDispatcher: Dispatcher | undefined;
+
+/** Node's built-in fetch, which local servers used before, honors HTTP(S)_PROXY only when asked to. */
+function nodeFetchUsesEnvProxy(): boolean {
+  const flags = [...process.execArgv, ...(process.env.NODE_OPTIONS?.split(/\s+/) ?? [])];
+  return process.env.NODE_USE_ENV_PROXY === "1" || flags.includes("--use-env-proxy");
+}
+
+/** A queued local server can stay silent for minutes; the runtime's own timeouts bound it. */
+function localModelFetch(baseFetch?: typeof globalThis.fetch): typeof globalThis.fetch {
+  localDispatcher ??= nodeFetchUsesEnvProxy()
+    ? new EnvHttpProxyAgent(MODEL_STREAM_AGENT_TIMEOUTS)
+    : new Agent(MODEL_STREAM_AGENT_TIMEOUTS);
+  const dispatcher = localDispatcher;
+  const transport = fetchPairedWithDispatcher(baseFetch);
+  return (input, init) =>
+    transport(input, { ...init, dispatcher } as RequestInit & { dispatcher: Dispatcher });
+}
+
+function localApi(): ProviderStreams {
+  const api = openAICompletionsApi();
+  return {
+    stream: (model, context, options) =>
+      api.stream(model, context, { ...options, fetch: localModelFetch(options?.fetch) }),
+    streamSimple: (model, context, options) =>
+      api.streamSimple(model, context, { ...options, fetch: localModelFetch(options?.fetch) }),
   };
 }
 
@@ -76,13 +117,13 @@ export function localProvider(): Provider | undefined {
       apiKey: {
         name: "Local model server",
         resolve: async () => ({
-          auth: { apiKey: "local", baseUrl: localBaseUrl() },
+          auth: { apiKey: localModelsApiKey() ?? "local", baseUrl: localBaseUrl() },
           source: "local model server",
         }),
       },
     },
     models: ids.map(localModel),
-    api: openAICompletionsApi(),
+    api: localApi(),
   });
 }
 

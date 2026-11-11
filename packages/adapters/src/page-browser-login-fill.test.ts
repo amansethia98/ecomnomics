@@ -39,16 +39,16 @@ function installPageHelper(url: string, html: string) {
         cardHolds: () => boolean;
         cardTyped: (length: number) => boolean;
         emptyCard: () => void;
-        fill: (value: string, origin?: string, field?: string) => boolean;
+        fill: (value: string, origin?: string, field?: string, ref?: string) => unknown;
       };
     }
   ).__rakazoPageBrowser;
   // The page browser focuses the field the bot pointed to; the fill then takes the focused field.
   const browser = {
     ...secrets,
-    fill(label: string, value: string, origin?: string, field?: string) {
+    fill(label: string, value: string, origin?: string, field?: string, ref?: string) {
       (domWindow.document.querySelector(`[aria-label="${label}"]`) as HTMLElement).focus();
-      return secrets.fill(value, origin as string, field as string);
+      return secrets.fill(value, origin as string, field as string, ref);
     },
   };
   /** Focuses the first input whose name or label holds `label`, as the page browser would, then fills it. */
@@ -62,7 +62,7 @@ function installPageHelper(url: string, html: string) {
     input.focus();
     return secrets.fill(value, origin, field);
   }
-  return { domWindow, browser, fillInput };
+  return { domWindow, browser, fillInput, privateFill: secrets.fill };
 }
 
 function fieldValue(window: JSDOM["window"], label: string): string {
@@ -176,7 +176,9 @@ describe("live page helper saved-login fill", () => {
     for (const url of ["https://example.test/login", "https://www.example.test.evil.test/login"]) {
       const { domWindow, browser } = installPageHelper(url, html);
       const email = "Email";
-      expect(() => browser.fill(email, "fake-user", origin, "username")).toThrow(/not on the site/);
+      expect(() => browser.fill(email, "fake-user", origin, "username")).toThrow(
+        `This login is saved for https://www.example.test; the page is on ${new URL(url).origin}.`,
+      );
       expect(fieldValue(domWindow, "Email")).toBe("");
     }
   });
@@ -294,6 +296,205 @@ describe("live page helper one-time code fill", () => {
       "Refused: This field doesn't look like a code box; ask the user to take over.",
     );
     expect(domWindow.document.querySelector("input")!.value).toBe("");
+  });
+
+  describe("secure segmented OTP groups", () => {
+    it.each([1, 2])(
+      "accepts unlabelled maxlength=%i slots from the captured structure",
+      (maxlength) => {
+        const captured = readFileSync(
+          new URL(
+            "../../../infra/sandboxes/computer/fixtures/short-code-captured-layout.html",
+            import.meta.url,
+          ),
+          "utf8",
+        );
+        const body = captured.match(/<body>([\s\S]*)<\/body>/)?.[1];
+        if (!body) throw new Error("Captured-structure body missing");
+        const { domWindow, privateFill } = installPageHelper(
+          `${origin}/verify`,
+          body.replaceAll('maxlength="2"', `maxlength="${maxlength}"`),
+        );
+        const boxes = [...domWindow.document.querySelectorAll("input")];
+        expect(boxes).toHaveLength(6);
+        expect(
+          boxes.every(
+            (box) => !box.name && !box.id && !box.hasAttribute("aria-label") && !box.autocomplete,
+          ),
+        ).toBe(true);
+        boxes.forEach((box, index) => {
+          box.addEventListener("input", () => boxes[index + 1]?.focus());
+        });
+        boxes[0]!.focus();
+        expect(privateFill("AB7C9D", origin, "code", "e19")).toMatchObject({ codeFilled: true });
+        expect(boxes.map((box) => box.value)).toEqual([..."AB7C9D"]);
+        expect(boxes.every((box) => box.value.length === 1)).toBe(true);
+      },
+    );
+
+    function group(size: number, markup = "zomato", suffix = "") {
+      return `<div role="group" aria-label="Verification code">${Array.from(
+        { length: size },
+        (_, i) => {
+          const attrs =
+            markup === "zomato"
+              ? 'maxlength="1" type="text"'
+              : markup === "swiggy"
+                ? 'inputmode="numeric" type="tel"'
+                : markup === "number"
+                  ? 'inputmode="numeric" type="number"'
+                  : markup === "autocomplete"
+                    ? 'autocomplete="one-time-code"'
+                    : `name="otp-${i}"`;
+          return `<div><input aria-label="Digit ${i + 1}${suffix}" ${attrs} /></div>`;
+        },
+      ).join("")}</div>`;
+    }
+    it.each([
+      [6, "zomato", "ABC123"],
+      [4, "zomato", "AB12"],
+      [6, "swiggy", "123456"],
+      [4, "swiggy", "1234"],
+      [4, "number", "1234"],
+      [4, "autocomplete", "AB12"],
+      [4, "name", "AB12"],
+    ])("securely distributes %i %s boxes", (size, markup, code) => {
+      const { domWindow, fill } = fillCode(group(size, markup), "Digit 1", code);
+      const inputs = [...domWindow.document.querySelectorAll("input")];
+      const masks = inputs.map((input) => vi.spyOn(input.style, "setProperty"));
+      const seen: string[] = [];
+      for (const input of inputs) {
+        input.addEventListener("input", () => {
+          expect(inputs.every((field) => field.hasAttribute("data-rakazo-filled"))).toBe(true);
+          for (const mask of masks) expect(mask).toHaveBeenCalledWith(MASK, "disc", "important");
+          seen.push(input.value);
+        });
+      }
+      expect(fill()).toBe(true);
+      expect(inputs.map((input) => input.value)).toEqual([...code]);
+      expect(seen).toEqual([...code]);
+    });
+    it.each([
+      ["telephone type", 'type="tel"'],
+      ["decimal inputmode", 'inputmode="decimal"'],
+      ["numeric pattern", 'pattern="[0-9]*"'],
+    ])("does not infer a split group from %s alone", (_label, attrs) => {
+      const boxes = `<div>${Array.from({ length: 6 }, (_, i) => `<input aria-label="Digit ${i + 1}" ${attrs} />`).join("")}</div>`;
+      const { domWindow, fill } = fillCode(boxes, "Digit 1", "123456");
+      expect(fill).toThrow(/code box/);
+      expect(
+        [...domWindow.document.querySelectorAll("input")].every((input) => input.value === ""),
+      ).toBe(true);
+    });
+    it("allows normal autofocus within the group", () => {
+      const { domWindow, fill } = fillCode(group(6), "Digit 1", "ABC123");
+      const inputs = [...domWindow.document.querySelectorAll("input")];
+      inputs.forEach((input, i) => {
+        input.addEventListener("input", () => inputs[i + 1]?.focus());
+      });
+      expect(fill()).toBe(true);
+      expect(inputs.map((input) => input.value).join("")).toBe("ABC123");
+    });
+    it("refuses ambiguous groups before touching either", () => {
+      const { domWindow, fill } = fillCode(
+        group(6) + group(6, "swiggy", " other"),
+        "Digit 1",
+        "ABC123",
+      );
+      expect(fill).toThrow(/More than one code group/);
+      expect(
+        [...domWindow.document.querySelectorAll("input")].every((input) => input.value === ""),
+      ).toBe(true);
+    });
+    it.each(["https://other.example.test/verify", "http://login.example.test/verify"])(
+      "refuses a segmented code on %s",
+      (url) => {
+        const { domWindow, fill } = fillCode(group(6), "Digit 1", "ABC123", url);
+        expect(fill).toThrow();
+        expect(
+          [...domWindow.document.querySelectorAll("input")].every((input) => input.value === ""),
+        ).toBe(true);
+      },
+    );
+    it("refuses a size mismatch and a prefilled group without changing values", () => {
+      const short = fillCode(group(6), "Digit 1", "AB12");
+      expect(short.fill).toThrow(/length does not match/);
+      const filledGroup = fillCode(
+        group(4).replace('type="text"', 'type="text" value="X"'),
+        "Digit 1",
+        "AB12",
+      );
+      expect(filledGroup.fill).toThrow(/already contain input/);
+      expect(filledGroup.domWindow.document.querySelector("input")!.value).toBe("X");
+    });
+    it("refuses disabled or read-only groups before any private input", () => {
+      for (const attribute of ["disabled", "readonly"]) {
+        const { domWindow, fill } = fillCode(
+          group(4, "swiggy").replace('aria-label="Digit 2"', `aria-label="Digit 2" ${attribute}`),
+          "Digit 1",
+          "1234",
+        );
+        expect(fill).toThrow(/disabled or read-only/);
+        expect(
+          [...domWindow.document.querySelectorAll("input")].every((input) => input.value === ""),
+        ).toBe(true);
+      }
+    });
+    it("refuses unavailable numeric boxes rather than falling back to a single-input fill", () => {
+      for (const attr of ["disabled", "readonly"]) {
+        const { domWindow, fill } = fillCode(
+          group(4, "swiggy").replace('aria-label="Digit 2"', `aria-label="Digit 2" ${attr}`),
+          "Digit 1",
+          "1234",
+        );
+        expect(fill).toThrow(/disabled or read-only/);
+        expect(
+          [...domWindow.document.querySelectorAll("input")].every((input) => input.value === ""),
+        ).toBe(true);
+      }
+    });
+    it("reports uncertainty if a later event erases an earlier character", () => {
+      const { domWindow, fill } = fillCode(group(4), "Digit 1", "AB12");
+      const inputs = [...domWindow.document.querySelectorAll("input")];
+      inputs[3]!.addEventListener("input", () => {
+        inputs[0]!.value = "";
+      });
+      expect(fill()).toEqual({ codePartial: true, filled: 4, total: 4 });
+    });
+    it("stops uncertain after focus escapes, without exposing the code or filling later boxes", () => {
+      const { domWindow, fill } = fillCode(
+        `${group(6)}<input aria-label="Search" />`,
+        "Digit 1",
+        "ABC123",
+      );
+      const inputs = [...domWindow.document.querySelectorAll("input")];
+      inputs[0]!.addEventListener("input", () => inputs.at(-1)!.focus());
+      const result = fill();
+      expect(result).toEqual({ codePartial: true, filled: 1, total: 6 });
+      expect(JSON.stringify(result)).not.toContain("ABC123");
+      expect(inputs.slice(1, 6).every((input) => input.value === "")).toBe(true);
+    });
+    it("stops uncertain after a same-origin navigation during entry", () => {
+      const { domWindow, fill } = fillCode(group(4), "Digit 1", "AB12");
+      const inputs = [...domWindow.document.querySelectorAll("input")];
+      inputs[0]!.addEventListener("input", () =>
+        domWindow.history.replaceState({}, "", "/changed"),
+      );
+      expect(fill()).toEqual({ codePartial: true, filled: 1, total: 4 });
+      expect(inputs[1]!.value).toBe("");
+    });
+    it("stops uncertain if a field is replaced or disabled during entry", () => {
+      for (const mutation of ["replace", "disable"]) {
+        const { domWindow, fill } = fillCode(group(4), "Digit 1", "AB12");
+        const inputs = [...domWindow.document.querySelectorAll("input")];
+        inputs[0]!.addEventListener("input", () => {
+          if (mutation === "replace") inputs[1]!.replaceWith(inputs[1]!.cloneNode());
+          else inputs[1]!.disabled = true;
+        });
+        expect(fill()).toEqual({ codePartial: true, filled: 1, total: 4 });
+        expect(inputs[2]!.value).toBe("");
+      }
+    });
   });
 
   describe("a code box over slot elements that draw each digit", () => {
@@ -493,5 +694,153 @@ describe("live page helper card fill", () => {
     const { browser } = installPageHelper(`${origin}/pay`, html);
     const ref = "Card number";
     expect(() => browser.fill(ref, number, origin, "unknown-field")).toThrow(/password field/);
+  });
+});
+
+// Synthetic capture/transport fixtures, NOT retained markup from accounts.zomato.com.
+describe("private code pre-fill structural capture", () => {
+  const origin = "https://accounts.example.test";
+  const boxes = `<div>${Array.from({ length: 6 }, (_, i) => `<span><input aria-label="Digit ${i + 1}" maxlength="1" autocomplete="one-time-code"></span>`).join("")}</div>`;
+
+  it("captures the selected ref and original layout before input callbacks run", () => {
+    const { domWindow, browser } = installPageHelper(origin, boxes);
+    const first = domWindow.document.querySelector("input")!;
+    first.addEventListener("input", () =>
+      first.setAttribute("autocomplete", "changed-personal-value"),
+    );
+    const result = browser.fill("Digit 1", "ABC123", origin, "code", "e7") as {
+      codeFilled: boolean;
+      codeLayout: {
+        ref: string;
+        target: number;
+        fields: Array<{ autocomplete: string[]; maxlength: number }>;
+        ancestors: Array<{ shapedInputs: number }>;
+      };
+    };
+    expect(result.codeFilled).toBe(true);
+    expect(result.codeLayout.ref).toBe("e7");
+    expect(result.codeLayout.target).toBe(0);
+    expect(result.codeLayout.fields).toHaveLength(6);
+    expect(result.codeLayout.fields.every((field) => field.maxlength === 1)).toBe(true);
+    expect(result.codeLayout.fields[0]?.autocomplete).toEqual(["one-time-code"]);
+    expect(result.codeLayout.ancestors.some((node) => node.shapedInputs === 6)).toBe(true);
+    expect(JSON.stringify(result.codeLayout)).not.toContain("changed-personal-value");
+    expect(JSON.stringify(result.codeLayout)).not.toContain("ABC123");
+  });
+
+  it("records a wrong Email ref without reading or exposing any input values or raw identifiers", () => {
+    const html = `${boxes}<input type="email" aria-label="Email" name="personal-name" id="personal-id" placeholder="private-address" autocomplete="section-private-token email"><input type="password" value="private-password">`;
+    const { domWindow, browser } = installPageHelper(origin, html);
+    for (const input of domWindow.document.querySelectorAll("input")) {
+      Object.defineProperty(input, "value", {
+        get() {
+          throw new Error("Capture must not read .value");
+        },
+      });
+    }
+    let message = "";
+    try {
+      browser.fill("Email", "ABC123", origin, "code", "e19");
+    } catch (error) {
+      message = String(error);
+    }
+    expect(message).toContain("This field doesn't look like a code box");
+    const layout = JSON.parse(message.split("code_layout_before_fill=")[1]!) as {
+      ref: string;
+      target: number;
+      fields: Array<{ type: string; shaped: boolean }>;
+    };
+    expect(layout.ref).toBe("e19");
+    expect(layout.target).toBe(6);
+    expect(layout.fields[layout.target]?.type).toBe("email");
+    expect(layout.fields[layout.target]?.shaped).toBe(false);
+    for (const privateText of [
+      "personal-name",
+      "personal-id",
+      "private-address",
+      "private-token",
+      "private-password",
+      "ABC123",
+    ])
+      expect(message).not.toContain(privateText);
+  });
+
+  it("records an open-shadow-root target without relaxing group validation", () => {
+    const { domWindow, privateFill } = installPageHelper(origin, '<div id="host"></div>');
+    const root = domWindow.document.querySelector("div")!.attachShadow({ mode: "open" });
+    root.innerHTML = boxes;
+    root.querySelector("input")!.focus();
+    const result = privateFill("ABC123", origin, "code", "e3") as {
+      codeLayout: { root: string };
+      codeFilled: boolean;
+    };
+    expect(result.codeFilled).toBe(true);
+    expect(result.codeLayout.root).toBe("shadow");
+  });
+
+  it("does not capture another origin or plain HTTP", () => {
+    for (const url of ["https://other.example.test", "http://accounts.example.test"]) {
+      const { browser } = installPageHelper(url, boxes);
+      expect(() => browser.fill("Digit 1", "ABC123", origin, "code", "e7")).toThrow();
+      try {
+        browser.fill("Digit 1", "ABC123", origin, "code", "e7");
+      } catch (error) {
+        expect(String(error)).not.toContain("code_layout_before_fill");
+      }
+    }
+  });
+
+  it("retains the ambiguity refusal and its bounded, value-free snapshot", () => {
+    const { browser } = installPageHelper(origin, boxes + boxes);
+    expect(() => browser.fill("Digit 1", "ABC123", origin, "code", "e7")).toThrow(
+      /More than one code group.*code_layout_before_fill/,
+    );
+  });
+});
+
+describe("private password delivery fidelity (synthetic credentials only)", () => {
+  it("replaces a prefilled value byte-for-byte without appending or shell/JSON escaping", () => {
+    const origin = "https://partner.example.test";
+    const password = `A&'"\\$+!`;
+    const delivered = JSON.parse(JSON.stringify({ value: password })).value as string;
+    const { domWindow, browser } = installPageHelper(
+      origin,
+      '<input type="password" aria-label="Password" value="prefilled">',
+    );
+    browser.fill("Password", delivered, origin, "password");
+    expect(fieldValue(domWindow, "Password")).toBe(password);
+    expect(Buffer.from(fieldValue(domWindow, "Password"))).toEqual(Buffer.from(password));
+    expect(filled(domWindow, "Password")).toBe(true);
+  });
+
+  it.each(["truncate", "replace"])(
+    "reports uncertainty if React handlers %s the password field",
+    (change) => {
+      const origin = "https://partner.example.test";
+      const { domWindow, browser } = installPageHelper(
+        origin,
+        '<input type="password" aria-label="Password">',
+      );
+      const field = domWindow.document.querySelector("input")!;
+      field.addEventListener("input", () => {
+        if (change === "truncate") field.value = field.value.slice(0, 2);
+        else field.replaceWith(field.cloneNode());
+      });
+      expect(browser.fill("Password", "fake-pw!", origin, "password")).toEqual({
+        loginUncertain: true,
+      });
+    },
+  );
+
+  it("refuses a password aimed at a phone or one-character OTP box", () => {
+    const origin = "https://partner.example.test";
+    const { domWindow, browser } = installPageHelper(
+      origin,
+      '<input type="tel" aria-label="Phone"><input maxlength="1" aria-label="Digit 1">',
+    );
+    for (const label of ["Phone", "Digit 1"]) {
+      expect(() => browser.fill(label, "fake-pw!", origin, "password")).toThrow(/password field/);
+      expect(fieldValue(domWindow, label)).toBe("");
+    }
   });
 });

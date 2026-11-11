@@ -40,6 +40,16 @@ it("writes this release's page-browser files once, and again when they differ", 
   );
   expect(statSync(wrapper).mode & 0o777).toBe(0o755);
   expect(statSync(secrets).mode & 0o777).toBe(0o644);
+  for (const name of [
+    "zomato_legacy.py",
+    "zomato_browser_246c11b.py",
+    "zomato_secrets_246c11b.py",
+  ]) {
+    const installed = `${root}/usr/local/lib/rakazo/${name}`;
+    expect(readFileSync(installed, "utf8")).toBe(readFileSync(path.join(computer, name), "utf8"));
+    expect(statSync(installed).mode & 0o777).toBe(0o644);
+  }
+  expect(Buffer.byteLength(installPageBrowserFilesCommand())).toBeLessThan(128 * 1024 - 1024);
 
   // A computer already on this release keeps its files untouched.
   writeFileSync(secrets, "edited");

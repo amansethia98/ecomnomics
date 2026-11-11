@@ -1,4 +1,6 @@
 import { MenuView } from "@expo/ui/community/menu";
+import { ph } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react/macro";
 import type { BillingStatus, ByokInterval } from "@rakazo/contracts";
 import {
   AI_PRIVACY_URL,
@@ -29,8 +31,10 @@ import { GlassIconButton } from "../components/glass-icon-button";
 import { NativeActionButton } from "../components/native-action-button";
 import { NativeSegmentedControl } from "../components/native-segmented-control";
 import { NativeSymbol } from "../components/native-symbol";
+import { useOrganizationMenuAction } from "../components/organization-menu";
 import { FORM_COLUMN_WIDTH } from "../lib/adaptive-layout";
-import { rpc, signOut } from "../lib/api";
+import { rpc } from "../lib/api";
+import { signOut } from "../lib/api-auth";
 import { replaceWithSignIn } from "../lib/auth-routing";
 import type { Plan } from "../lib/billing";
 import {
@@ -42,9 +46,12 @@ import {
   setPaywallShown,
   subscribedPlan,
 } from "../lib/billing";
+import { endCallBeforeSessionEnd } from "../lib/call-session";
 import { translucentColor } from "../lib/color";
-import { dateLocaleForUi, useI18n } from "../lib/i18n";
+import { dateLocaleForUi } from "../lib/i18n";
 import { useMobileTokens } from "../lib/native";
+import { organizationSwitchActions, useOrganizations } from "../lib/organizations";
+import { confirmUnsentSendLoss } from "../lib/unsent-send-warning";
 import { errorText } from "../lib/user-error";
 
 type Amount = (typeof MODEL_CREDIT_AMOUNTS)[number];
@@ -66,7 +73,7 @@ const CREW = [
  * (`?dismissible=1`) to pick a plan without leaving what was open.
  */
 export default function Paywall() {
-  const { t } = useI18n();
+  const { t } = useLingui();
   const tokens = useMobileTokens();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -76,7 +83,10 @@ export default function Paywall() {
   const [amount, setAmount] = useState<Amount>(DEFAULT_MONTHLY_CREDIT_AMOUNT);
   const [interval, setByokInterval] = useState<ByokInterval>("month");
   const [pending, setPending] = useState(false);
+  const leaving = useRef(false);
   const deletion = useAccountDeletion();
+  const organizations = useOrganizations(!dismissible).data;
+  const organizationAction = useOrganizationMenuAction(organizations);
   useEffect(() => {
     if (deletion.error) Alert.alert(deletion.error);
   }, [deletion.error]);
@@ -147,18 +157,26 @@ export default function Paywall() {
       setStatus(next);
       if (purchaseCompleted(status, next)) setStarted(plan);
     } catch (err) {
-      Alert.alert(errorText(err, t("Could not open billing")));
+      Alert.alert(errorText(err, t`Could not open billing`));
     } finally {
       setPending(false);
     }
   }
 
   async function leave() {
+    // Held from the tap, so a second tap while the unsent-message check runs starts nothing.
+    if (leaving.current) return;
+    leaving.current = true;
     try {
+      if (!(await confirmUnsentSendLoss("sign-out"))) return;
+      // Hang up while the session still exists, so the server records the call's end.
+      await endCallBeforeSessionEnd();
       await signOut();
       replaceWithSignIn();
     } catch (err) {
-      Alert.alert(errorText(err, t("Could not sign out")));
+      Alert.alert(errorText(err, t`Could not sign out`));
+    } finally {
+      leaving.current = false;
     }
   }
 
@@ -172,7 +190,7 @@ export default function Paywall() {
     >
       {dismissible ? (
         <GlassIconButton
-          accessibilityLabel={t("Close")}
+          accessibilityLabel={t`Close`}
           ios="xmark"
           android="close"
           onPress={() => router.back()}
@@ -180,18 +198,20 @@ export default function Paywall() {
       ) : (
         <MenuView
           actions={[
-            { id: "sign-out", title: t("Sign out") },
-            { id: "delete", title: t("Delete account") },
+            ...organizationSwitchActions(organizations),
+            { id: "sign-out", title: t`Sign out` },
+            { id: "delete", title: t`Delete account` },
           ]}
           onPressAction={({ nativeEvent }) => {
             if (pending || deletion.pending) return;
             if (nativeEvent.event === "delete") void deletion.request();
-            else void leave();
+            else if (nativeEvent.event === "sign-out") void leave();
+            else organizationAction(nativeEvent.event);
           }}
         >
           <View
             accessible
-            accessibilityLabel={t("Account")}
+            accessibilityLabel={t`Account`}
             accessibilityRole="button"
             style={styles.account}
           >
@@ -216,12 +236,12 @@ export default function Paywall() {
           {loadFailed ? (
             <View style={styles.failed}>
               <Text style={[styles.lead, { color: tokens.mutedForeground }]}>
-                {t("Could not load billing")}
+                {t`Could not load billing`}
               </Text>
-              <NativeActionButton label={t("Try again")} prominence="secondary" onPress={load} />
+              <NativeActionButton label={t`Try again`} prominence="secondary" onPress={load} />
             </View>
           ) : (
-            <ActivityIndicator color={tokens.mutedForeground} accessibilityLabel={t("Loading…")} />
+            <ActivityIndicator color={tokens.mutedForeground} accessibilityLabel={t`Loading…`} />
           )}
         </View>
       </View>
@@ -249,17 +269,17 @@ export default function Paywall() {
             color={tokens.success}
           />
           <Text accessibilityRole="header" style={[styles.title, { color: tokens.foreground }]}>
-            {status.state === "trialing" ? t("Your free trial has started") : t("You're all set")}
+            {status.state === "trialing" ? t`Your free trial has started` : t`You're all set`}
           </Text>
           {status.state === "trialing" && freeUntil ? (
             <Text style={[styles.lead, { color: tokens.mutedForeground }]}>
-              {t("Free until {date}", { date: freeUntil })}
+              {t`Free until ${ph({ date: freeUntil })}`}
             </Text>
           ) : null}
         </View>
         <View style={styles.footer}>
           <NativeActionButton
-            label={started === "byok" ? t("Connect your AI") : t("Start using Rakazo")}
+            label={started === "byok" ? t`Connect your AI` : t`Start using Rakazo`}
             onPress={() => {
               router.back();
               if (started === "byok") router.push("/models");
@@ -282,19 +302,19 @@ export default function Paywall() {
   const creditPrice = `$${amount / 100}`;
   const features: { label: string; ios: string; android: SymbolName; color: string }[] = [
     {
-      label: t("Bots with their own computer"),
+      label: t`Bots with their own computer`,
       ios: "desktopcomputer",
       android: "desktop-outline",
       color: botColors[2],
     },
     {
-      label: t("Routines that run while you're away"),
+      label: t`Routines that run while you're away`,
       ios: "clock.arrow.circlepath",
       android: "time-outline",
       color: botColors[5],
     },
     {
-      label: t("Web, desktop and mobile apps"),
+      label: t`Web, desktop and mobile apps`,
       ios: "iphone",
       android: "phone-portrait-outline",
       color: botColors[0],
@@ -302,27 +322,21 @@ export default function Paywall() {
   ];
   const cta =
     plan === "credits" || offer === "subscribe"
-      ? t("Subscribe")
+      ? t`Subscribe`
       : offer === "trial"
-        ? t("Start free trial")
-        : t("Continue");
+        ? t`Start free trial`
+        : t`Continue`;
   const terms =
     plan === "credits"
-      ? t("{price} / month. Cancel anytime.", { price: creditPrice })
+      ? t`${ph({ price: creditPrice })} / month. Cancel anytime.`
       : offer === "trial" && ownKeyPrice
         ? yearly
-          ? t("{days} days free, then {price} / year. Cancel anytime.", {
-              days: status.trialDays,
-              price: ownKeyPrice,
-            })
-          : t("{days} days free, then {price} / month. Cancel anytime.", {
-              days: status.trialDays,
-              price: ownKeyPrice,
-            })
+          ? t`${ph({ days: status.trialDays })} days free, then ${ph({ price: ownKeyPrice })} / year. Cancel anytime.`
+          : t`${ph({ days: status.trialDays })} days free, then ${ph({ price: ownKeyPrice })} / month. Cancel anytime.`
         : ownKeyPrice
           ? yearly
-            ? t("{price} / year. Cancel anytime.", { price: ownKeyPrice })
-            : t("{price} / month. Cancel anytime.", { price: ownKeyPrice })
+            ? t`${ph({ price: ownKeyPrice })} / year. Cancel anytime.`
+            : t`${ph({ price: ownKeyPrice })} / month. Cancel anytime.`
           : null;
 
   return (
@@ -350,7 +364,7 @@ export default function Paywall() {
             ))}
           </View>
           <Text accessibilityRole="header" style={[styles.title, { color: tokens.foreground }]}>
-            {t("Put your bots to work")}
+            {t`Put your bots to work`}
           </Text>
         </View>
         <View style={styles.features}>
@@ -379,41 +393,37 @@ export default function Paywall() {
           <PlanCard
             selected={plan === "byok"}
             onPress={() => setPlan("byok")}
-            title={t("Your subscription or API key")}
+            title={t`Your subscription or API key`}
             price={
               monthlyPrice
-                ? t("{price} / month", {
-                    price: yearly && annualMonthlyPrice ? annualMonthlyPrice : monthlyPrice,
-                  })
-                : t("Free")
+                ? t`${ph({ price: yearly && annualMonthlyPrice ? annualMonthlyPrice : monthlyPrice })} / month`
+                : t`Free`
             }
             accessory={
               monthlyPrice && annualCents && status.byokPriceCents ? (
                 <NativeSegmentedControl
-                  accessibilityLabel={t("Billing period")}
+                  accessibilityLabel={t`Billing period`}
                   value={interval}
                   onChange={(next) => {
                     setByokInterval(next);
                     setPlan("byok");
                   }}
                   options={[
-                    { value: "month", label: t("Monthly") },
+                    { value: "month", label: t`Monthly` },
                     {
                       value: "year",
-                      label: t("Yearly −{percent}%", {
-                        percent: Math.round((1 - annualCents / (status.byokPriceCents * 12)) * 100),
-                      }),
+                      label: t`Yearly −${ph({ percent: Math.round((1 - annualCents / (status.byokPriceCents * 12)) * 100) })}%`,
                     },
                   ]}
                 />
               ) : undefined
             }
-            detail={t("Works with your ChatGPT or Claude plan.")}
+            detail={t`Works with your ChatGPT or Claude plan.`}
             badge={
               subscribed === "byok"
-                ? t("Current plan")
+                ? t`Current plan`
                 : offer === "trial"
-                  ? t("{days} days free", { days: status.trialDays })
+                  ? t`${ph({ days: status.trialDays })} days free`
                   : undefined
             }
           />
@@ -421,34 +431,42 @@ export default function Paywall() {
             <PlanCard
               selected={plan === "credits"}
               onPress={() => setPlan("credits")}
-              title={t("Rakazo credits")}
-              badge={subscribed === "credits" ? t("Current plan") : undefined}
-              price={
-                <MenuView
-                  actions={MODEL_CREDIT_AMOUNTS.map((value) => ({
-                    id: String(value),
-                    title: t("{price} / month", { price: `$${value / 100}` }),
-                    state: amount === value ? ("on" as const) : ("off" as const),
-                  }))}
-                  onPressAction={({ nativeEvent }) => {
-                    setAmount(ModelCreditAmountSchema.parse(Number(nativeEvent.event)));
-                    setPlan("credits");
-                  }}
-                >
-                  <View style={styles.amount}>
-                    <Text style={[styles.price, { color: tokens.foreground }]}>
-                      {t("{price} / month", { price: creditPrice })}
-                    </Text>
-                    <NativeSymbol
-                      ios="chevron.up.chevron.down"
-                      android="chevron-expand"
-                      size={12}
-                      color={tokens.mutedForeground}
-                    />
-                  </View>
-                </MenuView>
-              }
-              detail={t("All {price} goes to model usage.", { price: creditPrice })}
+              title={t`Credits`}
+              badge={subscribed === "credits" ? t`Current plan` : undefined}
+              price={{
+                label: t`${ph({ price: creditPrice })} / month`,
+                control: (
+                  <MenuView
+                    actions={MODEL_CREDIT_AMOUNTS.map((value) => ({
+                      id: String(value),
+                      title: t`${ph({ price: `$${value / 100}` })} / month`,
+                      state: amount === value ? ("on" as const) : ("off" as const),
+                    }))}
+                    onPressAction={({ nativeEvent }) => {
+                      setAmount(ModelCreditAmountSchema.parse(Number(nativeEvent.event)));
+                      setPlan("credits");
+                    }}
+                  >
+                    <View
+                      accessible
+                      accessibilityRole="button"
+                      accessibilityLabel={t`${ph({ price: creditPrice })} / month`}
+                      style={styles.amount}
+                    >
+                      <Text style={[styles.price, { color: tokens.foreground }]}>
+                        {t`${ph({ price: creditPrice })} / month`}
+                      </Text>
+                      <NativeSymbol
+                        ios="chevron.up.chevron.down"
+                        android="chevron-expand"
+                        size={12}
+                        color={tokens.mutedForeground}
+                      />
+                    </View>
+                  </MenuView>
+                ),
+              }}
+              detail={t`All ${ph({ price: creditPrice })} goes to model usage.`}
             />
           )}
         </View>
@@ -457,19 +475,19 @@ export default function Paywall() {
             <TimelineStep
               ios="lock.open.fill"
               android="lock-open"
-              title={t("Today")}
-              detail={t("Full access, nothing to pay")}
+              title={t`Today`}
+              detail={t`Full access, nothing to pay`}
               color={botColors[0]}
               connected
             />
             <TimelineStep
               ios="creditcard.fill"
               android="card"
-              title={t("Day {days}", { days: status.trialDays })}
+              title={t`Day ${ph({ days: status.trialDays })}`}
               detail={
                 yearly
-                  ? t("{price} / year begins", { price: ownKeyPrice })
-                  : t("{price} / month begins", { price: ownKeyPrice })
+                  ? t`${ph({ price: ownKeyPrice })} / year begins`
+                  : t`${ph({ price: ownKeyPrice })} / month begins`
               }
             />
           </View>
@@ -500,12 +518,12 @@ export default function Paywall() {
             </>
           ) : (
             <Text style={[styles.terms, { color: tokens.mutedForeground }]}>
-              {t("Only the owner of this account can choose a plan.")}
+              {t`Only the owner of this account can choose a plan.`}
             </Text>
           )}
           <View style={styles.legal}>
-            <LegalLink label={t("Terms")} url={TERMS_URL} />
-            <LegalLink label={t("Privacy")} url={AI_PRIVACY_URL} />
+            <LegalLink label={t`Terms`} url={TERMS_URL} />
+            <LegalLink label={t`Privacy`} url={AI_PRIVACY_URL} />
           </View>
         </View>
       </View>
@@ -525,18 +543,15 @@ function PlanCard({
   selected: boolean;
   onPress: () => void;
   title: string;
-  price: ReactNode;
+  /** Text, or a control that picks it with its text as the label read for the plan. */
+  price: string | { label: string; control: ReactNode };
   detail: string;
   badge?: string;
   accessory?: ReactNode;
 }) {
   const tokens = useMobileTokens();
   return (
-    <Pressable
-      accessibilityRole="radio"
-      accessibilityState={{ checked: selected }}
-      accessibilityLabel={title}
-      onPress={onPress}
+    <View
       style={[
         styles.plan,
         {
@@ -548,32 +563,44 @@ function PlanCard({
         },
       ]}
     >
-      <View style={styles.planHeader}>
-        <NativeSymbol
-          ios={selected ? "checkmark.circle.fill" : "circle"}
-          android={selected ? "checkmark-circle" : "ellipse-outline"}
-          size={22}
-          color={selected ? tokens.primary : tokens.faintForeground}
-        />
-        <Text style={[styles.planTitle, { color: tokens.foreground }]}>{title}</Text>
-      </View>
-      <View style={styles.planBody}>
-        <View style={styles.priceRow}>
-          {typeof price === "string" ? (
-            <Text style={[styles.price, { color: tokens.foreground }]}>{price}</Text>
-          ) : (
-            price
-          )}
-          {badge ? (
-            <View style={[styles.badge, { backgroundColor: tokens.primary }]}>
-              <Text style={[styles.badgeLabel, { color: tokens.primaryForeground }]}>{badge}</Text>
-            </View>
-          ) : null}
+      <Pressable
+        accessibilityRole="radio"
+        accessibilityState={{ checked: selected }}
+        accessibilityLabel={[title, typeof price === "string" ? price : price.label, badge, detail]
+          .filter(Boolean)
+          .join(", ")}
+        onPress={onPress}
+        style={styles.planPress}
+      >
+        <View style={styles.planHeader}>
+          <NativeSymbol
+            ios={selected ? "checkmark.circle.fill" : "circle"}
+            android={selected ? "checkmark-circle" : "ellipse-outline"}
+            size={22}
+            color={selected ? tokens.primary : tokens.faintForeground}
+          />
+          <Text style={[styles.planTitle, { color: tokens.foreground }]}>{title}</Text>
         </View>
-        <Text style={[styles.planDetail, { color: tokens.mutedForeground }]}>{detail}</Text>
-        {accessory ? <View style={styles.planAccessory}>{accessory}</View> : null}
-      </View>
-    </Pressable>
+        <View style={styles.planBody}>
+          <View style={styles.priceRow}>
+            {typeof price === "string" ? (
+              <Text style={[styles.price, { color: tokens.foreground }]}>{price}</Text>
+            ) : null}
+            {badge ? (
+              <View style={[styles.badge, { backgroundColor: tokens.primary }]}>
+                <Text style={[styles.badgeLabel, { color: tokens.primaryForeground }]}>
+                  {badge}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+          <Text style={[styles.planDetail, { color: tokens.mutedForeground }]}>{detail}</Text>
+        </View>
+      </Pressable>
+      {/* Controls sit outside the radio, so VoiceOver can reach each one. */}
+      {typeof price === "string" ? null : <View style={styles.planAccessory}>{price.control}</View>}
+      {accessory ? <View style={styles.planAccessory}>{accessory}</View> : null}
+    </View>
   );
 }
 
@@ -663,7 +690,8 @@ const styles = StyleSheet.create({
   planHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
   planTitle: { ...typeScale.cardTitle, flex: 1 },
   planBody: { paddingLeft: 32, gap: 2 },
-  planAccessory: { marginTop: 10 },
+  planPress: { gap: 8 },
+  planAccessory: { marginTop: 4, marginLeft: 32 },
   price: { fontSize: 22, lineHeight: 28, fontWeight: "600" },
   planDetail: typeScale.secondary,
   amount: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start" },

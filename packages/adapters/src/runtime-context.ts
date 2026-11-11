@@ -45,8 +45,12 @@ const messageHash = (message: Message) =>
     .digest("hex");
 /** A rebuild breaks the cached prefix, so it must drop at least this much stale content (estimated). */
 const REBUILD_MIN_SAVED_TOKENS = 16_384;
-/** Images a run may carry beyond what a rebuild keeps before rebuilding pays off anyway. */
-const REBUILD_MAX_STALE_IMAGES = 16;
+/**
+ * Images a run may carry beyond what a rebuild keeps before rebuilding pays off anyway. Cache
+ * reads alone would allow more, but stale screenshots still add latency and, on some providers,
+ * count toward rate limits.
+ */
+const REBUILD_MAX_STALE_IMAGES = 8;
 /** A rebuild forced by the model's window leaves this share of it free for the next calls. */
 const REBUILD_HEADROOM = 0.25;
 export interface Size {
@@ -455,6 +459,7 @@ export function createRuntimeContextPolicy(
         const insertIndex = messages[0]?.role === "system" ? 1 : 0;
         messages.splice(insertIndex, 0, summary);
         protectedIndexes = protectedIndexes.map((index) => index + Number(index >= insertIndex));
+        if (currentIndex >= insertIndex) currentIndex += 1;
       }
       protectedIndexes.push(messages.indexOf(summary));
     }
@@ -547,6 +552,11 @@ export function createRuntimeContextPolicy(
       cacheWarmth: predictedCache,
       recentExchanges:
         retainShortHistory || standaloneHistoryFallback ? messages.length : 8 + laterUserMessages,
+      // Eight exchanges is a floor: a request often depends on a decision made before them
+      // without sounding like a question about the past, so the bot never thinks to search.
+      ...(strategy === "retrieval"
+        ? { earlier: { before: currentIndex, tokens: shortHistoryAllowance } }
+        : {}),
     });
     const shortenedStructuredResults = selected.messages.filter((message) => {
       if (message.role !== "toolResult") return false;

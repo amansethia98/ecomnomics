@@ -20,10 +20,12 @@ import {
   sanitizeJsonValue,
   sanitizeUtf16ForJson,
   stripLiveStreamingProgress,
+  toolNameFromLabel,
   trackToolCallStreak,
   trackToolNameStreak,
   withLiveStreamingProgress,
   withoutLastToolStepNotes,
+  withToolStepOutcomes,
 } from "./events.js";
 import { modelFallbackFailure, normalizeRunError } from "./run-error.js";
 
@@ -634,6 +636,13 @@ describe("projectMessages", () => {
   });
 });
 
+describe("toolNameFromLabel", () => {
+  it("turns a displayed name back into the tool name", () => {
+    expect(toolNameFromLabel(" Write  file ")).toBe("Write_file");
+    expect(toolNameFromLabel("write_file")).toBe("write_file");
+  });
+});
+
 describe("humanizeToolName", () => {
   it("turns a Composio-style constant into a readable label", () => {
     expect(humanizeToolName("SLACK_FIND_CHANNELS")).toBe("Slack find channels");
@@ -1094,5 +1103,40 @@ describe("liveActivityLine", () => {
     expect(
       liveActivityLine([{ id: "m1", blocks: [{ kind: "text", text: "Done" }] }]),
     ).toBeUndefined();
+  });
+});
+
+describe("withToolStepOutcomes", () => {
+  it("tallies each call's outcome on the step it showed as, in order", () => {
+    const segments = noteLastToolStep(
+      appendToolCallSegment(
+        appendToolCallSegment(appendToolCallSegment([], "shell"), "shell"),
+        "web_search",
+      ),
+      "Looking it up.",
+    );
+    expect(
+      withToolStepOutcomes(segments, [
+        { label: "Shell", outcome: "succeeded" },
+        { label: "Shell", outcome: "failed" },
+        { label: "Web search", outcome: undefined },
+      ]),
+    ).toEqual([
+      {
+        kind: "steps",
+        steps: [
+          { label: "Shell", count: 2, outcomes: { succeeded: 1, failed: 1 } },
+          { label: "Web search", count: 1, note: "Looking it up." },
+        ],
+      },
+    ]);
+  });
+
+  it("leaves the steps as they were when the calls do not line up", () => {
+    const segments = appendToolCallSegment([], "shell");
+    expect(withToolStepOutcomes(segments, [{ label: "Web search", outcome: "failed" }])).toEqual(
+      segments,
+    );
+    expect(withToolStepOutcomes(segments, [])).toEqual(segments);
   });
 });
