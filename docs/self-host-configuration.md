@@ -69,6 +69,8 @@ retries let long turns survive brief provider failures.
 | `TICKET_BOARD_ENABLED` | `false` | Turns on the ticket board. Set it on the API and worker. |
 | `RESTAURANT_COMPUTER_ENABLED` | off | `true` gives each restaurant workspace one computer shared by all of its bots, and refuses a provider that puts every restaurant on the same machine. The computer still sleeps after `SANDBOX_IDLE_MS` and keeps its files. Set it on the API and worker. |
 | `RESTAURANT_STARTER_BOTS_ENABLED` | off | `true` copies every bot in `restaurant-templates/` into each new workspace. Edit `bot.md` for that bot's instructions. Skills in those folders stay locked and update for every restaurant when you change `SKILL.md` and restart. Set it on the API and worker. |
+| `ECOMNOMICS_PLATFORM_ADMINS` | empty | Comma-separated verified emails that may call `/admin/v1`. Empty means nobody. This is not `RAKAZO_ADMIN_EMAILS`. Set it on the API. |
+| `PLATFORM_ADMIN_DATABASE_URL` | unset | Postgres login for `/admin/v1`. `pnpm db:migrate` grants it `ecomnomics_admin`. Leave it unset to keep that API unavailable. Set it on the API and on the migrate command. |
 | `USER_DEVICES_ENABLED` | on | `false` stops signed-in desktop apps from letting bots run commands on the user's own computer. Set it on the API and worker. |
 | `PI_SESSION_RECORDING` | off | `true` records agent sessions as JSONL under `DATA_DIR/pi-sessions`. The files are not encrypted, so do not use it on a shared or multi-tenant install. |
 | `PRIVACY_POLICY_URL` | Rakazo's policy | The privacy policy linked from the AI data-sharing notice. Set it on the API. |
@@ -111,6 +113,8 @@ but `pnpm db:migrate`, the API and the worker warn that row-level security is no
 this, set `DATABASE_MIGRATION_URL` to the owner and `DATABASE_URL` to a new login.
 
 Run `pg_dump` as the owner. The app login would only dump rows it is allowed to see.
+
+A third login, named by `PLATFORM_ADMIN_DATABASE_URL`, is a member of `ecomnomics_admin` and of nothing else. It can read restaurant, outlet, and job-run rows (not the job error text) and it can insert the admin audit log. It is not a superuser, it cannot bypass row-level security, and the app login cannot `SET ROLE` to it. `pnpm db:migrate` creates or updates that login when the variable is set, then takes the audit log away from the app login again.
 
 ## Database connections
 

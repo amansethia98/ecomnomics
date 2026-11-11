@@ -18,7 +18,10 @@ import { withTransactionRetry } from "./transaction-retry.js";
  */
 export type DbContext =
   | { kind: "tenant"; spaceId: string; userId: string }
-  | { kind: "system"; reason: string };
+  | { kind: "system"; reason: string }
+  // Reads restaurant operations across tenants. Access comes from the
+  // ecomnomics_admin database role, not from app.rls_bypass.
+  | { kind: "platform-admin"; adminUserId: string };
 
 const storage = new AsyncLocalStorage<DbContext>();
 
@@ -39,6 +42,17 @@ export function runAsTenant<T>(
  */
 export function runAsSystem<T>(reason: string, fn: () => T | PromiseLike<T>): Promise<T> {
   return within({ kind: "system", reason }, fn);
+}
+
+/**
+ * Run `fn` on the platform-admin connection. This does not turn on the
+ * cross-tenant bypass. The connection's database role is what the policies check.
+ */
+export function runAsPlatformAdmin<T>(
+  adminUserId: string,
+  fn: () => T | PromiseLike<T>,
+): Promise<T> {
+  return within({ kind: "platform-admin", adminUserId }, fn);
 }
 
 /**
@@ -158,6 +172,16 @@ export const ROW_SECURITY_MODELS: ReadonlySet<string> = new Set([
   "UserActionAutoReviewPreference",
   "SecurityEvent",
   "AuditEvent",
+  "Restaurant",
+  "Outlet",
+  "MetricValue",
+  "Report",
+  "ReportFile",
+  "Action",
+  "ActionFile",
+  "AgentToken",
+  "JobRun",
+  "AdminAuditLog",
 ]);
 
 /**
@@ -196,6 +220,8 @@ type Settings = [spaceId: string, userId: string, bypass: "on" | "off", bypassKe
 function settingsFor(context: DbContext | undefined, bypassKey: string): Settings {
   if (context?.kind === "tenant") return [context.spaceId, context.userId, "off", ""];
   if (context?.kind === "system") return ["", "", "on", bypassKey];
+  // platform-admin leaves the bypass off. A normal session cannot become an admin
+  // by setting app.* ; the admin login is a different database role.
   return ["", "", "off", ""];
 }
 

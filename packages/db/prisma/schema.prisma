@@ -234,6 +234,7 @@ model Organization {
   referralCode ReferralCode?
   referredBy   Referral?           @relation("ReferredOrganization")
   referrals    Referral[]          @relation("ReferrerOrganization")
+  restaurant   Restaurant?
 
   @@unique([slug])
   @@map("organization")
@@ -441,6 +442,7 @@ model Space {
   agentSkillSpaces            AgentSkillSpace[]
   mcpServerSpaces             McpServerSpace[]
   capabilityInstallSpaces     CapabilityInstallSpace[]
+  restaurant                  Restaurant?
 
   @@unique([id, organizationId])
   @@index([organizationId, createdAt])
@@ -2262,4 +2264,227 @@ model CapabilityInstallSpace {
   @@id([installId, spaceId])
   @@index([spaceId, userId])
   @@map("capability_install_spaces")
+}
+
+/// One restaurant for one organization and one space. `spaceId` is repeated on
+/// child rows so row-level security can filter without a join.
+model Restaurant {
+  id             String       @id @default(cuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  spaceId        String       @unique
+  space          Space        @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  name           String
+  timezone       String       @default("Asia/Kolkata")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  outlets        Outlet[]
+  metrics        MetricValue[]
+  reports        Report[]
+  actions        Action[]
+  tokens         AgentToken[]
+  jobRuns        JobRun[]
+
+  @@unique([id, spaceId])
+  @@map("restaurants")
+}
+
+model Outlet {
+  id                  String        @id @default(cuid())
+  restaurantId        String
+  restaurant          Restaurant    @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId             String
+  name                String
+  city                String
+  active              Boolean       @default(true)
+  zomatoResId         String?
+  zomatoCommissionPct Decimal?      @db.Decimal(6, 3)
+  swiggyRid           String?
+  swiggyCommissionPct Decimal?      @db.Decimal(6, 3)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  metrics             MetricValue[]
+  reports             Report[]
+  actions             Action[]
+  jobRuns             JobRun[]
+
+  @@unique([id, spaceId])
+  @@index([spaceId])
+  @@index([restaurantId])
+  @@map("outlets")
+}
+
+model MetricValue {
+  id           String     @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId      String
+  outletId     String
+  outlet       Outlet     @relation(fields: [outletId, spaceId], references: [id, spaceId], onDelete: Cascade)
+  platform     String
+  granularity  String
+  periodStart  DateTime
+  periodEnd    DateTime
+  key          String
+  value        Decimal    @db.Decimal(20, 4)
+  runId        String
+  source       String
+  capturedAt   DateTime
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([outletId, platform, granularity, periodStart, key], name: "metricUpsert")
+  @@index([spaceId, key, periodStart])
+  @@map("restaurant_metric_values")
+}
+
+model Report {
+  id              String       @id @default(cuid())
+  restaurantId    String
+  restaurant      Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId         String
+  type            String
+  outletId        String?
+  outlet          Outlet?      @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  periodStart     DateTime
+  periodEnd       DateTime
+  status          String?
+  summaryMarkdown String       @db.Text
+  clientNonce     String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  files           ReportFile[]
+
+  @@unique([restaurantId, clientNonce], name: "reportNonce")
+  @@index([spaceId, periodStart])
+  @@map("restaurant_reports")
+}
+
+model ReportFile {
+  id          String    @id @default(cuid())
+  reportId    String
+  report      Report    @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  spaceId     String
+  name        String
+  contentType String
+  sizeBytes   Int?
+  storageKey  String
+  uploadedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([reportId, name])
+  @@index([spaceId])
+  @@map("restaurant_report_files")
+}
+
+/// A change the restaurant agent proposes. A person in the space approves it
+/// by a chat message before it can execute.
+model Action {
+  id                  String     @id @default(cuid())
+  restaurantId        String
+  restaurant          Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId             String
+  outletId            String?
+  outlet              Outlet?    @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  platform            String
+  type                String
+  title               String
+  details             Json
+  estCostPaise        Int?
+  chatMessageId       String?
+  status              String     @default("proposed")
+  approvedByMessageId String?
+  result              Json?
+  clientNonce         String?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+  approvedAt          DateTime?
+  rejectedAt          DateTime?
+  executingAt         DateTime?
+  executedAt          DateTime?
+  failedAt            DateTime?
+  revertedAt          DateTime?
+  evidence            ActionFile[]
+
+  @@unique([restaurantId, clientNonce], name: "actionNonce")
+  @@index([spaceId, status])
+  @@map("restaurant_actions")
+}
+
+model ActionFile {
+  id          String    @id @default(cuid())
+  actionId    String
+  action      Action    @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  spaceId     String
+  name        String
+  contentType String
+  sizeBytes   Int?
+  storageKey  String
+  uploadedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([actionId, name])
+  @@index([spaceId])
+  @@map("restaurant_action_files")
+}
+
+model AgentToken {
+  id           String     @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId      String
+  /// SHA-256 hex of the bearer token. The token itself is not stored.
+  tokenHash    String     @unique
+  label        String?
+  createdAt    DateTime   @default(now())
+  lastUsedAt   DateTime?
+  revokedAt    DateTime?
+
+  @@index([spaceId, revokedAt])
+  @@map("restaurant_agent_tokens")
+}
+
+/// One agent job. `runId` is the agent's id and is unique inside the restaurant.
+/// `costPaise` is model spend only. `costUsdMicros` is the summed source figure
+/// and `fxRate` is the USD to INR rate used to convert it.
+model JobRun {
+  id            String     @id @default(cuid())
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId       String
+  runId         String
+  skill         String
+  outletId      String?
+  outlet        Outlet?    @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  status        String
+  startedAt     DateTime
+  endedAt       DateTime?
+  costPaise     Int?
+  costUsdMicros BigInt?
+  fxRate        Decimal?   @db.Decimal(16, 6)
+  model         String?
+  error         String?    @db.Text
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@unique([restaurantId, runId], name: "jobRunId")
+  @@index([spaceId, startedAt])
+  @@map("restaurant_job_runs")
+}
+
+/// Written only by the platform-admin database role. No tenant policy and no
+/// row-level-security bypass policy.
+model AdminAuditLog {
+  id           String   @id @default(cuid())
+  adminUserId  String
+  action       String
+  restaurantId String?
+  target       String
+  ip           String?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([adminUserId, createdAt])
+  @@index([restaurantId, createdAt])
+  @@map("admin_audit_log")
 }

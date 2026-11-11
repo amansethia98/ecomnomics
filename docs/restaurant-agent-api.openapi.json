@@ -1,0 +1,71 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Ecomnomics restaurant agent API",
+    "version": "0.1.0"
+  },
+  "components": {
+    "securitySchemes": {
+      "restaurantToken": { "type": "http", "scheme": "bearer" }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": ["error", "code"],
+        "properties": {
+          "error": { "type": "string" },
+          "code": { "type": "string" }
+        }
+      },
+      "JobRun": {
+        "type": "object",
+        "required": ["runId", "skill", "status", "startedAt"],
+        "properties": {
+          "runId": { "type": "string" },
+          "skill": { "type": "string" },
+          "status": { "enum": ["running", "succeeded", "failed", "needs_owner"] },
+          "startedAt": { "type": "string", "format": "date-time" },
+          "endedAt": { "type": ["string", "null"], "format": "date-time" },
+          "outletId": { "type": ["string", "null"] },
+          "model": { "type": ["string", "null"] },
+          "error": { "type": ["string", "null"] },
+          "costPaise": {
+            "type": ["integer", "null"],
+            "description": "Model spend only, in paise. Never computer or server time. Required together with costUsdMicros and fxRate."
+          },
+          "costUsdMicros": {
+            "type": ["integer", "null"],
+            "description": "Summed per-request model usage cost for every call in the run, including retries and fallback models, in millionths of a US dollar."
+          },
+          "fxRate": {
+            "type": ["number", "null"],
+            "description": "USD to INR rate used to turn costUsdMicros into costPaise."
+          }
+        }
+      }
+    }
+  },
+  "security": [{ "restaurantToken": [] }],
+  "paths": {
+    "/agent/v1/restaurant": { "get": { "operationId": "getRestaurant", "responses": { "200": { "description": "Restaurant and outlets" } } } },
+    "/agent/v1/metrics": { "put": { "operationId": "putMetrics", "responses": { "200": { "description": "Rows upserted" } } } },
+    "/agent/v1/reports": { "post": { "operationId": "createReport", "responses": { "201": { "description": "Report and upload links" } } } },
+    "/agent/v1/actions": { "post": { "operationId": "createAction", "responses": { "201": { "description": "Proposed action" } } } },
+    "/agent/v1/actions/{actionId}": { "patch": { "operationId": "patchAction", "responses": { "200": { "description": "Updated action" } } } },
+    "/agent/v1/runs": {
+      "post": {
+        "operationId": "upsertJobRun",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/JobRun" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored run. The first startedAt is kept.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/JobRun" } } }
+          }
+        }
+      }
+    }
+  }
+}

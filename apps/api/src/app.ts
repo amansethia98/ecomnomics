@@ -74,6 +74,7 @@ import {
   McpConnector,
   McpOAuthBroker,
   messagingPlatformsFromEnv,
+  objectStorageConfigFromEnv,
   PiAgentRuntime,
   PiOAuthLogins,
   PipedreamConnector,
@@ -88,6 +89,7 @@ import {
   reconcilePurchases,
   removePiUserSessions,
   resolveDeploymentModel,
+  S3ObjectStorage,
   ScriptedAgentRuntime,
   SpaceMemoryProviderResolver,
   StripeBillingProvider,
@@ -114,6 +116,7 @@ import {
   configureProviderTransactionPool,
   createBoardEvents,
   createDb,
+  createPlatformAdminStore,
   createPool,
   createSecurityEventPruner,
   createThreadEvents,
@@ -177,9 +180,11 @@ import {
 import { createMessagingReceipts } from "./messaging-receipts.js";
 import { mountMessagingWebhookRoutes } from "./messaging-webhook.js";
 import { monitoringRoutes } from "./monitoring.js";
+import { platformAdminRoutes } from "./platform-admin-routes.js";
 import { pluginSubmissionRoutes } from "./plugin-submissions.js";
 import { sendReferralEmails, startReferralEmails } from "./referral-email.js";
 import { mountApiRequestBodyLimits } from "./request-body-limit.js";
+import { restaurantAgentRoutes } from "./restaurant-agent-routes.js";
 import { createRouter } from "./router.js";
 import { mountScreenTarget } from "./screen-proxy.js";
 import { createAuthResponseAudit } from "./security-audit.js";
@@ -298,6 +303,16 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
         encryptContent: env.contentEncryption,
       });
   let { prisma } = created;
+  const adminDatabase = env.platformAdminDatabaseUrl
+    ? createDb(env.platformAdminDatabaseUrl, {
+        poolMax: 2,
+        applicationName: "ecomnomics-admin",
+        keyProvider: contentKeyProviderFromEnv(),
+        encryptContent: env.contentEncryption,
+      })
+    : undefined;
+  const objectStorageConfig = objectStorageConfigFromEnv();
+  const objectStorage = objectStorageConfig ? new S3ObjectStorage(objectStorageConfig) : undefined;
   // Built before anything listens, so a bad TRUSTED_PROXIES entry stops startup.
   const clientIp = createClientIpResolver({
     // Unset trusts the proxies a stack is built with: on loopback or on the API's own networks.
@@ -898,6 +913,34 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     }),
   );
   app.route("/", marketingEmailRoutes(prisma, env.authSecret));
+  app.route(
+    "/",
+    restaurantAgentRoutes({
+      prisma,
+      uploadSecret: env.authSecret,
+      publicBaseUrl: env.apiUrl,
+      objectStorage,
+    }),
+  );
+  app.route(
+    "/",
+    platformAdminRoutes({
+      allowlist: env.platformAdminEmails,
+      store: adminDatabase ? createPlatformAdminStore(adminDatabase.prisma) : null,
+      getSession: async (headers) => {
+        const session = await auth.api.getSession({ headers });
+        if (!session?.user.email) return null;
+        return {
+          user: {
+            id: session.user.id,
+            email: session.user.email,
+            emailVerified: Boolean(session.user.emailVerified),
+          },
+        };
+      },
+      clientIp: (c) => requestClientIp(c) ?? null,
+    }),
+  );
   mountApiRequestBodyLimits(app, env.maxUploadSizeBytes);
   mountScreenTarget(app, prisma, env.screenProxySecret);
   mountDiagramScript(app);
@@ -1469,6 +1512,8 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       await mcp.close();
       await installed.close();
       await prisma.$disconnect().catch(() => undefined);
+      await adminDatabase?.prisma.$disconnect().catch(() => undefined);
+      await adminDatabase?.pool.end().catch(() => undefined);
       await created.pool?.end().catch(() => undefined);
       await ownedJobPool?.end().catch(() => undefined);
       await analytics?.flush();

@@ -1,3 +1,10 @@
+# Ecomnomics
+
+Ecomnomics is a workspace for restaurant owners on Zomato and Swiggy. It is built on
+[Rakazo](https://github.com/elie222/rakazo), which stays Apache-2.0. One organization and one
+space is one restaurant. The computer for that restaurant uses the API in
+[docs/restaurant-agent-api.md](docs/restaurant-agent-api.md).
+
 # Rakazo
 
 [English](./README.md) | [简体中文](./README.zh-CN.md) | [日本語](./README.ja.md)

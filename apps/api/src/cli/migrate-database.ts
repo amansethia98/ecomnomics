@@ -7,8 +7,10 @@ import { loadRootEnv } from "@rakazo/core/node/load-root-env";
 import {
   databaseUrls,
   deployMigrations,
+  provisionPlatformAdminLogin,
   provisionRuntimeRole,
   RUNTIME_ROLE,
+  revokeRuntimeAdminAuditAccess,
   SINGLE_DATABASE_URL_WARNING,
 } from "@rakazo/db";
 
@@ -29,4 +31,12 @@ if (!urls.separate) {
   const { warning } = await provisionRuntimeRole(urls.migrationUrl, urls.url);
   if (warning) process.stderr.write(`WARNING: ${warning}\n`);
   else process.stdout.write(`Runtime login is ready (member of ${RUNTIME_ROLE}).\n`);
+}
+
+// The runtime grant covers every table. Take the audit log back: only the admin login writes it.
+await revokeRuntimeAdminAuditAccess(urls.migrationUrl);
+const adminUrl = process.env.PLATFORM_ADMIN_DATABASE_URL;
+if (adminUrl) {
+  await provisionPlatformAdminLogin(urls.migrationUrl, adminUrl);
+  process.stdout.write("Platform admin login is ready (member of ecomnomics_admin).\n");
 }
