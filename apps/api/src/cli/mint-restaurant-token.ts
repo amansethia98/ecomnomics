@@ -1,5 +1,6 @@
 import { contentKeyProviderFromEnv, unwrapEnvFromKeyManager } from "@rakazo/adapters";
 import { RESTAURANT_AGENT_TOKEN_ENV } from "@rakazo/contracts";
+import { loadRootEnv } from "@rakazo/core/node/load-root-env";
 import {
   createDb,
   ensureRestaurant,
@@ -16,6 +17,7 @@ function argument(name: string): string | undefined {
   return value;
 }
 
+loadRootEnv();
 await unwrapEnvFromKeyManager();
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
