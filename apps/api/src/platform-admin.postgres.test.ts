@@ -21,9 +21,11 @@ const describePostgres =
     : describe.skip;
 
 describePostgres("platform admin is a separate role (PostgreSQL)", () => {
+  // A skipped suite still evaluates this callback. Leave it when the URL is absent.
+  if (!runtimeUrl || !migrationUrl) return;
   const suffix = `${process.pid}-${Date.now()}`;
   const login = `ecomadm${process.pid}`.slice(0, 32);
-  const adminUrl = new URL(migrationUrl!);
+  const adminUrl = new URL(migrationUrl);
   adminUrl.username = login;
   adminUrl.password = "admin-test-pass";
   let owner: ReturnType<typeof createDb>;

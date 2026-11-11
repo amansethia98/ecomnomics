@@ -68,6 +68,9 @@ const NOT_PASSED: Record<string, string> = {
   KUBERNETES_SANDBOX_POD_LABELS: KUBERNETES_SANDBOX,
   KUBERNETES_SANDBOX_READY_TIMEOUT_MS: KUBERNETES_SANDBOX,
   KUBERNETES_SANDBOX_RUNTIME_CLASS_NAME: KUBERNETES_SANDBOX,
+  RESTAURANT_AGENT_TOKEN:
+    "minted into the vault and injected per command, never a container setting",
+  RESTAURANT_AGENT_API_BASE_URL: "written next to the restaurant token and injected per command",
 };
 
 /**
@@ -250,6 +253,7 @@ describe("api and worker environment allowlists", () => {
       expect(Object.keys(stackEnvironment(files, "migrate")).sort()).toEqual([
         "DATABASE_MIGRATION_URL",
         "DATABASE_URL",
+        "PLATFORM_ADMIN_DATABASE_URL",
       ]);
     },
   );

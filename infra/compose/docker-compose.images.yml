@@ -381,6 +381,7 @@ services:
     environment:
       DATABASE_URL: postgres://rakazo_app:${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-rakazo}
       DATABASE_MIGRATION_URL: postgres://${POSTGRES_USER:-rakazo}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-rakazo}
+      PLATFORM_ADMIN_DATABASE_URL:
     networks:
       - data
     depends_on:
@@ -451,6 +452,9 @@ services:
       RAKAZO_MIN_CLIENT_BUILD:
       RAKAZO_NAV_LINKS:
       RAKAZO_ADMIN_EMAILS:
+      # /admin/v1. An empty allowlist means nobody. The database login is also passed to migrate.
+      ECOMNOMICS_PLATFORM_ADMINS:
+      PLATFORM_ADMIN_DATABASE_URL:
       VOICE_SUMMARY_MIN_CHARS:
     ports:
       - "127.0.0.1:${RAKAZO_API_PORT:-3100}:3100"
