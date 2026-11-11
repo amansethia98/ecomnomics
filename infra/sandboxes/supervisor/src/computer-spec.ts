@@ -40,6 +40,7 @@ export const COMPUTER_IMAGE_CONTEXT_FILES = [
   "rakazo-browser",
   "rakazo-focus-or-launch",
   "rakazo-page-browser",
+  "rakazo-browser-session",
   "rakazo-zomato-reconcile",
   "rakazo-zomato-monthly-analysis",
   "rakazo-zomato-report",

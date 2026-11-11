@@ -51,6 +51,48 @@ beforeEach(() => {
   }));
 });
 
+it("keeps the experimental session endpoint inert by default before any computer access", async () => {
+  vi.stubEnv("RAKAZO_BROWSER_SESSIONS_ENABLED", "0");
+  try {
+    const response = await supervisorApp.request("/computers/SYNTHETIC_COMPUTER/browser-session", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${resolveSupervisorToken(process.env)}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ command: "restore", platform: "swiggy" }),
+    });
+    expect(await response.json()).toEqual({ status: "disabled" });
+    expect(mock.inspect).not.toHaveBeenCalled();
+    expect(mock.exec).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
+it("refuses a foreign identity for an enabled session request before executing a helper", async () => {
+  vi.stubEnv("RAKAZO_BROWSER_SESSIONS_ENABLED", "1");
+  vi.stubEnv("RAKAZO_BROWSER_SESSIONS_KEY", Buffer.alloc(32, 7).toString("base64"));
+  try {
+    const response = await supervisorApp.request("/computers/SYNTHETIC_COMPUTER/browser-session", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${resolveSupervisorToken(process.env)}`,
+        "content-type": "application/json",
+        "x-rakazo-bot-id": "SYNTHETIC_FOREIGN_BOT",
+        "x-rakazo-space-id": "space",
+        "x-rakazo-screen-id": "SYNTHETIC_SCREEN",
+        "x-rakazo-screen-lease-id": "run:1",
+      },
+      body: JSON.stringify({ command: "restore", platform: "zomato" }),
+    });
+    expect(response.status).toBe(403);
+    expect(mock.exec).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
 async function snapshot(id: string, screen: string, lease: string, home = "home") {
   return supervisorApp.request(`/computers/${id}/browser`, {
     method: "POST",

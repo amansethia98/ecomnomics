@@ -8,6 +8,13 @@ import type Docker from "dockerode";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { z } from "zod";
+import {
+  browserSessionRequestSchema,
+  EncryptedBrowserSessionStore,
+  runBrowserSession,
+  SESSION_MAX_BYTES,
+  sessionMasterKey,
+} from "./browser-sessions.js";
 import { computerControlEndpoint, controlDesktop } from "./computer-control.js";
 import {
   computerLocaleFields,
@@ -505,6 +512,65 @@ app.post("/computers/:id/exec", async (c) => {
       "x-accel-buffering": "no",
     },
   });
+});
+
+// Experimental session transport is deliberately separate from the proven browser route.
+// OFF by default; no automatic capture/restore or new model tool is enabled by this endpoint.
+app.post("/computers/:id/browser-session", async (c) => {
+  if (process.env.RAKAZO_BROWSER_SESSIONS_ENABLED !== "1") return c.json({ status: "disabled" });
+  const parsed = browserSessionRequestSchema.safeParse(await c.req.json());
+  if (!parsed.success) return c.json({ error: "Invalid browser session request" }, 400);
+  if (parsed.data.command === "save" && !parsed.data.verifiedSignedIn)
+    return c.json({ status: "live_verification_required" });
+  const headers = identityHeaders(c);
+  try {
+    const store = new EncryptedBrowserSessionStore(
+      path.join(dataDir, "encrypted-browser-sessions"),
+      sessionMasterKey(process.env),
+    );
+    const { container, layout } = await managedScreen(
+      c.req.param("id"),
+      headers.botId,
+      headers.spaceId,
+      headers.screenId,
+      headers.screenLeaseId,
+      true,
+      true,
+    );
+    const result = await runBrowserSession({
+      enabled: true,
+      tenant: JSON.stringify([headers.spaceId, headers.botId]),
+      ...parsed.data,
+      store: () => store,
+      native: async (args) => {
+        const result = await runContainerCommand(
+          container,
+          ["/usr/local/bin/rakazo-browser-session"],
+          {
+            env: [
+              `DISPLAY=${layout.display}`,
+              `RAKAZO_CDP_PORT=${layout.debugPort}`,
+              "HOME=/home/rakazo",
+              "RAKAZO_BROWSER_SESSIONS_ENABLED=1",
+            ],
+            signal: c.req.raw.signal,
+            stdin: `${JSON.stringify(args)}\n`,
+            timeoutMs: 15_000,
+            // Never stream this private stdout to a caller, logger or model.
+          },
+        );
+        if (result.code !== 0 || Buffer.byteLength(result.stdout) > SESSION_MAX_BYTES)
+          throw new Error("Session transport unavailable");
+        return JSON.parse(result.stdout);
+      },
+    });
+    return c.json(result);
+  } catch (error) {
+    if (error instanceof ComputerIdentityError)
+      return c.json({ error: "invalid computer identity" }, 403);
+    // Exceptions can contain CDP session material. Return only a static status and never log them.
+    return c.json({ status: "use_current_profile", fallback: "inspect_then_proven_login" });
+  }
 });
 
 // The bot's folder in the computer's home that files its page downloads, and PDFs its tabs show, are saved to.

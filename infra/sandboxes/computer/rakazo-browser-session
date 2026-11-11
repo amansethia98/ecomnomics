@@ -1,0 +1,192 @@
+#!/usr/bin/env python3
+"""Experimental supervisor-only CDP transport; stdout is PRIVATE, never a model tool result."""
+import json
+import os
+import re
+import sys
+import time
+from urllib.parse import urlsplit, urlunsplit
+
+sys.path.insert(0, '/usr/local/lib/rakazo')
+from page_secrets import CdpClient, discover_ws_url
+
+MAX_BYTES = 2 * 1024 * 1024
+PLATFORMS = {'zomato': 'zomato.com', 'swiggy': 'swiggy.com'}
+COOKIE_FIELDS = {'name', 'value', 'domain', 'path', 'secure', 'httpOnly', 'sameSite', 'expires', 'priority', 'sourceScheme', 'sourcePort'}
+# Authentication inputs are evidence of expiry, not a heuristic proof of successful login.
+PROBE = r'''(() => {
+const visible = el => !!(el && el.getClientRects().length);
+return {url: location.href, visible: document.visibilityState === 'visible', needsLogin: Array.from(document.querySelectorAll(
+'input[type="password"],input[autocomplete="one-time-code"],input[type="email"]')).some(visible)};
+})()'''
+CAPTURE = r'''(() => {
+const read = storage => Object.entries(storage);
+return {origin: location.origin, localStorage: read(localStorage), sessionStorage: read(sessionStorage)};
+})()'''
+
+
+def domain_allowed(domain, platform):
+    root = PLATFORMS[platform]
+    host = str(domain).lstrip('.').lower()
+    return host == root or host.endswith('.' + root)
+
+
+def safe_url(url, platform):
+    parsed = urlsplit(str(url))
+    if (parsed.scheme != 'https' or parsed.username or parsed.password
+            or parsed.port not in (None, 443) or not domain_allowed(parsed.hostname or '', platform)):
+        raise ValueError('Unsupported platform origin')
+    if re.search(r'(?:^|[/._-])(login|logout|signin|signout|otp|verify)(?:$|[/._-])', parsed.path, re.I) or parsed.hostname.startswith('accounts.'):
+        raise ValueError('Authentication is not a saved dashboard')
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
+
+
+def cookies_for(cookies, platform, now=None):
+    now = time.time() if now is None else now
+    selected = []
+    for cookie in cookies:
+        if not isinstance(cookie, dict) or not domain_allowed(cookie.get('domain', ''), platform):
+            continue
+        if cookie.get('partitionKey'):
+            raise ValueError('Partitioned sessions need the proven login')
+        expires = cookie.get('expires', -1)
+        if expires > 0 and expires <= now:
+            continue
+        item = {k: v for k, v in cookie.items() if k in COOKIE_FIELDS}
+        if expires <= 0:
+            item.pop('expires', None)
+        selected.append(item)
+    return selected
+
+
+def evaluate(client, session, expression):
+    result = client.call('Runtime.evaluate', {'expression': expression, 'returnByValue': True}, session_id=session)
+    if result.get('exceptionDetails'):
+        raise ValueError('Browser state unavailable')
+    return result.get('result', {}).get('value')
+
+
+def attached(client, target_id):
+    return client.call('Target.attachToTarget', {'targetId': target_id, 'flatten': True})['sessionId']
+
+
+def capture(client, platform):
+    # Only the selected platform's current top-level dashboard is eligible. No navigation or form entry.
+    targets = client.call('Target.getTargets').get('targetInfos', [])
+    for target in reversed(targets):
+        if target.get('type') != 'page':
+            continue
+        try:
+            url = safe_url(target.get('url', ''), platform)
+        except ValueError:
+            continue
+        session = attached(client, target['targetId'])
+        try:
+            probe = evaluate(client, session, PROBE)
+            if not isinstance(probe, dict) or not probe.get('visible') or probe.get('needsLogin'):
+                continue
+            url = safe_url(probe.get('url', ''), platform)
+            storage = evaluate(client, session, CAPTURE)
+            origin = urlsplit(url)
+            expected_origin = f'{origin.scheme}://{origin.netloc}'
+            if not isinstance(storage, dict) or storage.get('origin') != expected_origin:
+                continue
+            cookies = cookies_for(client.call('Storage.getCookies').get('cookies', []), platform)
+            if not cookies and not storage.get('localStorage') and not storage.get('sessionStorage'):
+                continue
+            return {'status': 'captured', 'bundle': {'url': url, 'cookies': cookies, **storage}}
+        finally:
+            client.call('Target.detachFromTarget', {'sessionId': session})
+    return {'status': 'proven_login_required'}
+
+
+def validate_storage(values):
+    if not isinstance(values, list) or len(values) > 2000:
+        raise ValueError('Unsupported browser storage')
+    for item in values:
+        if not isinstance(item, list) or len(item) != 2 or not all(isinstance(x, str) for x in item):
+            raise ValueError('Unsupported browser storage')
+    return values
+
+
+def restore(client, platform, bundle):
+    url = safe_url(bundle['url'], platform)
+    origin = urlsplit(url)
+    expected_origin = f'{origin.scheme}://{origin.netloc}'
+    if bundle.get('origin') != expected_origin:
+        raise ValueError('Unsupported browser storage origin')
+    local = validate_storage(bundle.get('localStorage', []))
+    session_values = validate_storage(bundle.get('sessionStorage', []))
+    cookies = cookies_for(bundle.get('cookies', []), platform)
+    # An existing profile takes precedence: never overwrite its possibly newer authentication.
+    if cookies_for(client.call('Storage.getCookies').get('cookies', []), platform):
+        return {'status': 'use_current_profile'}
+    # Existing platform tabs also take precedence, including token-only web-storage sessions.
+    for target in client.call('Target.getTargets').get('targetInfos', []):
+        parsed = urlsplit(str(target.get('url', '')))
+        if target.get('type') == 'page' and domain_allowed(parsed.hostname or '', platform):
+            return {'status': 'use_current_profile'}
+    if not cookies and not local and not session_values:
+        return {'status': 'proven_login_required'}
+    # All validation precedes mutations. Only first-party platform cookies and this exact origin are restored.
+    target = client.call('Target.createTarget', {'url': 'about:blank'})['targetId']
+    session = attached(client, target)
+    script_id = None
+    try:
+        client.call('Page.enable', session_id=session)
+        data = json.dumps({'origin': expected_origin, 'local': local, 'session': session_values})
+        script = ('(() => { const s = ' + data + '; if (location.origin !== s.origin) return; '
+                  'for (const [k,v] of s.local) localStorage.setItem(k,v); '
+                  'for (const [k,v] of s.session) sessionStorage.setItem(k,v); })()')
+        script_id = client.call('Page.addScriptToEvaluateOnNewDocument', {'source': script}, session_id=session)['identifier']
+        if cookies:
+            client.call('Storage.setCookies', {'cookies': cookies})
+        client.call('Page.navigate', {'url': url}, session_id=session)
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            probe = evaluate(client, session, PROBE)
+            if isinstance(probe, dict) and str(probe.get('url', '')).startswith('https://'):
+                try:
+                    safe_url(probe['url'], platform)
+                except ValueError:
+                    return {'status': 'proven_login_required'}
+                return {'status': 'proven_login_required' if probe.get('needsLogin') else 'verify_live_page'}
+            time.sleep(0.1)
+        return {'status': 'verify_live_page'}
+    finally:
+        if script_id:
+            client.call('Page.removeScriptToEvaluateOnNewDocument', {'identifier': script_id}, session_id=session)
+        client.call('Target.detachFromTarget', {'sessionId': session})
+
+
+def main():
+    if os.environ.get('RAKAZO_BROWSER_SESSIONS_ENABLED') != '1':
+        print('{"status":"disabled"}')
+        return
+    # No session data in argv, files, stderr or tracebacks. Only the supervisor consumes private stdout.
+    raw = sys.stdin.buffer.readline(MAX_BYTES + 1)
+    if len(raw) > MAX_BYTES:
+        raise ValueError('Session too large')
+    args = json.loads(raw)
+    platform = args['platform']
+    if platform not in PLATFORMS:
+        raise ValueError('Unsupported platform')
+    port = int(os.environ.get('RAKAZO_CDP_PORT', '9222'))
+    client = CdpClient(discover_ws_url(port))
+    client.connect()
+    try:
+        result = capture(client, platform) if args['command'] == 'capture' else restore(client, platform, args['bundle'])
+        encoded = json.dumps(result)
+        if len(encoded.encode()) > MAX_BYTES:
+            raise ValueError('Session too large')
+        print(encoded)
+    finally:
+        client.close()
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception:
+        print('{"status":"proven_login_required"}')
+        sys.exit(1)
