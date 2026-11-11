@@ -1,5 +1,7 @@
+import { BACKGROUND_HELPER_TRIGGER } from "@rakazo/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createApprovedEffectReplayQueue, terminatingToolResult } from "./approval-effect.js";
+import { CATALOG_EXECUTE } from "./lazy-tool-catalog.js";
 
 const audited = vi.hoisted(() => [] as { tool: string; outcome: string; metadata: unknown }[]);
 vi.mock("./run-tool-gate.js", async (importOriginal) => ({
@@ -34,6 +36,7 @@ function dispatchContext(tainted: boolean) {
   return {
     deps: {
       prisma: {
+        bot: { findUnique: async () => null },
         user: {
           findUniqueOrThrow: async () => ({
             timezone: "UTC" as string | null,
@@ -43,6 +46,8 @@ function dispatchContext(tainted: boolean) {
       },
     },
     run: { userId: "user-1" },
+    bot: { id: "bot-1" },
+    thread: { id: "thread-1" },
     source: { ownerStartedRun: true },
     runId: "run-1",
     state: { tainted, handedOff: false, ownerSettingsRefused: false },
@@ -65,6 +70,80 @@ beforeEach(() => {
 });
 
 describe("dispatchTool audit outcomes", () => {
+  it("dispatches a connector named delete_bot to its connector instead of local archival", async () => {
+    const execute = vi.fn(async function* () {
+      yield { type: "result", data: { deleted: "remote-object" } };
+    });
+    const base = dispatchContext(false);
+    const ctx = {
+      ...base,
+      deps: { ...base.deps, connector: { execute } },
+      bot: { id: "bot-1" },
+      thread: { id: "thread-1" },
+      source: { ownerStartedRun: false },
+    };
+    ctx.tools.connector.set("delete_bot", {
+      name: "delete_bot",
+      route: { connectorId: "remote", resourceId: "server-1", toolName: "delete_bot" },
+    });
+
+    await expect(
+      applyTool(ctx as never, "delete_bot", { id: "remote-object" }, "call-1"),
+    ).resolves.toEqual({ deleted: "remote-object" });
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({ tool: "delete_bot", args: { id: "remote-object" } }),
+      ctx.context,
+    );
+  });
+
+  it.each(["message_agent", "cloud_agent_launch"])(
+    "refuses a catalog call that resolves to the local tool name %s",
+    async (local) => {
+      const execute = vi.fn();
+      const resolveCall = vi.fn(async () => ({
+        tool: { name: local, route: { connectorId: "remote" } },
+        call: { tool: local, args: { message: "hi" }, executionId: "call-1" },
+      }));
+      const base = dispatchContext(false);
+      const ctx = {
+        ...base,
+        deps: { ...base.deps, connector: { execute, resolveCall } },
+        run: { userId: "user-1", trigger: BACKGROUND_HELPER_TRIGGER },
+        bot: { id: "bot-1" },
+        thread: { id: "thread-1" },
+      };
+      ctx.tools.connector.set("installed_execute_tool", {
+        name: "installed_execute_tool",
+        route: { connectorId: "remote", toolName: CATALOG_EXECUTE },
+      });
+
+      await expect(
+        applyTool(ctx as never, "installed_execute_tool", { id: `x:${local}` }, "call-1"),
+      ).resolves.toEqual({ error: "Connector tool name conflicts with a built-in tool" });
+      expect(resolveCall).toHaveBeenCalledOnce();
+      expect(execute).not.toHaveBeenCalled();
+      expect(audited).toEqual([]);
+    },
+  );
+
+  it("does not read the owner's private routines for a shared-channel request", async () => {
+    const findMany = vi.fn(async () => []);
+    const base = dispatchContext(false);
+    const ctx = {
+      ...base,
+      deps: { ...base.deps, prisma: { ...base.deps.prisma, routine: { findMany } } },
+      run: { userId: "owner", spaceId: "space-1" },
+      bot: { id: "bot-1" },
+      thread: { id: "private-thread", groupId: null },
+      source: { ownerStartedRun: false, messagingChannelRun: true },
+    };
+
+    await expect(applyTool(ctx as never, "schedule_list", {}, "call-1")).resolves.toEqual({
+      error: "This tool is unavailable after a shared-channel message.",
+    });
+    expect(findMany).not.toHaveBeenCalled();
+  });
+
   it("records an ordinary successful call as a success", async () => {
     const ctx = dispatchContext(true);
     const result = await applyTool(ctx as never, "update_preferences", {}, "call-1");
@@ -179,5 +258,9 @@ describe("daily check-in dispatch restriction", () => {
       error: "Daily check-ins can only ask or message the user.",
     });
     expect(audited).toEqual([]);
+    // Kept for the log line of a loop this refusal goes on to cause.
+    expect(
+      (ctx.state as { toolRefusals?: Map<string, unknown> }).toolRefusals?.get("call-1"),
+    ).toEqual({ code: "daily_check_in_tool_not_allowed" });
   });
 });

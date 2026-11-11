@@ -1,3 +1,5 @@
+import { ph } from "@lingui/core/macro";
+import { useLingui } from "@lingui/react/macro";
 import type { AgentSkillCatalogEntry } from "@rakazo/contracts";
 import {
   buildComposerMentionOptions,
@@ -9,7 +11,10 @@ import {
   liveMessageComposing,
   memberName,
   newClientId,
+  newestPageCards,
+  otherAuthor,
   displayName as safeDisplayName,
+  workingRoutineName,
 } from "@rakazo/core";
 import { useFocusEffect, useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
@@ -25,8 +30,9 @@ import type { MobileArtifactTarget } from "../../lib/artifact-open";
 import { useCallSession } from "../../lib/call-session";
 import { composerDraftScope } from "../../lib/composer-draft";
 import { cronLabels } from "../../lib/cron";
-import { useI18n } from "../../lib/i18n";
+import { useUiLocale } from "../../lib/i18n";
 import { useThemedStyles } from "../../lib/native";
+import { useChatOnScreen } from "../../lib/page-card-detail";
 import { useInboxBot } from "../../lib/search-inbox";
 import { useSplitView } from "../../lib/split-view";
 import { useIncomingShareImport, useThreadAttachments } from "../../lib/thread-attachments";
@@ -56,8 +62,7 @@ import { useThreadTranscript } from "../../lib/thread-transcript";
 import { useAutoSpeakReply, useSpeakMessages, useThreadVoiceCall } from "../../lib/thread-voice";
 import { liveEndRunError } from "../../lib/thread-window";
 import { FailedSendBubble } from "../failed-send-bubble";
-import type { MarkdownArtifactPreviewTarget } from "../markdown-artifact-preview";
-import { MarkdownArtifactPreview } from "../markdown-artifact-preview";
+import { NewestPageCards } from "../pages/page-card";
 import { RunErrorSheet } from "../run-error-sheet";
 import { SelectTextSheet } from "../select-text-sheet";
 import { ThreadComposer } from "../thread-composer";
@@ -65,7 +70,7 @@ import { ThreadErrorNotice, ThreadFetchErrorNotice } from "../thread-error-notic
 import { createThreadHeaderStyles } from "../thread-header-styles";
 import { QuoteSheet } from "./quote-sheet";
 import { ThreadComposerDock } from "./thread-composer-dock";
-import { BotActionsModal, useThreadHeader } from "./thread-header";
+import { useThreadHeader } from "./thread-header";
 import { LoadEarlierButton, ThreadWorkingFooter } from "./thread-list-controls";
 import { ThreadMessageList } from "./thread-message-list";
 import { useLatestRowActions, useThreadRows } from "./thread-rows";
@@ -80,9 +85,11 @@ function isActiveStatus(status: string | undefined): boolean {
  * effects at the positions the screen ran them before they were split out.
  */
 export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId: string }) {
+  useChatOnScreen();
   const tokens = mobileTokens();
   const styles = useThemedStyles(createThreadHeaderStyles);
-  const { t, locale } = useI18n();
+  const { t } = useLingui();
+  const locale = useUiLocale();
   const focused = useIsFocused();
   const foreground = useAppForeground();
   const router = useRouter();
@@ -186,11 +193,11 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
     JSON.stringify([userId, sessionEpoch, botId, groupId, requestedThreadId]),
     mentionBots,
   );
-  const attachments = useThreadAttachments({ botId, groupId, readOnly, uploadConfig });
   const draftScope = useMemo(
     () => composerDraftScope(userId, botId, groupId),
     [userId, botId, groupId],
   );
+  const attachments = useThreadAttachments({ botId, groupId, readOnly, uploadConfig, draftScope });
   const echoed = useMemo(
     () =>
       snap && (snap.groupId ?? snap.botId) === threadKey
@@ -205,12 +212,10 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
   const feedback = useThreadFeedback(threadKey, newClientId, echoed);
   const { error, setError } = feedback;
   const [selectableText, setSelectableText] = useState<string | null>(null);
-  const [markdownPreview, setMarkdownPreview] = useState<MarkdownArtifactPreviewTarget | null>(
-    null,
-  );
   const transcript = useThreadTranscript(snap?.messages, inGroup);
   const { reactionView, peerTranscript, setExpandedPeerMarkers } = transcript;
   const visibleMessages = transcript.visibleMessages;
+  const newestPages = useMemo(() => newestPageCards(visibleMessages), [visibleMessages]);
   const latestMessage = latestArrivalMessage(reactionView.visibleMessages, peerTranscript.markerOf);
   const composerMentionTargets = useMemo(
     () =>
@@ -243,11 +248,14 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
   const titleBot = currentBot ?? inboxBot;
   // Without a name yet (a notification can leave it out), the title shows a placeholder.
   const titleName = currentBot?.name ?? name ?? inboxBot?.name;
-  const displayName = safeDisplayName(titleName, inGroup ? t("Group") : t("Bot"));
-  const composerPrompt = displayName ? t("Message {name}", { name: displayName }) : t("Message…");
+  const displayName = safeDisplayName(titleName, inGroup ? t`Group` : t`Bot`);
+  const composerPrompt = displayName ? t`Message ${ph({ name: displayName })}` : t`Message…`;
   const notificationThreadId = snap?.threadId ?? requestedThreadId ?? currentBot?.threadId;
   activeThreadId.current = notificationThreadId;
-  const currentBotStatus = snap ? snap.run?.status : titleBot?.status;
+  const currentBotStatus =
+    snap && (!showingSaved || error)
+      ? snap.run?.status
+      : (titleBot?.threadStatus ?? snap?.run?.status);
   // The group's members in its order, once the chat or its group list has loaded them; the
   // title seats the inbox's copy until then.
   const groupMembers = threadGroupMembers(groupId, snap, mentionGroups);
@@ -256,6 +264,7 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
     (message) => message.id.startsWith("progress:") && liveMessageComposing(message.blocks),
   );
   const activityLine = liveActivityLine(snap?.messages ?? []);
+  const workingRoutine = workingRoutineName(snap?.activeRuns ?? (snap?.run ? [snap.run] : []));
   const userBubble = useMemo(
     () =>
       !inGroup && currentBot ? chatUserBubbleColors(currentBot.color, currentBot.id) : undefined,
@@ -276,7 +285,6 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
   // A bot waiting on the user (an ask card, a computer takeover) can still be stopped, but its
   // card is the state: no typing dots under it.
   const workingGroupBots = activeGroupBots.filter((bot) => isRunWorking(bot.status));
-  const working = inGroup ? activeGroupBots.length > 0 : isActiveStatus(currentBotStatus);
 
   const speakFinishedReplyRef = useAutoSpeakReply({
     botId,
@@ -306,7 +314,7 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
     ),
   });
 
-  const { botActions, botActionsOpen, closeBotActions } = useThreadHeader({
+  useThreadHeader({
     botId,
     groupId,
     inGroup,
@@ -317,7 +325,6 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
     groupMembers,
     currentBotStatus,
     composingBots,
-    styles,
     onCleared: history.clear,
   });
 
@@ -338,7 +345,9 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
     messageId,
     readOnly,
     foreground,
+    focused,
     sessionEpoch,
+    userId,
     activeBotId,
     activeGroupId,
     readVisibleTarget,
@@ -381,6 +390,8 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
   });
   const { replyTarget, setReplyTarget, replyQuote, setReplyQuote, quoteTarget, setQuoteTarget } =
     composer;
+  // A reply tapped on one of this chat's pages, full screen, lands in the composer unsent.
+  useFocusEffect(composer.receivePageReply);
   useIncomingShareImport({
     attachments,
     composerRef: composer.composerRef,
@@ -436,7 +447,9 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
     answer: composer.answer,
     openBot,
     openComputer,
-    previewMarkdown: setMarkdownPreview,
+    // A chat attachment opens the version it was sent with, not the newest.
+    previewFile: (artifactId) =>
+      router.push({ pathname: "/artifact", params: { artifactId, exact: "1" } }),
     previewImage: (target) =>
       router.push({
         pathname: "/image",
@@ -488,13 +501,13 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
   });
 
   const workingBots =
-    !inGroup && currentBot && isRunWorking(currentBotStatus) && !hasLiveProgress
+    !inGroup && titleBot && isRunWorking(currentBotStatus) && !hasLiveProgress
       ? [
           {
-            id: currentBot.id,
-            name: currentBot.name,
-            color: currentBot.color,
-            avatarSet: currentBot.avatarSet,
+            id: titleBot.id,
+            name: titleBot.name,
+            color: titleBot.color,
+            avatarSet: titleBot.avatarSet,
             status: currentBotStatus,
           },
         ]
@@ -514,7 +527,9 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
         composing: composingBots.split(",").includes(bot.id),
       }))}
       atBottom={!scroll.state.detached}
-      label={activityLine ?? t("Working…")}
+      label={
+        activityLine ?? (workingRoutine ? t`Running ${ph({ name: workingRoutine })}…` : t`Working…`)
+      }
     />
   );
 
@@ -567,24 +582,26 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
       >
         {/* The keyboard's padding shrinks this, so the floating composer rides above it. */}
         <View style={{ flex: 1 }}>
-          <ThreadMessageList
-            scroll={scroll}
-            pinnedListHandlers={paging.pinnedListHandlers}
-            threadKey={threadKey}
-            headerClearance={headerClearance}
-            bottomInset={bottomInset}
-            columnPadding={columnPadding}
-            visibleMessages={visibleMessages}
-            liveItems={liveItems}
-            renderItem={renderItem}
-            renderMessageRow={renderMessageRow}
-            loadEarlierControl={loadEarlierControl}
-            failedSendBubbles={failedSendBubbles}
-            errorNotice={errorNotice}
-            workingFooter={workingFooter}
-            loadingNewer={paging.loadingNewer}
-            showLatest={showLatest}
-          />
+          <NewestPageCards.Provider value={newestPages}>
+            <ThreadMessageList
+              scroll={scroll}
+              pinnedListHandlers={paging.pinnedListHandlers}
+              threadKey={threadKey}
+              headerClearance={headerClearance}
+              bottomInset={bottomInset}
+              columnPadding={columnPadding}
+              visibleMessages={visibleMessages}
+              liveItems={liveItems}
+              renderItem={renderItem}
+              renderMessageRow={renderMessageRow}
+              loadEarlierControl={loadEarlierControl}
+              failedSendBubbles={failedSendBubbles}
+              errorNotice={errorNotice}
+              workingFooter={workingFooter}
+              loadingNewer={paging.loadingNewer}
+              showLatest={showLatest}
+            />
+          </NewestPageCards.Provider>
           {/* Shrinks (the suggestion lists scroll) so the input and Send stay above the keyboard. */}
           <ThreadComposerDock
             hidden={readOnly}
@@ -594,8 +611,10 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
             replyTarget={replyTarget}
             replyAuthor={
               replyTarget?.role === "user"
-                ? (channelMessageSender(replyTarget.blocks) ?? t("You"))
-                : (memberName(snap?.members, replyTarget?.botId) ?? displayName ?? t("Bot"))
+                ? (otherAuthor(replyTarget.author, userId)?.name ??
+                  channelMessageSender(replyTarget.blocks) ??
+                  t`You`)
+                : (memberName(snap?.members, replyTarget?.botId) ?? displayName ?? t`Bot`)
             }
             replyQuote={replyQuote}
             threadTarget={artifactTarget}
@@ -626,34 +645,26 @@ export function Thread({ sessionEpoch, userId }: { sessionEpoch: number; userId:
               )}
               botId={botId}
               onCall={onCall}
-              working={working}
-              sending={composer.sending || attachments.shareImporting}
+              sending={attachments.shareImporting}
               styles={styles}
               attachActions={attachments.attachActions}
               attachFrom={attachments.attachFrom}
               send={composer.send}
-              stop={composer.stop}
               startVoiceCall={startVoiceCall}
               onSlashAction={composer.runSlashAction}
+              onEmptied={composer.composerEmptied}
             />
           </ThreadComposerDock>
         </View>
-        {botActionsOpen ? <BotActionsModal actions={botActions} onClose={closeBotActions} /> : null}
         {selectableText !== null ? (
           <SelectTextSheet text={selectableText} onClose={() => setSelectableText(null)} />
         ) : null}
         <RunErrorSheet
           details={detailsOpen ? runError : null}
+          summary={normalizedRunError?.summary}
           onClose={() => setDetailsOpen(false)}
           action={runErrorAction}
         />
-        {markdownPreview && artifactTarget ? (
-          <MarkdownArtifactPreview
-            threadTarget={artifactTarget}
-            target={markdownPreview}
-            onClose={() => setMarkdownPreview(null)}
-          />
-        ) : null}
         {quoteTarget ? (
           <QuoteSheet
             message={quoteTarget}

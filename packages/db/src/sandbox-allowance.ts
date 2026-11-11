@@ -1,20 +1,37 @@
+import type { ByokTier, ComputerSize } from "@rakazo/contracts";
+import {
+  BYOK_TIERS,
+  ByokTierSchema,
+  CREDITS_SANDBOX_ALLOWANCE_PERCENT,
+  TRIAL_SANDBOX_ALLOWANCE_CENTS,
+} from "@rakazo/contracts";
 import type { PrismaClient } from "./client.js";
 import { runAsSystem } from "./row-security.js";
 
-/** What an own-key organization may spend on computers each billing period. */
-export const BYOK_SANDBOX_ALLOWANCE_CENTS = 500;
-/** What a trial may spend; ending the trial early starts the full allowance. */
-export const TRIAL_SANDBOX_ALLOWANCE_CENTS = 200;
-/** The share of a monthly credit plan an organization may also spend on computers. */
-export const CREDITS_SANDBOX_ALLOWANCE_PERCENT = 20;
-
 const LIVE_SUBSCRIPTION_STATUSES = new Set(["trialing", "active", "past_due"]);
+
+/**
+ * The own-key tier an organization's computers get: a live own-key subscription's tier, whatever
+ * pays for its models (a top-up switches those to credits), else Standard while it uses its own
+ * key. Credit organizations without an own-key subscription get none.
+ */
+function byokTierOf(
+  mode: string | null | undefined,
+  billing:
+    | { status: string | null; byokTier: string | null; byokPriceCents: number | null }
+    | null
+    | undefined,
+): ByokTier | null {
+  const live = Boolean(billing?.status && LIVE_SUBSCRIPTION_STATUSES.has(billing.status));
+  if (mode !== "byok" && !(live && billing?.byokPriceCents)) return null;
+  return (live && ByokTierSchema.safeParse(billing?.byokTier).data) || "standard";
+}
 
 /**
  * The organization's computer allowance in cents and the moment its period began, or null when
  * it has no limit: a deployment without model-credit billing never limits computers. The period
  * is the subscription's billing period, or the calendar month in UTC without one. A cancelled
- * trial gets nothing more.
+ * trial gets nothing more. Credit an admin granted, without a monthly plan, brings its share once.
  */
 export async function sandboxAllowancePlan(
   prisma: PrismaClient,
@@ -37,6 +54,8 @@ export async function sandboxAllowancePlan(
             cancelAtPeriodEnd: true,
             currentPeriodStartsAt: true,
             byokInterval: true,
+            byokTier: true,
+            byokPriceCents: true,
           },
         },
       },
@@ -53,15 +72,52 @@ export async function sandboxAllowancePlan(
         ? latestMonthlyAnniversary(periodStart, now)
         : periodStart
       : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const tier = byokTierOf(organization?.modelCredits?.mode, billing);
+  const creditShare = (cents: number) =>
+    Math.floor((cents * CREDITS_SANDBOX_ALLOWANCE_PERCENT) / 100);
+  if (billing?.status !== "trialing" && !tier && !billing?.creditAmountCents) {
+    // Granted credit without a monthly plan: its share is one pool, spent since the first grant.
+    const granted = await prisma.accessGrant.aggregate({
+      where: { organizationId, appliedAt: { not: null }, creditCents: { gt: 0 } },
+      _sum: { creditCents: true },
+      _min: { appliedAt: true },
+    });
+    if (granted._sum.creditCents && granted._min.appliedAt)
+      return { limitCents: creditShare(granted._sum.creditCents), since: granted._min.appliedAt };
+  }
   const limitCents =
     billing?.status === "trialing"
       ? billing.cancelAtPeriodEnd
         ? 0
         : TRIAL_SANDBOX_ALLOWANCE_CENTS
-      : organization?.modelCredits?.mode === "byok"
-        ? BYOK_SANDBOX_ALLOWANCE_CENTS
-        : Math.floor(((billing?.creditAmountCents ?? 0) * CREDITS_SANDBOX_ALLOWANCE_PERCENT) / 100);
+      : tier
+        ? BYOK_TIERS[tier].computerAllowanceCents
+        : creditShare(billing?.creditAmountCents ?? 0);
   return { limitCents, since };
+}
+
+/**
+ * The machine size a Space's computers start at: its organization's own-key tier's size, and
+ * standard on credits. A computer moves to this size when it next starts or resumes, so a plan
+ * change reaches running computers on their next resume.
+ */
+export async function planComputerSize(
+  prisma: Pick<PrismaClient, "space">,
+  spaceId: string,
+): Promise<ComputerSize> {
+  const space = await prisma.space.findUnique({
+    where: { id: spaceId },
+    select: {
+      organization: {
+        select: {
+          modelCredits: { select: { mode: true } },
+          billing: { select: { status: true, byokTier: true, byokPriceCents: true } },
+        },
+      },
+    },
+  });
+  const tier = byokTierOf(space?.organization.modelCredits?.mode, space?.organization.billing);
+  return tier ? BYOK_TIERS[tier].computerSize : "standard";
 }
 
 /** The latest monthly anniversary of `start` at or before `now`, on a shorter month's last day. */

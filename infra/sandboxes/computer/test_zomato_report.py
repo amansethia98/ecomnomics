@@ -255,7 +255,7 @@ class FreshFileTests(unittest.TestCase):
             text = (HERE / name).read_text()
             self.assertNotIn("xdotool", text)
             self.assertNotIn("mousemove", text)
-            self.assertNotRegex(text, r"\b24802\b")
+            self.assertNotRegex(text, r"(?:outlet|restaurant)_id\s*=\s*[\"']\d+[\"']")
 
 
 if __name__ == "__main__":

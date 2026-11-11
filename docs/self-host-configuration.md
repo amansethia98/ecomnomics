@@ -36,8 +36,10 @@ commands, add `-f docker-compose.override.yml` after the base file.
 All of these are optional:
 
 ```env
+RAKAZO_EXTRA_AUTH_ORIGINS=   # extra origins allowed to sign in and call the API; see below
 SIGNUPS_ENABLED=true
 SIGNUP_ALLOWLIST=you@example.com,@company.com
+SCIM_BEARER_TOKEN=        # lets your identity provider add and remove accounts; see self-host-accounts.md
 SANDBOX_PROVIDER=docker   # or none, e2b, novita, daytona, createos, boat. Keep fake only for pnpm test.
 AGENT_RUNTIME=pi          # Keep scripted only for pnpm test.
 WAKEUP_DRIVER=graphile
@@ -45,6 +47,7 @@ SANDBOX_IDLE_MS=600000    # pause or stop after 10 minutes idle; 0 disables idle
 # Set 0 when self-hosting with Docker, where an idle computer costs nothing, to keep long-running apps and sessions up.
 # E2B, CreateOS and Boat still apply their own timeouts.
 COMPUTER_MAX_ACTIVE_MS=7200000 # uptime cap for providers that bill while running; minimum 60000; 0 disables
+COMPUTER_MAX_ACTIVE_UNBILLED_MS=0 # uptime cap for providers that do not bill while running (Docker, Kubernetes, Incus); minimum 60000; 0 (default) disables; needs SANDBOX_IDLE_MS on
 SANDBOX_COMMAND_TIMEOUT_MS=300000 # stop a shell command after 5 minutes
 MAX_TOOL_CALLS_PER_TURN=  # optional Pi turn tool-call fuse; unset/0 = unlimited
 RAKAZO_MESSAGE_USER_MAX_CHARS=500 # message_user length cap; narration stays at 500
@@ -62,18 +65,56 @@ screen lasts before control expires.
 `MODEL_STREAM_MAX_RETRIES` (0 to 5, default `1`) retries a model stream that fails partway; more
 retries let long turns survive brief provider failures.
 
+Model timeouts are configurable in milliseconds. Invalid or out-of-range values retain their
+defaults. Longer timeouts can help when several bots share a local inference server that queues
+requests. For `RAKAZO_LOCAL_MODELS` servers and compatible model connections added in the app,
+these settings are the only limits Rakazo applies, and a stream that is cut off names why in the
+run's error details, such as `terminated (other side closed)`. Built-in providers still drop a
+response after 5 minutes without data, and a proxy or load balancer in between may cut off a
+silent stream sooner.
+
+- `MODEL_STREAM_TIMEOUT_MS` (default `120000`, range `1000`–`2147483647`) is the time budget
+  for retrying the same model. It also controls the wait for response headers when using the
+  OpenAI Chat Completions, Responses or Codex API, Anthropic Messages, Mistral or Azure OpenAI.
+  Other APIs, such as Google, Vertex AI, Bedrock and some routed models, use their own client
+  timeouts.
+- `MODEL_STREAM_IDLE_TIMEOUT_MS` (default `180000`, range `0`–`2147483647`) bounds how long
+  a started response may remain silent. Set it to `0` to disable Rakazo's inactivity watchdog.
+  Explicit request cancellation remains available. Disabling this protection can leave stalled
+  requests waiting indefinitely if neither the provider nor the caller terminates them.
+- `MODEL_CONNECT_TIMEOUT_MS` (default `30000`, range `1000`–`300000`) bounds connecting to an
+  OpenAI-compatible model or speech connection added in the app. `RAKAZO_LOCAL_MODELS` servers
+  and built-in providers retain Node's own connection timeout.
+
+### Reaching Rakazo from a second address
+
+Sign-in and API calls are accepted only from `WEB_ORIGIN`, `API_URL`, `BETTER_AUTH_URL` and the
+mobile app. If you also open the same install from another address, such as a Tailscale name or a
+LAN IP, the browser or desktop app gets `403 INVALID_ORIGIN`. List that address in
+`RAKAZO_EXTRA_AUTH_ORIGINS`, comma-separated:
+
+```env
+RAKAZO_EXTRA_AUTH_ORIGINS=https://rakazo.your-tailnet.ts.net,http://192.168.1.20:5173
+```
+
+Each entry must be a bare origin (scheme, host, optional port; no path). `https://` is accepted for
+any host. `http://` is accepted only for loopback, `.local`, and private-network IPs (RFC 1918 and
+Tailscale's 100.64.0.0/10). Anything else is ignored and logged as a warning. Only origins you list
+are trusted; the default is none. `WEB_ORIGIN` stays the address used in links, passkeys and OAuth
+callbacks.
+
 ## Feature switches
 
-| Variable | Default | Effect |
-| --- | --- | --- |
-| `TICKET_BOARD_ENABLED` | `false` | Turns on the ticket board. Set it on the API and worker. |
-| `RESTAURANT_COMPUTER_ENABLED` | off | `true` gives each restaurant workspace one computer shared by all of its bots, and refuses a provider that puts every restaurant on the same machine. The computer still sleeps after `SANDBOX_IDLE_MS` and keeps its files. Set it on the API and worker. |
-| `RESTAURANT_STARTER_BOTS_ENABLED` | off | `true` copies every bot in `restaurant-templates/` into each new workspace. Edit `bot.md` for that bot's instructions. Skills in those folders stay locked and update for every restaurant when you change `SKILL.md` and restart. Set it on the API and worker. |
-| `ECOMNOMICS_PLATFORM_ADMINS` | empty | Comma-separated verified emails that may call `/admin/v1`. Empty means nobody. This is not `RAKAZO_ADMIN_EMAILS`. Set it on the API. |
-| `PLATFORM_ADMIN_DATABASE_URL` | unset | Postgres login for `/admin/v1`. `pnpm db:migrate` grants it `ecomnomics_admin`. Leave it unset to keep that API unavailable. Set it on the API and on the migrate command. |
-| `USER_DEVICES_ENABLED` | on | `false` stops signed-in desktop apps from letting bots run commands on the user's own computer. Set it on the API and worker. |
-| `PI_SESSION_RECORDING` | off | `true` records agent sessions as JSONL under `DATA_DIR/pi-sessions`. The files are not encrypted, so do not use it on a shared or multi-tenant install. |
-| `PRIVACY_POLICY_URL` | Rakazo's policy | The privacy policy linked from the AI data-sharing notice. Set it on the API. |
+| Variable                          | Default         | Effect                                                                                                                                                                                                                                                           |
+| --------------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TICKET_BOARD_ENABLED`            | `false`         | Turns on the ticket board. Set it on the API and worker.                                                                                                                                                                                                         |
+| `RESTAURANT_COMPUTER_ENABLED`     | off             | `true` gives each restaurant workspace one computer shared by all of its bots, and refuses a provider that puts every restaurant on the same machine. The computer still sleeps after `SANDBOX_IDLE_MS` and keeps its files. Set it on the API and worker.       |
+| `RESTAURANT_STARTER_BOTS_ENABLED` | off             | `true` copies every bot in `restaurant-templates/` into each new workspace. Edit `bot.md` for that bot's instructions. Skills in those folders stay locked and update for every restaurant when you change `SKILL.md` and restart. Set it on the API and worker. |
+| `ECOMNOMICS_PLATFORM_ADMINS`      | empty           | Comma-separated verified emails that may call `/admin/v1`. Empty means nobody. This is not `RAKAZO_ADMIN_EMAILS`. Set it on the API.                                                                                                                             |
+| `PLATFORM_ADMIN_DATABASE_URL`     | unset           | Postgres login for `/admin/v1`. `pnpm db:migrate` grants it `ecomnomics_admin`. Leave it unset to keep that API unavailable. Set it on the API and on the migrate command.                                                                                       |
+| `USER_DEVICES_ENABLED`            | on              | `false` stops signed-in desktop apps from letting bots run commands on the user's own computer. Set it on the API and worker.                                                                                                                                    |
+| `PI_SESSION_RECORDING`            | off             | `true` records agent sessions as JSONL under `DATA_DIR/pi-sessions`. The files are not encrypted, so do not use it on a shared or multi-tenant install.                                                                                                          |
+| `PRIVACY_POLICY_URL`              | Rakazo's policy | The privacy policy linked from the AI data-sharing notice. Set it on the API.                                                                                                                                                                                    |
 
 ## Database roles
 
@@ -137,6 +178,14 @@ background runs execute in the worker, so both hold live agent turns. In the pro
 file, `RAKAZO_API_MEMORY_LIMIT` and `RAKAZO_WORKER_MEMORY_LIMIT` cap them (Compose sizes such as
 `2g` or `3072m`, default `2g` each). Raise them on a larger host. Deploys briefly run the old and
 new container of each side by side, so leave room for both.
+
+## Postgres memory
+
+The production Compose file sizes Postgres for an 8 GB host: `POSTGRES_MEMORY_LIMIT` caps the
+container (default `2560m`), `POSTGRES_SHARED_BUFFERS` sets its cache (default `1GB`, which counts
+against that cap) and `POSTGRES_EFFECTIVE_CACHE_SIZE` tells the planner how much data stays cached
+(default `2GB`). On a smaller host, lower them along with the API and worker caps above. Changing
+them restarts Postgres.
 
 ## Listening addresses
 

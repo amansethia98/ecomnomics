@@ -1,0 +1,44 @@
+<!doctype html><html lang="en"><head><title>Verify</title></head><body>
+<!-- Reconstructed from a value-free pre-fill structure, not copied production HTML.
+     Six unlabelled sibling text inputs, maxlength=2, inputmode=text, no OTP hints.
+     Empty siblings preserve the captured child-index paths. Event behavior is synthetic. -->
+<div></div><div></div><div></div><div></div><div></div>
+<div><div><div></div><div><div></div><section><section><div></div><div><div><div>
+<input type="text" maxlength="2" inputmode="text">
+<input type="text" maxlength="2" inputmode="text">
+<input type="text" maxlength="2" inputmode="text">
+<input type="text" maxlength="2" inputmode="text">
+<input type="text" maxlength="2" inputmode="text">
+<input type="text" maxlength="2" inputmode="text">
+</div></div></div></section></section></div></div></div>
+<script>
+// Model a key-driven controlled widget; the capture does not retain site event handlers.
+const boxes = [...document.querySelectorAll('input')];
+window.keyCount = 0;
+window.trustedInputCount = 0;
+boxes.forEach((box, index) => {
+  box.addEventListener('keydown', event => {
+    if (event.isTrusted && event.key.length === 1) window.keyCount++;
+  });
+  box.addEventListener('input', event => {
+    if (!event.isTrusted) box.value = '';
+    else window.trustedInputCount++;
+  });
+  box.addEventListener('keyup', event => {
+    if (event.key.length === 1 && box.value && boxes[index + 1]) boxes[index + 1].focus();
+  });
+});
+window.submitted = false;
+const submit = document.createElement('button');
+submit.textContent = 'Continue';
+submit.addEventListener('click', () => {
+  window.submitted = boxes.map(box => box.value).join('') === 'AB7C9D';
+  if (window.submitted) {
+    const status = document.createElement('div');
+    status.setAttribute('role', 'status');
+    status.textContent = 'Signed in (offline fixture)';
+    document.body.append(status);
+  }
+});
+document.body.append(submit);
+</script></body></html>

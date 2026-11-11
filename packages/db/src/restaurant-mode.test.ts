@@ -71,7 +71,10 @@ describe("restaurant settings", () => {
     vi.stubEnv("RESTAURANT_COMPUTER_ENABLED", "false");
     vi.stubEnv("SANDBOX_MAX_COMPUTERS_PER_USER", "");
     const prisma = {
-      computer: { upsert: vi.fn(async (args: { create: { kind: string } }) => args.create) },
+      computer: {
+        findUnique: vi.fn(async () => null),
+        upsert: vi.fn(async (args: { create: { kind: string } }) => args.create),
+      },
     } as unknown as PrismaClient;
     await ensureComputerRecord(prisma, {
       mode: "team",

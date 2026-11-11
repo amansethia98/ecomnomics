@@ -45,20 +45,45 @@ export function installAgentBrowserCommand(): string {
  * so a hosted computer always runs the helper its API was released with.
  */
 export function installPageBrowserFilesCommand(): string {
-  const wrapper = computerFile("rakazo-page-browser");
-  const secrets = computerFile("page_secrets.py");
-  const version = createHash("sha256").update(wrapper).update("\0").update(secrets).digest("hex");
-  // One archive, so both files change together.
-  const archive = gzipSync(
-    JSON.stringify({ "rakazo-page-browser": wrapper, "page_secrets.py": secrets }),
-    { level: 9 },
-  ).toString("base64");
+  const names = [
+    "rakazo-page-browser",
+    "page_secrets.py",
+    "zomato_legacy.py",
+    "zomato_browser_246c11b.py",
+    "zomato_secrets_246c11b.py",
+  ];
+  const files = Object.fromEntries(names.map((name) => [name, computerFile(name)]));
+  const version = createHash("sha256").update(JSON.stringify(files)).digest("hex");
+  // One archive, so the current helper and frozen login runtime change together.
+  // Intern lines before compression: the frozen and current runtimes share much of
+  // their source. This keeps the shell argument below Linux's 128 KiB per-arg limit.
+  const lines: string[] = [];
+  const indices = new Map<string, number>();
+  const packed = Object.fromEntries(
+    Object.entries(files).map(([name, source]) => [
+      name,
+      source.split("\n").map((line) => {
+        let index = indices.get(line);
+        if (index === undefined) {
+          index = lines.length;
+          indices.set(line, index);
+          lines.push(line);
+        }
+        return index;
+      }),
+    ]),
+  );
+  const archive = gzipSync(JSON.stringify({ lines, files: packed }), { level: 9 }).toString(
+    "base64",
+  );
   const unpack = [
     "import gzip, json, os, sys",
-    "files = json.loads(gzip.decompress(sys.stdin.buffer.read()))",
+    "bundle = json.loads(gzip.decompress(sys.stdin.buffer.read()))",
+    "files = {name: '\\n'.join(bundle['lines'][i] for i in indices) for name, indices in bundle['files'].items()}",
     "os.makedirs('/usr/local/lib/rakazo', exist_ok=True)",
-    "for name, mode, target in (('page_secrets.py', 0o644, '/usr/local/lib/rakazo/page_secrets.py'),",
-    "                           ('rakazo-page-browser', 0o755, '/usr/local/bin/rakazo-page-browser')):",
+    "for name in files:",
+    "    mode = 0o755 if name == 'rakazo-page-browser' else 0o644",
+    "    target = ('/usr/local/bin/' if mode == 0o755 else '/usr/local/lib/rakazo/') + name",
     "    with open(target + '.new', 'w', encoding='utf-8') as file:",
     "        file.write(files[name])",
     "    os.chmod(target + '.new', mode)",

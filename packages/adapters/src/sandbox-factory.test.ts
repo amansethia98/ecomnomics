@@ -32,6 +32,7 @@ describe("createSandboxProvider", () => {
     expect((await createSandboxProvider("createos", {})).describe().id).toBe("none");
     expect((await createSandboxProvider("boat", {})).describe().id).toBe("none");
     expect((await createSandboxProvider("boxd", {})).describe().id).toBe("none");
+    expect((await createSandboxProvider("instabox", {})).describe().id).toBe("none");
     await expect(
       (await createSandboxProvider("e2b", {})).provision({ botId: "b", homePath: "/tmp" }, ctx),
     ).rejects.toThrow(/E2B_API_KEY/);
@@ -51,6 +52,10 @@ describe("createSandboxProvider", () => {
     expect(
       (await createSandboxProvider("boxd", { boxdApiKey: "test-boxd-key" })).describe().id,
     ).toBe("boxd");
+    expect(
+      (await createSandboxProvider("instabox", { instaboxApiKey: "test-instabox-key" })).describe()
+        .id,
+    ).toBe("instabox");
   });
 
   it("refuses the desktop provider in a production server process", async () => {
@@ -74,6 +79,39 @@ describe("createSandboxProvider", () => {
       id: "kubernetes",
       capabilities: { graphical: true, pty: true, persistentHome: false },
     });
+  });
+
+  it("returns the Incus provider without contacting the server", async () => {
+    const sandbox = await createSandboxProvider("incus", {
+      incusUrl: "https://incus.example.test:8443",
+      incusClientCert: "test-cert",
+      incusClientKey: "test-key",
+    });
+    expect(sandbox.describe()).toMatchObject({
+      id: "incus",
+      capabilities: { graphical: true, pty: true, persistentHome: false },
+    });
+  });
+
+  it("boots Incus as none until its address and client certificate are set", async () => {
+    const sandbox = await createSandboxProvider("incus", {
+      incusUrl: "https://incus.example.test:8443",
+      incusClientCert: "test-cert",
+    });
+    expect(sandbox.describe().id).toBe("none");
+    await expect(sandbox.provision({ botId: "b", homePath: "/unused" }, ctx)).rejects.toThrow(
+      /INCUS_SANDBOX_CLIENT_KEY/,
+    );
+  });
+
+  it("refuses an Incus API address without TLS", async () => {
+    await expect(
+      createSandboxProvider("incus", {
+        incusUrl: "http://incus.example.test:8443",
+        incusClientCert: "test-cert",
+        incusClientKey: "test-key",
+      }),
+    ).rejects.toThrow("must use https");
   });
 
   it("returns the Wuying provider without contacting Alibaba Cloud", async () => {
@@ -111,7 +149,7 @@ describe("createSandboxProvider", () => {
 
   it("throws on unknown provider", async () => {
     await expect(createSandboxProvider("bogus", {})).rejects.toThrow(
-      'Unknown SANDBOX_PROVIDER "bogus". Use none | docker | e2b | novita | daytona | createos | boat | boxd | railway | kubernetes | wuying | desktop | fake.',
+      'Unknown SANDBOX_PROVIDER "bogus". Use none | docker | e2b | novita | daytona | createos | boat | boxd | instabox | railway | kubernetes | incus | wuying | desktop | fake.',
     );
   });
 

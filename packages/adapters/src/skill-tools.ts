@@ -53,7 +53,7 @@ function toRecord(row: AgentSkillRow): SkillRecord & { id: string } {
   };
 }
 
-function builtinRecords(): Array<SkillRecord & { id: string }> {
+export function builtinAgentSkillRecords(): Array<SkillRecord & { id: string }> {
   return BUILTIN_AGENT_SKILLS.map((skill) => ({
     id: `builtin:${skill.name}`,
     name: skill.name,
@@ -118,7 +118,7 @@ export async function listAgentSkillRecords(
       source: "builtin" as const,
       readOnly: true,
     })),
-    mergeBuiltinSkills(builtinRecords(), rows.map(toRecord)),
+    mergeBuiltinSkills(builtinAgentSkillRecords(), rows.map(toRecord)),
   );
 }
 

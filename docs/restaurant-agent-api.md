@@ -2,7 +2,7 @@
 
 The computer for one restaurant calls this API with that restaurant's token. One token can read and write only that restaurant. Money is an integer number of paise.
 
-Definitions of each metric, and which Zomato or Swiggy field it comes from, will live in [docs/metric-dictionary.md](docs/metric-dictionary.md).
+Definitions of each metric, and which Zomato or Swiggy field it comes from, are in [docs/metric-dictionary.md](metric-dictionary.md).
 
 A machine-readable copy of these routes is [docs/restaurant-agent-api.openapi.json](docs/restaurant-agent-api.openapi.json).
 

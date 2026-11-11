@@ -165,7 +165,7 @@ describe("list_secrets", () => {
       origin: "https://api.example.test",
       auth: { type: "bearer" },
     });
-    const listed = await listBotSecrets(db.prisma, scope);
+    const listed = await listBotSecrets(db.prisma, secretStore, scope);
     expect(listed).toEqual([
       expect.objectContaining({ name: "api", origin: "https://api.example.test" }),
       { name: "netbird-setup-key", auth: command, variable: "NETBIRD_SETUP_KEY" },
@@ -196,7 +196,7 @@ describe("list_secrets", () => {
         ciphertext: "unused",
       },
     });
-    const listed = await listBotSecrets(db.prisma, scope);
+    const listed = await listBotSecrets(db.prisma, secretStore, scope);
     expect(listed).toEqual([
       {
         name: longName,
@@ -493,7 +493,7 @@ describe("shell command environment", () => {
     expect(
       await loadBotCommandEnvironment(db.prisma, secretStore, { ...scope, spaceId: "space-2" }),
     ).not.toHaveProperty("RESTAURANT_AGENT_TOKEN");
-    expect(await listBotSecrets(db.prisma, scope)).toEqual([]);
+    expect(await listBotSecrets(db.prisma, secretStore, scope)).toEqual([]);
     await expect(save(db, "restaurant_agent_token", "ecom_agent_other")).rejects.toThrow(
       "managed by the platform",
     );
