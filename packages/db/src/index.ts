@@ -38,6 +38,7 @@ export * from "./platform-admin-role.js";
 export * from "./provider-transactions.js";
 export * from "./repos.js";
 export * from "./restaurant-agent.js";
+export * from "./restaurant-agent-access.js";
 export * from "./restaurant-mode.js";
 export * from "./restaurant-starters.js";
 export * from "./restaurant-templates.js";

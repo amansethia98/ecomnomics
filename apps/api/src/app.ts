@@ -68,6 +68,7 @@ import {
   InstalledConnectorProvider,
   IntegrationProviderSettings,
   installedMessaging,
+  installRestaurantAgentAccess,
   isComposioEnabled,
   isMessagingSurfaceEnabled,
   isPipedreamEnabled,
@@ -132,6 +133,7 @@ import {
   rowSecurityWarning,
   runAsSystem,
   securityEventRetentionDays,
+  setRestaurantAgentAccessHandler,
   verifyContentKeys,
 } from "@rakazo/db";
 import type { Logger } from "@rakazo/logging";
@@ -337,6 +339,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
   if (secrets.describe().capabilities.degraded)
     logger.warn("Secret storage degraded; encrypted credentials remain available");
   prisma = withSecretPersistence(prisma, secrets);
+  installRestaurantAgentAccess({ prisma, secretStore: secrets, apiBaseUrl: env.apiUrl });
   installSecurityEventStore(prisma);
   installAuditEventStore(prisma);
   const unreadableMasterKeys = await verifyContentKeys(prisma);
@@ -1473,6 +1476,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     backgroundFailures: inMemoryJobs ? () => inMemoryJobs.failureCounts() : undefined,
     handleUpgrade: userDeviceHub?.handleUpgrade,
     stop: async () => {
+      setRestaurantAgentAccessHandler(undefined);
       // Handlers still running would otherwise query the pool after it ends.
       const requestsSettled = settleWithTimeout(inFlight.settled(), REQUEST_DRAIN_MS);
       // Abort in-flight continueRun boot waits before draining jobs so stop() cannot sit

@@ -97,6 +97,9 @@ export function mapBotSecretInputError(error: unknown): unknown {
 /** Map credential validation failures to a bad request without echoing the submitted value. */
 function mapBotSecretStoreError(error: unknown): unknown {
   if (error instanceof ORPCError) return error;
+  if (error instanceof Error && error.message === "This variable is managed by the platform.") {
+    return new ORPCError("FORBIDDEN", { message: error.message });
+  }
   const mapped = mapBotSecretInputError(error);
   if (mapped !== error) return mapped;
   // Login decoding failures: a JSON parse message can quote the submitted value, so never forward it.
@@ -746,7 +749,12 @@ export function botsRoutes(ctx: RouterContext) {
         return revealed;
       }),
       remove: authed.vault.remove.handler(async ({ context, input }) => {
-        await forgetBotSecret(deps.prisma, vaultScope(context.actor, input.scope), input.name);
+        const forgotten = await forgetBotSecret(
+          deps.prisma,
+          vaultScope(context.actor, input.scope),
+          input.name,
+        );
+        if (!forgotten.removed) throw new ORPCError("FORBIDDEN", { message: forgotten.error });
         return { ok: true as const };
       }),
     },
@@ -762,7 +770,8 @@ export function botsRoutes(ctx: RouterContext) {
       }),
       remove: authed.botSecrets.remove.handler(async ({ context, input }) => {
         await repos.getBot(context.actor, input.botId);
-        await forgetBotSecret(deps.prisma, vaultScope(context.actor), input.name);
+        const forgotten = await forgetBotSecret(deps.prisma, vaultScope(context.actor), input.name);
+        if (!forgotten.removed) throw new ORPCError("FORBIDDEN", { message: forgotten.error });
         return { ok: true as const };
       }),
     },

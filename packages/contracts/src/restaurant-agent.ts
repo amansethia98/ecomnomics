@@ -1,58 +1,267 @@
 import * as z from "zod";
+import { commandVariableName } from "./bot-secrets.js";
 
 /**
- * Canonical metric keys. Definitions and the Zomato and Swiggy source fields
- * for each key belong in docs/metric-dictionary.md.
+ * How a stored metric value is checked. Money is integer paise. A missing
+ * figure is null, never a guessed zero. Derived figures are not keys.
  */
-export const METRIC_KEYS = [
-  "gross_sales_paise",
-  "net_payout_paise",
-  "orders",
-  "aov_paise",
-  "commission_paise",
-  "platform_fees_paise",
-  "taxes_paise",
-  "discount_paise",
-  "ad_spend_paise",
-  "ad_orders",
-  "cancelled_orders",
+export const METRIC_UNITS = [
+  "paise",
+  "count",
+  "percent",
   "rating",
-  "menu_conversion_pct",
+  "minutes",
+  "hours",
+  "ratio",
+  "boolean",
+] as const;
+export type MetricUnit = (typeof METRIC_UNITS)[number];
+
+type MetricDefinition = { readonly unit: MetricUnit; readonly definition: string };
+
+/**
+ * Canonical metric keys. Source fields and the figures that must stay derived
+ * live in docs/metric-dictionary.md. `orders` is not a key: send
+ * `delivered_orders` or `payout_orders`.
+ */
+export const METRIC_DEFINITIONS = {
+  gross_sales_paise: {
+    unit: "paise",
+    definition:
+      "Item total plus packaging (ST+PC), before GST and before restaurant-funded discounts. Not the weekly ops Sales tile.",
+  },
+  net_payout_paise: {
+    unit: "paise",
+    definition:
+      "Owner's Net Payout: commissionable value minus ads minus commission, other fees, and GST on fees. Not the amount paid under the bank UTR.",
+  },
+  aov_paise: {
+    unit: "paise",
+    definition:
+      "Average order value as shown on the weekly ops screen. Not an average computed from payout sales.",
+  },
+  commission_paise: {
+    unit: "paise",
+    definition:
+      "Platform commission or base service fee only, not long-distance, payment-gateway, or GST on fees.",
+  },
+  platform_fees_paise: {
+    unit: "paise",
+    definition: "Other platform fees besides commission, excluding GST on fees.",
+  },
+  taxes_paise: {
+    unit: "paise",
+    definition: "18% GST on platform fees only. Not customer GST, and not TDS or TCS.",
+  },
+  discount_paise: {
+    unit: "paise",
+    definition: "Discounts the restaurant pays for. Not platform-funded discounts.",
+  },
+  ad_spend_paise: {
+    unit: "paise",
+    definition: "Ads charged to the restaurant for that period, counted once.",
+  },
+  ad_orders: {
+    unit: "count",
+    definition: "Orders attributed to ads.",
+  },
+  cancelled_orders: {
+    unit: "count",
+    definition:
+      "Cancelled orders for this platform. Do not add Zomato and Swiggy figures together.",
+  },
+  rating: {
+    unit: "rating",
+    definition: "Average customer star rating, from 0 to 5.",
+  },
+  menu_conversion_pct: {
+    unit: "percent",
+    definition:
+      "Starter funnel rate. Prefer impressions_to_menu_pct, menu_to_cart_pct, and cart_to_orders_pct until one meaning is chosen.",
+  },
+  delivered_orders: {
+    unit: "count",
+    definition: "Orders delivered in the ops week (what the ops card means by orders).",
+  },
+  payout_orders: {
+    unit: "count",
+    definition:
+      "Payout-file total orders: delivered plus cancelled or rejected, for the payout period.",
+  },
+  ops_sales_paise: {
+    unit: "paise",
+    definition: "Sales as shown on the weekly ops dashboard, stored separately from gross sales.",
+  },
+  bad_orders_pct: {
+    unit: "percent",
+    definition: "Share of orders Zomato treats as bad.",
+  },
+  rejected_orders: {
+    unit: "count",
+    definition: "Rejected orders in Zomato's bad-orders breakdown.",
+  },
+  delayed_orders: {
+    unit: "count",
+    definition: "Orders delayed past the kitchen or prep threshold.",
+  },
+  poor_rated_orders: {
+    unit: "count",
+    definition: "Orders with a poor customer rating.",
+  },
+  bad_order_complaints: {
+    unit: "count",
+    definition:
+      "Complaints slice inside Zomato's bad-orders breakdown. It can differ from total complaints.",
+  },
+  complaints: {
+    unit: "count",
+    definition: "Total complaints for the week.",
+  },
+  lost_sales_paise: {
+    unit: "paise",
+    definition: "Sales Zomato reports as lost, for example from being offline or rejecting.",
+  },
+  cancelled_order_loss_paise: {
+    unit: "paise",
+    definition: "Money Swiggy reports as lost to restaurant-cancelled orders.",
+  },
+  online_pct: {
+    unit: "percent",
+    definition: "Share of time the outlet was online or available.",
+  },
+  kpt_minutes: {
+    unit: "minutes",
+    definition: "Kitchen preparation time, in minutes to one decimal.",
+  },
+  food_ready_accuracy_pct: {
+    unit: "percent",
+    definition: "Swiggy food-ready accuracy (MFR) on the weekly screen.",
+  },
+  for_accuracy_pct: {
+    unit: "percent",
+    definition: "Zomato food-order-ready accuracy, from the monthly export only.",
+  },
+  offline_time_hours: {
+    unit: "hours",
+    definition: "Time the outlet was offline, in hours.",
+  },
+  rated_orders: {
+    unit: "count",
+    definition: "How many orders received a rating.",
+  },
+  lag_banner: {
+    unit: "boolean",
+    definition:
+      "Whether Swiggy showed the 48-hour lag banner on this week. The numbers on screen are still stored.",
+  },
+  cv_paise: {
+    unit: "paise",
+    definition:
+      "Commissionable value: item total plus packaging, minus the restaurant-funded discount.",
+  },
+  platform_net_payout_paise: {
+    unit: "paise",
+    definition: "The platform's own net payout figure, before comparing it to the bank.",
+  },
+  paid_amount_paise: {
+    unit: "paise",
+    definition: "Amount marked paid on the Payouts screen, tied to a bank UTR.",
+  },
+  tds_paise: {
+    unit: "paise",
+    definition: "Tax deducted at source and withheld from the payout. A tax credit, not a cost.",
+  },
+  tcs_paise: {
+    unit: "paise",
+    definition: "Tax collected at source, including TCS IGST where it is present.",
+  },
+  gst_collected_paise: {
+    unit: "paise",
+    definition: "GST collected from customers. Not restaurant revenue on delivery orders.",
+  },
+  complaints_cancellation_charges_paise: {
+    unit: "paise",
+    definition: "Complaint refunds and cancellation charges deducted from the payout.",
+  },
+  placed_orders: {
+    unit: "count",
+    definition: "Orders placed in the calendar month.",
+  },
+  ads_sales_paise: {
+    unit: "paise",
+    definition: "Sales from ads.",
+  },
+  ads_roi: {
+    unit: "ratio",
+    definition: "Platform-reported ads ROI. Not a 0 to 100 percent.",
+  },
+  ads_ctr_pct: {
+    unit: "percent",
+    definition: "Ads click-through rate.",
+  },
+  impressions: {
+    unit: "count",
+    definition: "Menu impressions.",
+  },
+  menu_opens: {
+    unit: "count",
+    definition: "Menu opens.",
+  },
+  cart_builds: {
+    unit: "count",
+    definition: "Cart builds.",
+  },
+  impressions_to_menu_pct: {
+    unit: "percent",
+    definition: "Share of impressions that became menu opens.",
+  },
+  menu_to_cart_pct: {
+    unit: "percent",
+    definition: "Share of menu opens that became cart builds.",
+  },
+  cart_to_orders_pct: {
+    unit: "percent",
+    definition: "Share of cart builds that became orders.",
+  },
+  new_user_orders: {
+    unit: "count",
+    definition: "Orders from new users.",
+  },
+  repeat_user_orders: {
+    unit: "count",
+    definition: "Orders from repeat users.",
+  },
+  lapsed_user_orders: {
+    unit: "count",
+    definition: "Orders from lapsed users.",
+  },
+} as const satisfies Record<string, MetricDefinition>;
+
+export type MetricKey = keyof typeof METRIC_DEFINITIONS;
+
+export const METRIC_KEYS = Object.keys(METRIC_DEFINITIONS) as [MetricKey, ...MetricKey[]];
+
+export const METRIC_KEY_MEANINGS = Object.fromEntries(
+  METRIC_KEYS.map((key) => [key, METRIC_DEFINITIONS[key].definition]),
+) as Record<MetricKey, string>;
+
+/**
+ * Recomputed from stored money and counts. The API rejects these names.
+ * `fees_incl_gst_paise` is commission plus other fees plus GST on fees, which
+ * is the combined dashboard fee tile: Zomato's fee row includes that GST and
+ * Swiggy's does not.
+ */
+export const DERIVED_METRIC_KEYS = [
+  "effective_discount_pct",
+  "ads_pct",
+  "payout_pct",
+  "burn_pct",
+  "fees_incl_gst_paise",
+  "ops_aov_paise",
+  "gross_aov_paise",
 ] as const;
 
-export type MetricKey = (typeof METRIC_KEYS)[number];
-
-export const METRIC_KEY_MEANINGS: Record<MetricKey, string> = {
-  gross_sales_paise: "Menu value of orders before commission, fees, and taxes, in paise.",
-  net_payout_paise: "Amount the platform is expected to pay the restaurant, in paise.",
-  orders: "Count of orders in the period.",
-  aov_paise: "Average order value, in paise.",
-  commission_paise: "Platform commission on the orders, in paise.",
-  platform_fees_paise: "Platform fees other than commission, in paise.",
-  taxes_paise: "Taxes on the orders, in paise.",
-  discount_paise: "Discounts on the orders, in paise.",
-  ad_spend_paise: "Ad spend in the period, in paise.",
-  ad_orders: "Orders attributed to ads.",
-  cancelled_orders: "Orders cancelled in the period.",
-  rating: "Average rating for the period.",
-  menu_conversion_pct: "Share of menu views that became orders, as a percent.",
-};
-
 const METRIC_KEY_SET = new Set<string>(METRIC_KEYS);
-
-const INTEGER_METRIC_KEYS = new Set<MetricKey>([
-  "gross_sales_paise",
-  "net_payout_paise",
-  "orders",
-  "aov_paise",
-  "commission_paise",
-  "platform_fees_paise",
-  "taxes_paise",
-  "discount_paise",
-  "ad_spend_paise",
-  "ad_orders",
-  "cancelled_orders",
-]);
 
 export const PLATFORMS = ["zomato", "swiggy"] as const;
 export type RestaurantPlatform = (typeof PLATFORMS)[number];
@@ -98,6 +307,21 @@ export const REPORT_STATUSES = ["green", "amber", "red"] as const;
 
 export const AGENT_TOKEN_PREFIX = "ecom_agent_";
 export const RESTAURANT_AGENT_TOKEN_ENV = "RESTAURANT_AGENT_TOKEN";
+export const RESTAURANT_AGENT_API_BASE_URL_ENV = "RESTAURANT_AGENT_API_BASE_URL";
+/** Vault name exported as `RESTAURANT_AGENT_TOKEN`. */
+export const RESTAURANT_AGENT_TOKEN_NAME = "restaurant_agent_token";
+/** Vault name exported as `RESTAURANT_AGENT_API_BASE_URL`. */
+export const RESTAURANT_AGENT_API_BASE_URL_NAME = "restaurant_agent_api_base_url";
+
+const PLATFORM_COMMAND_VARIABLES = new Set<string>([
+  RESTAURANT_AGENT_TOKEN_ENV,
+  RESTAURANT_AGENT_API_BASE_URL_ENV,
+]);
+
+/** A vault name that would export a platform-managed restaurant variable. */
+export function isPlatformCommandVariable(name: string): boolean {
+  return PLATFORM_COMMAND_VARIABLES.has(commandVariableName(name));
+}
 
 const IsoTime = z.string().datetime({ offset: true });
 const FileName = z
@@ -158,7 +382,7 @@ const MetricRowSchema = z
     periodStart: IsoTime,
     periodEnd: IsoTime,
     key: z.enum(METRIC_KEYS),
-    value: z.number().finite(),
+    value: z.union([z.number().finite(), z.boolean(), z.null()]),
   })
   .strict()
   .superRefine((row, ctx) => {
@@ -169,33 +393,8 @@ const MetricRowSchema = z
         message: "periodEnd must be after periodStart",
       });
     }
-    if (INTEGER_METRIC_KEYS.has(row.key)) {
-      if (!Number.isSafeInteger(row.value) || row.value < 0) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["value"],
-          message: `${row.key} must be a non-negative integer`,
-        });
-      }
-      return;
-    }
-    if (row.value < 0 || decimalPlaces(row.value) > 4) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["value"],
-        message: `${row.key} must be a non-negative number with at most 4 decimal places`,
-      });
-    }
-    if (row.key === "rating" && row.value > 5) {
-      ctx.addIssue({ code: "custom", path: ["value"], message: "rating must be from 0 to 5" });
-    }
-    if (row.key === "menu_conversion_pct" && row.value > 100) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["value"],
-        message: "menu_conversion_pct must be from 0 to 100",
-      });
-    }
+    const issue = metricValueIssue(row.key, row.value);
+    if (issue) ctx.addIssue({ code: "custom", path: ["value"], message: issue });
   });
 
 export const PutMetricsSchema = z
@@ -333,8 +532,53 @@ export function isPlatformAdminEmail(
   return verified && allowlist.includes(email.trim().toLowerCase());
 }
 
-/** Env passed into one restaurant's computer. Never set this on the shared API process. */
-export function restaurantComputerEnv(token: string): Record<string, string> {
+const PAISE_MAX = 2_000_000_000;
+
+/** Why this value cannot be stored for the key, or undefined when it can. Null is missing. */
+export function metricValueIssue(
+  key: MetricKey,
+  value: number | boolean | null,
+): string | undefined {
+  const unit = METRIC_DEFINITIONS[key].unit;
+  if (value === null) return undefined;
+  if (unit === "boolean") {
+    return typeof value === "boolean" ? undefined : `${key} must be true, false, or null`;
+  }
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return `${key} must be a non-negative number or null`;
+  }
+  if (unit === "paise" || unit === "count") {
+    if (!Number.isSafeInteger(value)) return `${key} must be a non-negative integer or null`;
+    if (unit === "paise" && value > PAISE_MAX) return `${key} is too large`;
+    return undefined;
+  }
+  const places = decimalPlaces(value);
+  if (unit === "percent") {
+    if (places > 2 || value > 100) {
+      return `${key} must be from 0 to 100 with at most 2 decimal places`;
+    }
+    return undefined;
+  }
+  if (unit === "rating") {
+    if (places > 2 || value > 5) return `${key} must be from 0 to 5 with at most 2 decimal places`;
+    return undefined;
+  }
+  if (unit === "minutes") {
+    return places > 1 ? `${key} must have at most 1 decimal place` : undefined;
+  }
+  if (places > 4) return `${key} must have at most 4 decimal places`;
+  if (value >= 1e16) return `${key} is too large`;
+  return undefined;
+}
+
+/**
+ * The two variables a restaurant command receives. They are injected from the
+ * vault for that command, not written into the container.
+ */
+export function restaurantComputerEnv(token: string, apiBaseUrl: string): Record<string, string> {
   if (!token.startsWith(AGENT_TOKEN_PREFIX)) throw new Error("Not a restaurant agent token");
-  return { [RESTAURANT_AGENT_TOKEN_ENV]: token };
+  return {
+    [RESTAURANT_AGENT_TOKEN_ENV]: token,
+    [RESTAURANT_AGENT_API_BASE_URL_ENV]: apiBaseUrl,
+  };
 }

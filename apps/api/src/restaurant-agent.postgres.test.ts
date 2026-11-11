@@ -246,7 +246,7 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
     });
   }
 
-  const metricRow = (outletId: string, key: string, value: number) => ({
+  const metricRow = (outletId: string, key: string, value: number | boolean | null) => ({
     outletId,
     platform: "zomato",
     granularity: "day",
@@ -296,27 +296,27 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
       runId: "metrics-1",
       source: "export",
       capturedAt: "2026-01-07T05:00:00.000Z",
-      rows: [metricRow(outletA, "orders", 4)],
+      rows: [metricRow(outletA, "delivered_orders", 4)],
     });
     expect(first.status).toBe(200);
     const second = await call("PUT", "/agent/v1/metrics", tokenA, {
       runId: "metrics-1",
       source: "export",
       capturedAt: "2026-01-07T06:00:00.000Z",
-      rows: [metricRow(outletA, "orders", 9)],
+      rows: [metricRow(outletA, "delivered_orders", 9)],
     });
     expect(await second.json()).toEqual({ upserted: 1 });
     const rows = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
-      db.metricValue.findMany({ where: { outletId: outletA, key: "orders" } }),
+      db.metricValue.findMany({ where: { outletId: outletA, key: "delivered_orders" } }),
     );
     expect(rows).toHaveLength(1);
-    expect(Number(rows[0]?.value.toString())).toBe(9);
+    expect(Number(rows[0]?.value?.toString())).toBe(9);
 
     const foreign = await call("PUT", "/agent/v1/metrics", tokenA, {
       runId: "metrics-2",
       source: "export",
       capturedAt: "2026-01-07T05:00:00.000Z",
-      rows: [metricRow(outletB, "orders", 1)],
+      rows: [metricRow(outletB, "delivered_orders", 1)],
     });
     expect(foreign.status).toBe(422);
     expect(await foreign.json()).toEqual({
@@ -330,6 +330,50 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
     expect(hidden).toBe(0);
   });
 
+  it("stores a missing figure as null and a lag banner as a boolean", async () => {
+    const response = await call("PUT", "/agent/v1/metrics", tokenA, {
+      runId: "metrics-null",
+      source: "export",
+      capturedAt: "2026-01-07T05:00:00.000Z",
+      rows: [
+        metricRow(outletA, "lost_sales_paise", null),
+        metricRow(outletA, "lag_banner", true),
+        metricRow(outletA, "kpt_minutes", 16.5),
+      ],
+    });
+    expect(response.status).toBe(200);
+    const rows = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricValue.findMany({
+        where: {
+          outletId: outletA,
+          key: { in: ["lost_sales_paise", "lag_banner", "kpt_minutes"] },
+        },
+      }),
+    );
+    const byKey = new Map(rows.map((row) => [row.key, row]));
+    expect(byKey.get("lost_sales_paise")?.value).toBeNull();
+    expect(byKey.get("lost_sales_paise")?.valueBoolean).toBeNull();
+    expect(byKey.get("lag_banner")?.value).toBeNull();
+    expect(byKey.get("lag_banner")?.valueBoolean).toBe(true);
+    expect(Number(byKey.get("kpt_minutes")?.value?.toString())).toBe(16.5);
+
+    const rejected = await call("PUT", "/agent/v1/metrics", tokenA, {
+      runId: "metrics-unit",
+      source: "export",
+      capturedAt: "2026-01-07T05:00:00.000Z",
+      rows: [metricRow(outletA, "kpt_minutes", 16.55)],
+    });
+    expect(rejected.status).toBe(400);
+    expect(((await rejected.json()) as { code: string }).code).toBe("invalid_body");
+    const banner = await call("PUT", "/agent/v1/metrics", tokenA, {
+      runId: "metrics-banner",
+      source: "export",
+      capturedAt: "2026-01-07T05:00:00.000Z",
+      rows: [metricRow(outletA, "lag_banner", 1)],
+    });
+    expect(banner.status).toBe(400);
+  });
+
   it("rejects an unknown metric key and writes nothing", async () => {
     const before = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
       db.metricValue.count(),
@@ -338,7 +382,7 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
       runId: "metrics-3",
       source: "export",
       capturedAt: "2026-01-07T05:00:00.000Z",
-      rows: [metricRow(outletA, "tips", 1), metricRow(outletA, "orders", 1)],
+      rows: [metricRow(outletA, "tips", 1), metricRow(outletA, "delivered_orders", 1)],
     });
     expect(response.status).toBe(400);
     const body = (await response.json()) as { code: string; error: string };

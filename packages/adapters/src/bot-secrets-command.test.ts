@@ -306,7 +306,11 @@ describe("shell command environment", () => {
       registerRedactions,
     });
     expect(env).toEqual({ GOOD_TOKEN: "fake-good-token" });
-    expect(unsetEnv).toEqual(["CLI_TOKEN"]);
+    expect(unsetEnv).toEqual([
+      "CLI_TOKEN",
+      "RESTAURANT_AGENT_TOKEN",
+      "RESTAURANT_AGENT_API_BASE_URL",
+    ]);
     expect(registerRedactions).toHaveBeenCalledExactlyOnceWith(
       commandCredentialRedactions({ GOOD_TOKEN: "fake-good-token" }),
     );
@@ -454,5 +458,51 @@ describe("shell command environment", () => {
     expect(
       await loadBotCommandEnvironment(db.prisma, secretStore, { ...scope, userId: "user-2" }),
     ).toEqual({});
+  });
+
+  it("injects a platform token for this Space only, and masks it", async () => {
+    const db = fakeDatabase();
+    const token = "ecom_agent_fake-token-value";
+    const stored = await secretStore.put(
+      token,
+      { ...scope, operationId: "token", traceId: "token", signal: new AbortController().signal },
+      { recordId: "platform-token" },
+    );
+    await db.prisma.vaultCredential.create({
+      data: {
+        id: "platform-token",
+        userId: scope.userId,
+        spaceId: scope.spaceId,
+        name: "restaurant_agent_token",
+        origin: "",
+        auth: { type: "command", managed: "platform" },
+        ciphertext: stored.ciphertext,
+      },
+    });
+    const redactions: string[] = [];
+    const { env, unsetEnv } = await shellCommandEnvironment({
+      prisma: db.prisma,
+      secretStore,
+      scope,
+      registerRedactions: (values) => redactions.push(...values),
+    });
+    expect(env.RESTAURANT_AGENT_TOKEN).toBe(token);
+    expect(unsetEnv).not.toContain("RESTAURANT_AGENT_TOKEN");
+    expect(unsetEnv).toContain("RESTAURANT_AGENT_API_BASE_URL");
+    expect(redactions.join("\n")).toContain(token);
+    expect(
+      await loadBotCommandEnvironment(db.prisma, secretStore, { ...scope, spaceId: "space-2" }),
+    ).not.toHaveProperty("RESTAURANT_AGENT_TOKEN");
+    expect(await listBotSecrets(db.prisma, scope)).toEqual([]);
+    await expect(save(db, "restaurant_agent_token", "ecom_agent_other")).rejects.toThrow(
+      "managed by the platform",
+    );
+    await expect(save(db, "restaurant-agent-token", "ecom_agent_other")).rejects.toThrow(
+      "managed by the platform",
+    );
+    expect(await forgetBotSecret(db.prisma, scope, "restaurant_agent_token")).toEqual({
+      removed: false,
+      error: "This variable is managed by the platform.",
+    });
   });
 });

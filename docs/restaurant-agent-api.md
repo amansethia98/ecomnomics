@@ -20,7 +20,9 @@ pnpm --filter @rakazo/api restaurant:mint-token -- --space <space id> --name "<r
 RESTAURANT_AGENT_TOKEN=ecom_agent_...
 ```
 
-That value is shown once. The database stores only its hash. Put `RESTAURANT_AGENT_TOKEN` in the environment of that restaurant's computer and nowhere else. Do not set it on the API process, and do not copy it into another restaurant's computer. When that computer is created, add the variable next to the computer's own bot id.
+That value is shown once. The database stores only its hash for authentication. The plaintext is encrypted in the restaurant's vault as the platform-managed variable `RESTAURANT_AGENT_TOKEN`, next to `RESTAURANT_AGENT_API_BASE_URL`. Neither is written into the container. Each shell command loads them fresh and masks them in command output. A reused machine does not keep a token that was revoked or that belongs to another restaurant.
+
+When a restaurant and its computer both exist, the server mints the token. The command above is the fallback: `--rotate` writes the new value and revokes the previous hash immediately, and `--revoke` revokes the hash, deletes the vault entries, and leaves nothing for a later command on that machine to inherit. Do not set the token on the API process, copy it into a skill or a bot prompt, or reuse it for another restaurant.
 
 Send it on every request:
 
@@ -105,25 +107,68 @@ Upserts each row. The same outlet, platform, granularity, period start, and key 
 
 Response: `{ "upserted": 1 }`.
 
+`value` may be `null`. Null means the figure is missing. Do not send `0` for a figure the screen did not show.
+
 ### Metric keys
 
-| Key | Meaning |
-| --- | --- |
-| `gross_sales_paise` | Menu value of orders before commission, fees, and taxes, in paise. |
-| `net_payout_paise` | Amount the platform is expected to pay the restaurant, in paise. |
-| `orders` | Count of orders in the period. |
-| `aov_paise` | Average order value, in paise. |
-| `commission_paise` | Platform commission on the orders, in paise. |
-| `platform_fees_paise` | Platform fees other than commission, in paise. |
-| `taxes_paise` | Taxes on the orders, in paise. |
-| `discount_paise` | Discounts on the orders, in paise. |
-| `ad_spend_paise` | Ad spend in the period, in paise. |
-| `ad_orders` | Orders attributed to ads. |
-| `cancelled_orders` | Orders cancelled in the period. |
-| `rating` | Average rating for the period, from 0 to 5. |
-| `menu_conversion_pct` | Share of menu views that became orders, as a percent from 0 to 100. |
+`orders` is not a key. Send `delivered_orders` for the ops card and `payout_orders` for the payout file.
 
-Keys ending in `_paise`, and the three counts, are non-negative integers. `rating` and `menu_conversion_pct` are non-negative numbers with at most 4 decimal places.
+These names are computed, not stored: `effective_discount_pct` (`discount_paise / gross_sales_paise`), `ads_pct` (`ad_spend_paise / gross_sales_paise`), `payout_pct` (`net_payout_paise / gross_sales_paise`), `burn_pct` (`1 - payout_pct`), `ops_aov_paise` (`ops_sales_paise / delivered_orders`), `gross_aov_paise` (`gross_sales_paise / delivered_orders`), and `fees_incl_gst_paise` (`commission_paise + platform_fees_paise + taxes_paise`). A combined fee tile uses `fees_incl_gst_paise` because Zomato's fee row includes GST on fees and Swiggy's does not. `aov_paise` is the on-screen average and is stored. The two computed AOV figures are not.
+
+| Key | Unit | Meaning |
+| --- | --- | --- |
+| `gross_sales_paise` | paise | Item total plus packaging (ST+PC), before GST and before restaurant-funded discounts. Not the weekly ops Sales tile. |
+| `net_payout_paise` | paise | Owner's Net Payout: commissionable value minus ads minus commission, other fees, and GST on fees. Not the amount paid under the bank UTR. |
+| `aov_paise` | paise | Average order value as shown on the weekly ops screen. Not an average computed from payout sales. |
+| `commission_paise` | paise | Platform commission or base service fee only, not long-distance, payment-gateway, or GST on fees. |
+| `platform_fees_paise` | paise | Other platform fees besides commission, excluding GST on fees. |
+| `taxes_paise` | paise | 18% GST on platform fees only. Not customer GST, and not TDS or TCS. |
+| `discount_paise` | paise | Discounts the restaurant pays for. Not platform-funded discounts. |
+| `ad_spend_paise` | paise | Ads charged to the restaurant for that period, counted once. |
+| `ad_orders` | count | Orders attributed to ads. |
+| `cancelled_orders` | count | Cancelled orders for this platform. Do not add Zomato and Swiggy figures together. |
+| `rating` | rating | Average customer star rating, from 0 to 5. |
+| `menu_conversion_pct` | percent | Starter funnel rate. Prefer impressions_to_menu_pct, menu_to_cart_pct, and cart_to_orders_pct until one meaning is chosen. |
+| `delivered_orders` | count | Orders delivered in the ops week (what the ops card means by orders). |
+| `payout_orders` | count | Payout-file total orders: delivered plus cancelled or rejected, for the payout period. |
+| `ops_sales_paise` | paise | Sales as shown on the weekly ops dashboard, stored separately from gross sales. |
+| `bad_orders_pct` | percent | Share of orders Zomato treats as bad. |
+| `rejected_orders` | count | Rejected orders in Zomato's bad-orders breakdown. |
+| `delayed_orders` | count | Orders delayed past the kitchen or prep threshold. |
+| `poor_rated_orders` | count | Orders with a poor customer rating. |
+| `bad_order_complaints` | count | Complaints slice inside Zomato's bad-orders breakdown. It can differ from total complaints. |
+| `complaints` | count | Total complaints for the week. |
+| `lost_sales_paise` | paise | Sales Zomato reports as lost, for example from being offline or rejecting. |
+| `cancelled_order_loss_paise` | paise | Money Swiggy reports as lost to restaurant-cancelled orders. |
+| `online_pct` | percent | Share of time the outlet was online or available. |
+| `kpt_minutes` | minutes | Kitchen preparation time, in minutes to one decimal. |
+| `food_ready_accuracy_pct` | percent | Swiggy food-ready accuracy (MFR) on the weekly screen. |
+| `for_accuracy_pct` | percent | Zomato food-order-ready accuracy, from the monthly export only. |
+| `offline_time_hours` | hours | Time the outlet was offline, in hours. |
+| `rated_orders` | count | How many orders received a rating. |
+| `lag_banner` | boolean | Whether Swiggy showed the 48-hour lag banner on this week. The numbers on screen are still stored. |
+| `cv_paise` | paise | Commissionable value: item total plus packaging, minus the restaurant-funded discount. |
+| `platform_net_payout_paise` | paise | The platform's own net payout figure, before comparing it to the bank. |
+| `paid_amount_paise` | paise | Amount marked paid on the Payouts screen, tied to a bank UTR. |
+| `tds_paise` | paise | Tax deducted at source and withheld from the payout. A tax credit, not a cost. |
+| `tcs_paise` | paise | Tax collected at source, including TCS IGST where it is present. |
+| `gst_collected_paise` | paise | GST collected from customers. Not restaurant revenue on delivery orders. |
+| `complaints_cancellation_charges_paise` | paise | Complaint refunds and cancellation charges deducted from the payout. |
+| `placed_orders` | count | Orders placed in the calendar month. |
+| `ads_sales_paise` | paise | Sales from ads. |
+| `ads_roi` | ratio | Platform-reported ads ROI. Not a 0 to 100 percent. |
+| `ads_ctr_pct` | percent | Ads click-through rate. |
+| `impressions` | count | Menu impressions. |
+| `menu_opens` | count | Menu opens. |
+| `cart_builds` | count | Cart builds. |
+| `impressions_to_menu_pct` | percent | Share of impressions that became menu opens. |
+| `menu_to_cart_pct` | percent | Share of menu opens that became cart builds. |
+| `cart_to_orders_pct` | percent | Share of cart builds that became orders. |
+| `new_user_orders` | count | Orders from new users. |
+| `repeat_user_orders` | count | Orders from repeat users. |
+| `lapsed_user_orders` | count | Orders from lapsed users. |
+
+Paise and counts are non-negative integers. Percents are from 0 to 100 with at most 2 decimal places. `rating` is from 0 to 5 with at most 2 decimal places. `kpt_minutes` has at most 1 decimal place. Hours and `ads_roi` are non-negative with at most 4 decimal places; `ads_roi` is not capped at 100. `lag_banner` is `true`, `false`, or `null`. Any known key accepts `null`.
 
 ## Reports
 

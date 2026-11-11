@@ -39,7 +39,11 @@ export const BotSecretAuth = z.discriminatedUnion("type", [
   // the saved origin and never sends them as HTTP credentials.
   z.object({ type: z.literal("login") }),
   // A value exported to this bot's shell commands as an environment variable. It has no site.
-  z.object({ type: z.literal("command") }),
+  // `managed: "platform"` is written by the server. A bot cannot replace or reveal it.
+  z.object({
+    type: z.literal("command"),
+    managed: z.literal("platform").optional(),
+  }),
 ]);
 
 // Names that change how shells and common runtimes start, where they load code from, or how

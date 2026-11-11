@@ -17,6 +17,64 @@
           "code": { "type": "string" }
         }
       },
+      "MetricValue": {
+        "description": "Null means the figure is missing. The unit is fixed by the key: paise and counts are integers, percents are 0 to 100 with at most 2 decimals, rating is 0 to 5 with at most 2 decimals, minutes have at most 1 decimal, hours and ads_roi have at most 4 decimals, and lag_banner is a boolean.",
+        "type": ["number", "boolean", "null"]
+      },
+      "MetricKey": {
+        "enum": [
+          "gross_sales_paise",
+          "net_payout_paise",
+          "aov_paise",
+          "commission_paise",
+          "platform_fees_paise",
+          "taxes_paise",
+          "discount_paise",
+          "ad_spend_paise",
+          "ad_orders",
+          "cancelled_orders",
+          "rating",
+          "menu_conversion_pct",
+          "delivered_orders",
+          "payout_orders",
+          "ops_sales_paise",
+          "bad_orders_pct",
+          "rejected_orders",
+          "delayed_orders",
+          "poor_rated_orders",
+          "bad_order_complaints",
+          "complaints",
+          "lost_sales_paise",
+          "cancelled_order_loss_paise",
+          "online_pct",
+          "kpt_minutes",
+          "food_ready_accuracy_pct",
+          "for_accuracy_pct",
+          "offline_time_hours",
+          "rated_orders",
+          "lag_banner",
+          "cv_paise",
+          "platform_net_payout_paise",
+          "paid_amount_paise",
+          "tds_paise",
+          "tcs_paise",
+          "gst_collected_paise",
+          "complaints_cancellation_charges_paise",
+          "placed_orders",
+          "ads_sales_paise",
+          "ads_roi",
+          "ads_ctr_pct",
+          "impressions",
+          "menu_opens",
+          "cart_builds",
+          "impressions_to_menu_pct",
+          "menu_to_cart_pct",
+          "cart_to_orders_pct",
+          "new_user_orders",
+          "repeat_user_orders",
+          "lapsed_user_orders"
+        ]
+      },
       "JobRun": {
         "type": "object",
         "required": ["runId", "skill", "status", "startedAt"],
@@ -48,7 +106,36 @@
   "security": [{ "restaurantToken": [] }],
   "paths": {
     "/agent/v1/restaurant": { "get": { "operationId": "getRestaurant", "responses": { "200": { "description": "Restaurant and outlets" } } } },
-    "/agent/v1/metrics": { "put": { "operationId": "putMetrics", "responses": { "200": { "description": "Rows upserted" } } } },
+    "/agent/v1/metrics": {
+      "put": {
+        "operationId": "putMetrics",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["runId", "source", "capturedAt", "rows"],
+                "properties": {
+                  "rows": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["outletId", "platform", "granularity", "periodStart", "periodEnd", "key", "value"],
+                      "properties": {
+                        "key": { "$ref": "#/components/schemas/MetricKey" },
+                        "value": { "$ref": "#/components/schemas/MetricValue" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "Rows upserted. Derived keys such as fees_incl_gst_paise, burn_pct, and ops_aov_paise are rejected." } }
+      }
+    },
     "/agent/v1/reports": { "post": { "operationId": "createReport", "responses": { "201": { "description": "Report and upload links" } } } },
     "/agent/v1/actions": { "post": { "operationId": "createAction", "responses": { "201": { "description": "Proposed action" } } } },
     "/agent/v1/actions/{actionId}": { "patch": { "operationId": "patchAction", "responses": { "200": { "description": "Updated action" } } } },

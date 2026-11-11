@@ -17,18 +17,24 @@ import {
   encodeLoginSecret,
   GeneratedSecretRules,
   GenerateSecretInput,
+  isPlatformCommandVariable,
   isPrivateNetworkHost,
   LOGIN_FIELD_LIMIT,
   LoginFieldLabels,
   loginCommandName,
   ONE_TIME_CODE_MIN_LENGTH,
   OneTimeCodeTarget,
+  RESTAURANT_AGENT_API_BASE_URL_ENV,
+  RESTAURANT_AGENT_API_BASE_URL_NAME,
+  RESTAURANT_AGENT_TOKEN_ENV,
+  RESTAURANT_AGENT_TOKEN_NAME,
   SecretHttpRequest,
   sameLoginFieldLabel,
 } from "@rakazo/contracts";
 import type { Prisma, PrismaClient } from "@rakazo/db";
 import {
   lockSpaceSettings,
+  runAsSystem,
   runCodeKind,
   runCodeSpentKind,
   runLoginKind,
@@ -42,6 +48,7 @@ import type { RemoteTransportDependencies } from "./remote-mcp.js";
 import { createPrivateNetworkFetch, createSafeRemoteFetch } from "./remote-mcp.js";
 import { generateSecretValue } from "./secret-generator.js";
 import { persistPreparedSecret } from "./secret-persistence.js";
+import { deleteSecretBestEffort } from "./secret-store-factory.js";
 import { readBodyCapped, withAbort } from "./web-ssrf.js";
 
 /**
@@ -152,6 +159,33 @@ function isCommandCredential(auth: unknown): boolean {
   return parsed.success && parsed.data.type === "command";
 }
 
+export function isPlatformManagedAuth(auth: unknown): boolean {
+  return Boolean(
+    auth &&
+      typeof auth === "object" &&
+      (auth as { type?: unknown; managed?: unknown }).type === "command" &&
+      (auth as { managed?: unknown }).managed === "platform",
+  );
+}
+
+const PLATFORM_COMMAND_NAMES = [
+  RESTAURANT_AGENT_TOKEN_NAME,
+  RESTAURANT_AGENT_API_BASE_URL_NAME,
+] as const;
+
+const RESTAURANT_COMMAND_UNSET = [
+  RESTAURANT_AGENT_TOKEN_ENV,
+  RESTAURANT_AGENT_API_BASE_URL_ENV,
+] as const;
+
+export const PLATFORM_MANAGED_VARIABLE = "This variable is managed by the platform.";
+
+function refusePlatformVariable(name: string, auth?: unknown): void {
+  if (isPlatformCommandVariable(name) || isPlatformManagedAuth(auth)) {
+    throw new Error(PLATFORM_MANAGED_VARIABLE);
+  }
+}
+
 /**
  * What the bot's tools show for a saved credential. A command variable has no site, so it is
  * listed with the environment variable its shell commands read instead.
@@ -189,19 +223,38 @@ export async function loadBotCommandEnvironment(
     orderBy: { name: "asc" },
   });
   const environment: Record<string, string> = {};
-  for (const row of rows) {
-    if (!isCommandCredential(row.auth)) continue;
+  const apply = async (row: { id: string; name: string; auth: unknown; ciphertext: string }) => {
+    if (!isCommandCredential(row.auth)) return;
     const variable = commandVariableName(row.name);
-    if (commandVariableProblem(variable)) continue;
+    if (commandVariableProblem(variable)) return;
     let value: string;
     try {
       value = await secretStore.load(row.ciphertext, row.id);
     } catch {
       // One unreadable value must not stop every shell command; the variable is left unset.
       unsetVariables?.add(variable);
-      continue;
+      return;
     }
-    if (value && !value.includes("\0")) environment[variable] = value;
+    if (value && !value.includes("\0")) {
+      environment[variable] = value;
+      unsetVariables?.delete(variable);
+    }
+  };
+  for (const row of rows) await apply(row);
+  // Platform variables live on the Space even when the Space uses the account vault,
+  // so another Space of the same account does not receive this restaurant's token.
+  if (scope.spaceId) {
+    const managed = await prisma.vaultCredential.findMany({
+      where: {
+        userId: scope.userId,
+        spaceId: scope.spaceId,
+        name: { in: [...PLATFORM_COMMAND_NAMES] },
+      },
+      select: { id: true, name: true, auth: true, ciphertext: true },
+    });
+    for (const row of managed) {
+      if (isPlatformManagedAuth(row.auth)) await apply(row);
+    }
   }
   return environment;
 }
@@ -227,7 +280,12 @@ export async function shellCommandEnvironment(input: {
   // Encoded forms too, as secret_request does, so an accidental `base64` or URL-encoding of a
   // value is still redacted from command output.
   input.registerRedactions(commandCredentialRedactions(botEnvironment));
-  return { env: botEnvironment, unsetEnv: [...unsetVariables] };
+  const unsetEnv = [...unsetVariables];
+  // A reused machine must not keep a token that is no longer in this Space's vault.
+  for (const name of RESTAURANT_COMMAND_UNSET) {
+    if (!(name in botEnvironment) && !unsetEnv.includes(name)) unsetEnv.push(name);
+  }
+  return { env: botEnvironment, unsetEnv };
 }
 
 /** Another command credential of this bot that is exported as the same variable. */
@@ -513,6 +571,7 @@ export async function prepareBotSecret(input: {
   let { plaintext } = input;
   if (!plaintext || plaintext.length > 16_384) throw new Error("Invalid credential length");
   const destination = normalizeSecretDestination(input.destination);
+  refusePlatformVariable(destination.name);
   if (destination.auth.type === "login") {
     // Saved in its current shape, also when an older app sends a username and password.
     plaintext = encodeLoginSecret(decodeLoginSecret(plaintext));
@@ -528,6 +587,7 @@ export async function prepareBotSecret(input: {
   const existing = await prisma.vaultCredential.findFirst({
     where: { ...vault, name: destination.name },
   });
+  refusePlatformVariable(destination.name, existing?.auth);
   function validate(row: typeof existing, count: number) {
     if (row && input.createOnly) throw new Error(SECRET_ALREADY_SAVED);
     if (row && !sameSecretDestination(normalizeSecretDestination(row), destination))
@@ -702,18 +762,19 @@ export async function listBotSecrets(prisma: PrismaClient, scope: BotSecretScope
     select: metadata,
     orderBy: { name: "asc" },
   });
-  return rows.map(botSecretToolView);
+  return rows.filter((row) => !isPlatformManagedAuth(row.auth)).map(botSecretToolView);
 }
 
 // Owner-facing view: destination and timestamps only, never the row id or ciphertext.
 const ownerMetadata = { ...metadata, createdAt: true, updatedAt: true } as const;
 
 export async function listBotSecretMetadata(prisma: PrismaClient, scope: BotSecretScope) {
-  return prisma.vaultCredential.findMany({
+  const rows = await prisma.vaultCredential.findMany({
     where: await vaultFields(prisma, scope),
     select: ownerMetadata,
     orderBy: { name: "asc" },
   });
+  return rows.filter((row) => !isPlatformManagedAuth(row.auth));
 }
 
 export async function getBotSecretMetadata(
@@ -740,7 +801,7 @@ export async function revealBotSecret(input: {
   const row = await input.prisma.vaultCredential.findFirst({
     where: { ...(await vaultFields(input.prisma, input.scope)), name: input.name },
   });
-  if (!row) return null;
+  if (!row || isPlatformManagedAuth(row.auth) || isPlatformCommandVariable(input.name)) return null;
   const plaintext = await input.secretStore.load(row.ciphertext, row.id);
   return BotSecretAuth.safeParse(row.auth).data?.type === "login"
     ? decodeLoginSecret(plaintext)
@@ -748,11 +809,118 @@ export async function revealBotSecret(input: {
 }
 
 export async function forgetBotSecret(prisma: PrismaClient, scope: BotSecretScope, name: string) {
+  const existing = await prisma.vaultCredential.findFirst({
+    where: { ...(await vaultFields(prisma, scope)), name },
+    select: { auth: true },
+  });
+  if (isPlatformCommandVariable(name) || isPlatformManagedAuth(existing?.auth)) {
+    return { removed: false as const, error: PLATFORM_MANAGED_VARIABLE };
+  }
   await prisma.$transaction(async (tx) => {
     await lockVault(tx, scope);
+    const current = await tx.vaultCredential.findFirst({
+      where: { ...(await vaultFields(tx, scope)), name },
+      select: { auth: true },
+    });
+    if (isPlatformCommandVariable(name) || isPlatformManagedAuth(current?.auth)) {
+      throw new Error(PLATFORM_MANAGED_VARIABLE);
+    }
     await tx.vaultCredential.deleteMany({ where: { ...(await vaultFields(tx, scope)), name } });
   });
-  return { removed: true };
+  return { removed: true as const };
+}
+
+const PLATFORM_COMMAND_AUTH = { type: "command" as const, managed: "platform" as const };
+
+/** Encrypt a platform-managed command variable into this Space's vault. */
+export async function upsertPlatformCommandVariable(input: {
+  prisma: PrismaClient;
+  secretStore: SecretStore;
+  userId: string;
+  spaceId: string;
+  name: string;
+  plaintext: string;
+}): Promise<void> {
+  if (!isPlatformCommandVariable(input.name)) throw new Error(PLATFORM_MANAGED_VARIABLE);
+  if (!input.plaintext || input.plaintext.length > 16_384 || input.plaintext.includes("\0")) {
+    throw new Error(UNUSABLE_CREDENTIAL);
+  }
+  if (percentEncoded(input.plaintext) === undefined) throw new Error(UNUSABLE_CREDENTIAL);
+  const scope = { userId: input.userId, spaceId: input.spaceId };
+  await withTransactionRetry(() =>
+    runAsSystem("store restaurant agent variable", async () => {
+      const existing = await input.prisma.vaultCredential.findFirst({
+        where: { userId: input.userId, spaceId: input.spaceId, name: input.name },
+        select: { id: true },
+      });
+      const id = existing?.id ?? randomBytes(12).toString("hex");
+      const stored = await input.secretStore.put(
+        input.plaintext,
+        {
+          operationId: id,
+          traceId: id,
+          userId: input.userId,
+          spaceId: input.spaceId,
+          signal: new AbortController().signal,
+        },
+        { recordId: id },
+      );
+      await persistPreparedSecret(
+        input.prisma,
+        input.secretStore,
+        { id, ciphertext: stored.ciphertext },
+        () =>
+          input.prisma.$transaction(async (tx) => {
+            await lockVault(tx, scope);
+            const current = await tx.vaultCredential.findFirst({
+              where: { userId: input.userId, spaceId: input.spaceId, name: input.name },
+            });
+            if (current) {
+              await tx.vaultCredential.update({
+                where: { id: current.id },
+                data: { ciphertext: stored.ciphertext, origin: "", auth: PLATFORM_COMMAND_AUTH },
+              });
+              return;
+            }
+            await tx.vaultCredential.create({
+              data: {
+                id,
+                userId: input.userId,
+                spaceId: input.spaceId,
+                name: input.name,
+                origin: "",
+                auth: PLATFORM_COMMAND_AUTH,
+                ciphertext: stored.ciphertext,
+              },
+            });
+          }),
+      );
+    }),
+  );
+}
+
+/** Remove this Space's platform-managed restaurant variables for every member. */
+export async function deletePlatformCommandVariables(
+  prisma: PrismaClient,
+  secretStore: Pick<SecretStore, "delete">,
+  spaceId: string,
+): Promise<void> {
+  await runAsSystem("delete restaurant agent variables", async () => {
+    const rows = await prisma.vaultCredential.findMany({
+      where: { spaceId, name: { in: [...PLATFORM_COMMAND_NAMES] } },
+      select: { id: true, ciphertext: true, auth: true },
+    });
+    const managed = rows.filter((row) => isPlatformManagedAuth(row.auth));
+    if (managed.length === 0) return;
+    await prisma.vaultCredential.deleteMany({
+      where: { id: { in: managed.map((row) => row.id) } },
+    });
+    for (const row of managed) {
+      if ((await prisma.vaultCredential.count({ where: { ciphertext: row.ciphertext } })) === 0) {
+        await deleteSecretBestEffort(secretStore, row.ciphertext, row.id);
+      }
+    }
+  });
 }
 
 /** Credentials are resolved only inside this destination-bound HTTP boundary. */

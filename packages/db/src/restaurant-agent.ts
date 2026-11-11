@@ -10,6 +10,7 @@ import type {
 import { AGENT_TOKEN_PREFIX, actionTransition, isValidTimeZone } from "@rakazo/contracts";
 import type { PrismaClient } from "./client.js";
 import { Prisma } from "./generated/prisma/client.js";
+import { notifyRestaurantAgentReady } from "./restaurant-agent-access.js";
 import { runAsSystem } from "./row-security.js";
 
 export class RestaurantAgentError extends Error {
@@ -36,6 +37,15 @@ export function newAgentToken(): string {
 
 export function hashAgentToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
+}
+
+function storedMetricValue(value: number | boolean | null): {
+  value: number | null;
+  valueBoolean: boolean | null;
+} {
+  if (typeof value === "boolean") return { value: null, valueBoolean: value };
+  if (typeof value === "number") return { value, valueBoolean: null };
+  return { value: null, valueBoolean: null };
 }
 
 function asNumber(value: { toString(): string } | null | undefined): number | null {
@@ -77,7 +87,10 @@ export async function ensureRestaurant(
 ) {
   return runAsSystem("ensure restaurant", async () => {
     const existing = await db.restaurant.findUnique({ where: { spaceId: input.spaceId } });
-    if (existing) return existing;
+    if (existing) {
+      await notifyRestaurantAgentReady(db, existing.spaceId);
+      return existing;
+    }
     const name = input.name?.trim() ?? "";
     if (!name) throw new Error("This space has no restaurant yet. Pass --name to create one.");
     if (name.length > 80) throw new Error("Restaurant name must be 80 characters or less.");
@@ -88,7 +101,7 @@ export async function ensureRestaurant(
       select: { id: true, organizationId: true },
     });
     if (!space) throw new Error("No space with that id.");
-    return db.restaurant.create({
+    const created = await db.restaurant.create({
       data: {
         organizationId: space.organizationId,
         spaceId: space.id,
@@ -96,6 +109,8 @@ export async function ensureRestaurant(
         timezone,
       },
     });
+    await notifyRestaurantAgentReady(db, created.spaceId);
+    return created;
   });
 }
 
@@ -263,6 +278,86 @@ export async function rotateAgentToken(
   });
 }
 
+/** Insert a token only when the restaurant has none active. The plaintext is returned once. */
+export async function claimAgentToken(
+  db: PrismaClient,
+  restaurantId: string,
+  label?: string,
+): Promise<{ id: string; token: string } | null> {
+  return runAsSystem("claim restaurant agent token", () =>
+    db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM restaurants WHERE id = ${restaurantId} FOR UPDATE`;
+      const restaurant = await tx.restaurant.findUnique({ where: { id: restaurantId } });
+      if (!restaurant) throw new Error("No restaurant with that id.");
+      const active = await tx.agentToken.findFirst({
+        where: { restaurantId, revokedAt: null },
+        select: { id: true },
+      });
+      if (active) return null;
+      const token = newAgentToken();
+      const created = await tx.agentToken.create({
+        data: {
+          restaurantId,
+          spaceId: restaurant.spaceId,
+          tokenHash: hashAgentToken(token),
+          label: label?.trim() || null,
+        },
+        select: { id: true },
+      });
+      return { id: created.id, token };
+    }),
+  );
+}
+
+/**
+ * Insert the replacement while the current hash still works. The caller stores
+ * the new value, then revokes every other hash.
+ */
+export async function beginAgentTokenRotation(
+  db: PrismaClient,
+  restaurantId: string,
+  label?: string,
+): Promise<{ id: string; token: string; createdAt: Date }> {
+  return runAsSystem("begin restaurant agent token rotation", () =>
+    db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM restaurants WHERE id = ${restaurantId} FOR UPDATE`;
+      const restaurant = await tx.restaurant.findUnique({ where: { id: restaurantId } });
+      if (!restaurant) throw new Error("No restaurant with that id.");
+      const token = newAgentToken();
+      const created = await tx.agentToken.create({
+        data: {
+          restaurantId,
+          spaceId: restaurant.spaceId,
+          tokenHash: hashAgentToken(token),
+          label: label?.trim() || null,
+        },
+        select: { id: true, createdAt: true },
+      });
+      return { id: created.id, token, createdAt: created.createdAt };
+    }),
+  );
+}
+
+export async function revokeAgentTokensExcept(
+  db: PrismaClient,
+  restaurantId: string,
+  keepId: string,
+): Promise<number> {
+  return runAsSystem("revoke replaced restaurant agent tokens", async () => {
+    const result = await db.agentToken.updateMany({
+      where: { restaurantId, revokedAt: null, id: { not: keepId } },
+      data: { revokedAt: new Date() },
+    });
+    return result.count;
+  });
+}
+
+export async function deleteAgentToken(db: PrismaClient, id: string): Promise<void> {
+  await runAsSystem("delete unstored restaurant agent token", () =>
+    db.agentToken.delete({ where: { id } }),
+  );
+}
+
 export async function revokeAgentTokens(db: PrismaClient, restaurantId: string): Promise<number> {
   return runAsSystem("revoke restaurant agent token", async () => {
     const result = await db.agentToken.updateMany({
@@ -371,14 +466,14 @@ export async function upsertMetrics(
           periodStart,
           periodEnd,
           key: row.key,
-          value: row.value,
+          ...storedMetricValue(row.value),
           runId: input.runId,
           source: input.source,
           capturedAt,
         },
         update: {
           periodEnd,
-          value: row.value,
+          ...storedMetricValue(row.value),
           runId: input.runId,
           source: input.source,
           capturedAt,

@@ -2326,7 +2326,9 @@ model MetricValue {
   periodStart  DateTime
   periodEnd    DateTime
   key          String
-  value        Decimal    @db.Decimal(20, 4)
+  /// Missing is null, never a guessed zero. Boolean keys use valueBoolean instead.
+  value        Decimal?   @db.Decimal(20, 4)
+  valueBoolean Boolean?
   runId        String
   source       String
   capturedAt   DateTime

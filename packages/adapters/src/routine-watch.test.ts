@@ -683,7 +683,7 @@ describe("tickRoutineWatch on a computer", () => {
         cwd: "bots/bot-1",
         timeoutMs: 60_000,
         env: { GH_TOKEN: secret },
-        unsetEnv: ["STRIPE_API_KEY"],
+        unsetEnv: ["STRIPE_API_KEY", "RESTAURANT_AGENT_TOKEN", "RESTAURANT_AGENT_API_BASE_URL"],
       },
       expect.anything(),
     );

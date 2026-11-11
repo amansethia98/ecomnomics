@@ -5,7 +5,10 @@ import {
   actionStatusNeedsApproval,
   actionTransition,
   CreateJobRunSchema,
+  DERIVED_METRIC_KEYS,
   isPlatformAdminEmail,
+  isPlatformCommandVariable,
+  METRIC_DEFINITIONS,
   METRIC_KEY_MEANINGS,
   METRIC_KEYS,
   PutMetricsSchema,
@@ -26,9 +29,18 @@ const openapi = readFileSync(
 describe("restaurant agent contract", () => {
   it("names every metric key once, with a meaning", () => {
     expect(new Set(METRIC_KEYS).size).toBe(METRIC_KEYS.length);
+    expect(METRIC_KEYS).toHaveLength(50);
+    expect(METRIC_KEYS).not.toContain("orders");
+    expect(METRIC_KEYS).toContain("aov_paise");
+    for (const key of DERIVED_METRIC_KEYS) {
+      expect(METRIC_KEYS).not.toContain(key);
+      expect(spec).toContain(key);
+    }
     for (const key of METRIC_KEYS) {
       expect(METRIC_KEY_MEANINGS[key].length).toBeGreaterThan(10);
       expect(spec).toContain(key);
+      expect(spec).toContain(METRIC_DEFINITIONS[key].definition);
+      expect(openapi).toContain(key);
       expect(spec).toContain("docs/metric-dictionary.md");
     }
   });
@@ -96,7 +108,7 @@ describe("restaurant agent contract", () => {
       granularity: "day" as const,
       periodStart: "2026-01-06T00:00:00.000Z",
       periodEnd: "2026-01-07T00:00:00.000Z",
-      key: "orders" as const,
+      key: "delivered_orders" as const,
       value: 1.5,
     };
     expect(
@@ -115,6 +127,64 @@ describe("restaurant agent contract", () => {
         rows: [{ ...row, key: "rating", value: 5.1 }],
       }).success,
     ).toBe(false);
+    expect(
+      PutMetricsSchema.safeParse({
+        runId: "r",
+        source: "s",
+        capturedAt: "2026-01-07T00:00:00.000Z",
+        rows: [{ ...row, key: "rating", value: 4.256 }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts null and checks each key's unit", () => {
+    const base = {
+      outletId: "outlet",
+      platform: "zomato" as const,
+      granularity: "week" as const,
+      periodStart: "2026-01-06T00:00:00.000+05:30",
+      periodEnd: "2026-01-13T00:00:00.000+05:30",
+    };
+    const body = (row: { key: string; value: number | boolean | null }) => ({
+      runId: "r",
+      source: "s",
+      capturedAt: "2026-01-13T00:00:00.000Z",
+      rows: [{ ...base, ...row }],
+    });
+    expect(PutMetricsSchema.safeParse(body({ key: "delivered_orders", value: null })).success).toBe(
+      true,
+    );
+    expect(PutMetricsSchema.safeParse(body({ key: "lag_banner", value: false })).success).toBe(
+      true,
+    );
+    expect(PutMetricsSchema.safeParse(body({ key: "lag_banner", value: null })).success).toBe(true);
+    expect(PutMetricsSchema.safeParse(body({ key: "lag_banner", value: 1 })).success).toBe(false);
+    expect(PutMetricsSchema.safeParse(body({ key: "kpt_minutes", value: 16.5 })).success).toBe(
+      true,
+    );
+    expect(PutMetricsSchema.safeParse(body({ key: "kpt_minutes", value: 16.55 })).success).toBe(
+      false,
+    );
+    expect(PutMetricsSchema.safeParse(body({ key: "online_pct", value: 16.53 })).success).toBe(
+      true,
+    );
+    expect(PutMetricsSchema.safeParse(body({ key: "online_pct", value: 100.01 })).success).toBe(
+      false,
+    );
+    expect(PutMetricsSchema.safeParse(body({ key: "ads_roi", value: 150.5 })).success).toBe(true);
+    expect(
+      PutMetricsSchema.safeParse(body({ key: "gross_sales_paise", value: false })).success,
+    ).toBe(false);
+    expect(PutMetricsSchema.safeParse(body({ key: "orders", value: 1 })).success).toBe(false);
+    expect(PutMetricsSchema.safeParse(body({ key: "fees_incl_gst_paise", value: 1 })).success).toBe(
+      false,
+    );
+    expect(PutMetricsSchema.safeParse(body({ key: "ops_aov_paise", value: 1 })).success).toBe(
+      false,
+    );
+    expect(isPlatformCommandVariable("restaurant_agent_token")).toBe(true);
+    expect(isPlatformCommandVariable("restaurant-agent-token")).toBe(true);
+    expect(isPlatformCommandVariable("netbird-setup-key")).toBe(false);
   });
 
   it("keeps the action state machine closed", () => {
@@ -144,9 +214,10 @@ describe("restaurant agent contract", () => {
   });
 
   it("puts the token in one computer env var", () => {
-    expect(restaurantComputerEnv("ecom_agent_abc")).toEqual({
+    expect(restaurantComputerEnv("ecom_agent_abc", "https://api.example")).toEqual({
       RESTAURANT_AGENT_TOKEN: "ecom_agent_abc",
+      RESTAURANT_AGENT_API_BASE_URL: "https://api.example",
     });
-    expect(() => restaurantComputerEnv("secret")).toThrow();
+    expect(() => restaurantComputerEnv("secret", "https://api.example")).toThrow();
   });
 });
