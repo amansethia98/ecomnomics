@@ -105,7 +105,12 @@
   },
   "security": [{ "restaurantToken": [] }],
   "paths": {
-    "/agent/v1/restaurant": { "get": { "operationId": "getRestaurant", "responses": { "200": { "description": "Restaurant and outlets" } } } },
+    "/agent/v1/restaurant": {
+      "get": {
+        "operationId": "getRestaurant",
+        "responses": { "200": { "description": "Restaurant and outlets" } }
+      }
+    },
     "/agent/v1/metrics": {
       "put": {
         "operationId": "putMetrics",
@@ -121,7 +126,15 @@
                     "type": "array",
                     "items": {
                       "type": "object",
-                      "required": ["outletId", "platform", "granularity", "periodStart", "periodEnd", "key", "value"],
+                      "required": [
+                        "outletId",
+                        "platform",
+                        "granularity",
+                        "periodStart",
+                        "periodEnd",
+                        "key",
+                        "value"
+                      ],
                       "properties": {
                         "key": { "$ref": "#/components/schemas/MetricKey" },
                         "value": { "$ref": "#/components/schemas/MetricValue" }
@@ -133,12 +146,31 @@
             }
           }
         },
-        "responses": { "200": { "description": "Rows upserted. Derived keys such as fees_incl_gst_paise, burn_pct, and ops_aov_paise are rejected." } }
+        "responses": {
+          "200": {
+            "description": "Rows upserted. Derived keys such as fees_incl_gst_paise, burn_pct, and ops_aov_paise are rejected."
+          }
+        }
       }
     },
-    "/agent/v1/reports": { "post": { "operationId": "createReport", "responses": { "201": { "description": "Report and upload links" } } } },
-    "/agent/v1/actions": { "post": { "operationId": "createAction", "responses": { "201": { "description": "Proposed action" } } } },
-    "/agent/v1/actions/{actionId}": { "patch": { "operationId": "patchAction", "responses": { "200": { "description": "Updated action" } } } },
+    "/agent/v1/reports": {
+      "post": {
+        "operationId": "createReport",
+        "responses": { "201": { "description": "Report and upload links" } }
+      }
+    },
+    "/agent/v1/actions": {
+      "post": {
+        "operationId": "createAction",
+        "responses": { "201": { "description": "Proposed action" } }
+      }
+    },
+    "/agent/v1/actions/{actionId}": {
+      "patch": {
+        "operationId": "patchAction",
+        "responses": { "200": { "description": "Updated action" } }
+      }
+    },
     "/agent/v1/runs": {
       "post": {
         "operationId": "upsertJobRun",
@@ -149,7 +181,9 @@
         "responses": {
           "200": {
             "description": "Stored run. The first startedAt is kept.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/JobRun" } } }
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/JobRun" } }
+            }
           }
         }
       }
