@@ -17,7 +17,12 @@ import {
 } from "@rakazo/adapters";
 import type { OidcConfig } from "@rakazo/auth";
 import type { MinimumClientBuilds, NavLink } from "@rakazo/contracts";
-import { isPrivateNetworkHost, parseMinimumClientBuilds, parseNavLinks } from "@rakazo/contracts";
+import {
+  isPrivateNetworkHost,
+  parseMinimumClientBuilds,
+  parseNavLinks,
+  parsePlatformAdminEmails,
+} from "@rakazo/contracts";
 import { parseCrispWebsiteId } from "@rakazo/contracts/content-security-policy";
 import {
   attachmentCountFromEnv,
@@ -79,6 +84,10 @@ export interface AppEnv {
   /** Verified accounts that review plugin submissions, add stdio MCP servers, and grant access
    * (RAKAZO_ADMIN_EMAILS), lowercased. */
   adminEmails: string[];
+  /** Verified emails allowed to call /admin/v1 (ECOMNOMICS_PLATFORM_ADMINS). Empty means nobody. */
+  platformAdminEmails: string[];
+  /** Postgres login that is a member of ecomnomics_admin. Unset leaves /admin/v1 unavailable. */
+  platformAdminDatabaseUrl?: string;
   phoneCallsEnabled: boolean;
   phoneCallRingSeconds: number;
   phoneCallCooldownMinutes: number;
@@ -272,6 +281,8 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     computerSettingsEnabled: source.COMPUTER_SETTINGS_ENABLED === "true",
     navLinks: parseNavLinks(source.RAKAZO_NAV_LINKS),
     adminEmails: list(source.RAKAZO_ADMIN_EMAILS).map((email) => email.toLowerCase()),
+    platformAdminEmails: parsePlatformAdminEmails(source.ECOMNOMICS_PLATFORM_ADMINS),
+    platformAdminDatabaseUrl: optional(source.PLATFORM_ADMIN_DATABASE_URL),
     ...phoneCallSettings(source),
     maxUploadSizeBytes: uploadSizeFromEnv(source),
     maxAttachmentsPerMessage: attachmentCountFromEnv(source),

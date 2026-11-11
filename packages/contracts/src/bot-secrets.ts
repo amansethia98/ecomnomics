@@ -39,6 +39,9 @@ export const BotSecretAuth = z.discriminatedUnion("type", [
   // the saved origin and never sends them as HTTP credentials.
   z.object({ type: z.literal("login") }),
   // A value exported to this bot's shell commands as an environment variable. It has no site.
+  // The server may store `{ managed: "platform" }` beside `type` on a row it owns. That flag
+  // is read from the stored JSON, not from this schema, so a bot cannot set it and the tool
+  // definition does not advertise it.
   z.object({ type: z.literal("command") }),
   // A payment card. Typed only into a checkout the person approves each time; the bot sees only
   // its brand, last four digits and expiry.

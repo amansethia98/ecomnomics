@@ -81,6 +81,9 @@ export async function putAgentSecret(
       plaintext: input.value,
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "This variable is managed by the platform.") {
+      throw new ORPCError("FORBIDDEN", { message: error.message });
+    }
     throw mapBotSecretInputError(error);
   }
   if (!row) throw new ORPCError("CONFLICT", { message: "Variable was not saved" });
@@ -98,6 +101,7 @@ export async function deleteAgentSecret(
   if (BotSecretAuth.safeParse(row?.auth).data?.type !== "command") {
     throw new ORPCError("NOT_FOUND");
   }
-  await forgetBotSecret(deps.prisma, scope, id);
+  const forgotten = await forgetBotSecret(deps.prisma, scope, id);
+  if (!forgotten.removed) throw new ORPCError("FORBIDDEN", { message: forgotten.error });
   return { ok: true };
 }

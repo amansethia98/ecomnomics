@@ -180,12 +180,18 @@ export * from "./realtime.js";
 export * from "./release-watch.js";
 export * from "./remote-mcp.js";
 export * from "./resend-email.js";
+export {
+  ensureRestaurantAgentAccess,
+  installRestaurantAgentAccess,
+  normalizeRestaurantApiBaseUrl,
+} from "./restaurant-agent-access.js";
 export { finishRoutineHandover } from "./routine-handover.js";
 export * from "./routine-watch.js";
 export { notifyMemberMessage } from "./run-notifications.js";
 export * from "./run-runtime.js";
 export * from "./run-secret.js";
 export * from "./run-wakeup.js";
+export { objectStorageConfigFromEnv, S3ObjectStorage } from "./s3-object-storage.js";
 export * from "./sandbox-allowance.js";
 export * from "./sandbox-errors.js";
 export * from "./sandbox-factory.js";

@@ -1,0 +1,36 @@
+# Both sides are the same GitHub user for now. The comments say which side owns the path.
+# The last matching pattern wins.
+
+# Web app owner: owner UI, restaurant HTTP API, restaurant data, agent API spec.
+/apps/owner/ @amansethia98
+/apps/api/src/restaurant-agent-routes.ts @amansethia98
+/apps/api/src/restaurant-upload.ts @amansethia98
+/apps/api/src/restaurant-agent.postgres.test.ts @amansethia98
+/apps/api/src/restaurant-upload.test.ts @amansethia98
+/apps/api/src/platform-admin-routes.ts @amansethia98
+/apps/api/src/platform-admin.test.ts @amansethia98
+/apps/api/src/platform-admin.postgres.test.ts @amansethia98
+/apps/api/src/cli/mint-restaurant-token.ts @amansethia98
+/packages/db/src/restaurant-agent.ts @amansethia98
+/packages/db/src/restaurant-tenant-isolation.postgres.test.ts @amansethia98
+/packages/db/src/platform-admin.ts @amansethia98
+/packages/db/src/platform-admin-role.ts @amansethia98
+/packages/db/prisma/migrations/20261119120000_restaurant_agent/ @amansethia98
+/packages/contracts/src/restaurant-agent.ts @amansethia98
+/packages/contracts/src/restaurant-agent.test.ts @amansethia98
+/docs/restaurant-agent-api.md @amansethia98
+/docs/restaurant-agent-api.openapi.json @amansethia98
+/docs/platform-admin.md @amansethia98
+
+# Restaurant models live in packages/db/prisma/schema.prisma. That file is mostly upstream Rakazo,
+# so it is not assigned here. The web app owner owns the Restaurant, Outlet, MetricValue, Report,
+# Action, AgentToken, JobRun, and AdminAuditLog models in it.
+
+# Agent owner: templates, payout computer, click ladder, Zomato adapters, metric dictionary.
+/restaurant-templates/ @amansethia98
+/infra/sandboxes/computer/payout/ @amansethia98
+/packages/adapters/src/click-ladder.ts @amansethia98
+/packages/adapters/src/click-ladder.test.ts @amansethia98
+/packages/adapters/src/zomato-reconcile-install.ts @amansethia98
+/packages/adapters/src/zomato-reconcile-install.test.ts @amansethia98
+/docs/metric-dictionary.md @amansethia98

@@ -39,6 +39,7 @@ import {
   homeStorageSweeper,
   InMemoryJobQueue,
   installedMessaging,
+  installRestaurantAgentAccess,
   isMessagingSurfaceEnabled,
   messagingEnvFromProcess,
   messagingPlatformsFromEnv,
@@ -76,6 +77,7 @@ import {
   pushSessionExpiresAt,
   rowSecurityWarning,
   runAsSystem,
+  setRestaurantAgentAccessHandler,
   verifyContentKeys,
 } from "@rakazo/db";
 import { SERVICE_NAMES } from "@rakazo/logging";
@@ -119,6 +121,11 @@ async function main() {
   if (secrets.describe().capabilities.degraded)
     logger.warn("Secret storage degraded; encrypted credentials remain available");
   prisma = withSecretPersistence(prisma, secrets);
+  installRestaurantAgentAccess({
+    prisma,
+    secretStore: secrets,
+    apiBaseUrl: process.env.API_URL?.trim() || "http://127.0.0.1:3100",
+  });
   installSecurityEventStore(prisma);
   installAuditEventStore(prisma);
   const unreadableMasterKeys = await verifyContentKeys(prisma);
@@ -268,6 +275,7 @@ async function main() {
   const stop = () =>
     (stopped ??= (async () => {
       stopping = true;
+      setRestaurantAgentAccessHandler(undefined);
       shutdown.abort();
       stopStallWatch();
       try {

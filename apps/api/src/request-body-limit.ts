@@ -6,11 +6,15 @@ export const MAX_AUTH_REQUEST_BYTES = 64 * 1024;
 export const MAX_RPC_REQUEST_BYTES = 16 * 1024 * 1024;
 
 /** Bound JSON entry points before their framework parsers buffer the request. */
-export function requestBodyLimit(maxSize: number, tooLargeMessage?: string): MiddlewareHandler {
+export function requestBodyLimit(
+  maxSize: number,
+  tooLargeMessage?: string,
+  code?: string,
+): MiddlewareHandler {
   if (!Number.isSafeInteger(maxSize) || maxSize <= 0) {
     throw new Error("Request body limit must be a positive integer");
   }
-  return async (c, next) => (await limitRequestBody(c, maxSize, tooLargeMessage)) ?? next();
+  return async (c, next) => (await limitRequestBody(c, maxSize, tooLargeMessage, code)) ?? next();
 }
 
 /** The 413 response for a body over maxSize; otherwise the body stays readable downstream. */
@@ -18,16 +22,19 @@ async function limitRequestBody(
   c: Context,
   maxSize: number,
   tooLargeMessage = "Request body is too large.",
+  code?: string,
 ): Promise<Response | undefined> {
   const request = c.req.raw;
   if (!request.body) return undefined;
+  const tooLarge = () =>
+    c.json(code ? { error: tooLargeMessage, code } : { error: tooLargeMessage }, 413);
 
   const contentLength = request.headers.get("content-length");
   if (contentLength !== null && !request.headers.has("transfer-encoding")) {
     const declared = /^[0-9]+$/.test(contentLength) ? Number(contentLength) : Number.NaN;
     if (!Number.isSafeInteger(declared) || declared < 0 || declared > maxSize) {
       cancelBody(request.body);
-      return c.json({ error: tooLargeMessage }, 413);
+      return tooLarge();
     }
     return undefined;
   }
@@ -42,7 +49,7 @@ async function limitRequestBody(
       size += value.byteLength;
       if (size > maxSize) {
         cancelBody(reader);
-        return c.json({ error: tooLargeMessage }, 413);
+        return tooLarge();
       }
       chunks.push(value);
     }

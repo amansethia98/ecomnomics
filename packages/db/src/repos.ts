@@ -30,6 +30,7 @@ import { ensureComputerRecord, parseComputerMode, teamComputerUserId } from "./c
 import { createThreadMessageInTransaction } from "./messages.js";
 import { withNewestThreadMessages } from "./preview-messages.js";
 import { isUniqueViolation } from "./prisma-errors.js";
+import { notifyRestaurantAgentReady } from "./restaurant-agent-access.js";
 import {
   DedicatedComputerDisabledError,
   restaurantComputerEnabled,
@@ -738,6 +739,7 @@ export function createRepos(
           }
         }
       }
+      await notifyRestaurantAgentReady(prisma, actor.spaceId);
       return mapBot(bot);
     },
 
@@ -794,6 +796,7 @@ export function createRepos(
           });
         }),
       );
+      await notifyRestaurantAgentReady(prisma, actor.spaceId);
       return mapBot(updated);
     },
   };
