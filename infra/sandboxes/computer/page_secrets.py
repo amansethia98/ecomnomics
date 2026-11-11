@@ -373,13 +373,60 @@ EVAL_HELPERS = r"""
   }
   // A private code may span several inputs. Resolve the whole group before touching a value;
   // the ordinary page-world split-code typer cannot consume a run-held secret safely.
-  function splitCodeGroup(input, size) {
-    const root = input.getRootNode();
-    const shaped = (el) => el instanceof HTMLInputElement && ["text", "email", "tel", "number"].includes(el.type)
+  function codePartShape(el) {
+    return el instanceof HTMLInputElement && ["text", "email", "tel", "number"].includes(el.type)
       && visible(el) && (el.maxLength === 1 || (el.getAttribute("inputmode") || "").toLowerCase() === "numeric"
         || /one-time-code|otp|one.?time|verification|passcode|\bcode\b/i.test([
           el.autocomplete, el.name, el.id, el.getAttribute("aria-label"), el.placeholder,
         ].join(" ")));
+  }
+  // A structural DOM snapshot, never outerHTML/text/value or raw names/IDs/labels. Taken on the
+  // verified origin before code entry. It explains the exact focused ref without storing a secret.
+  function codeLayout(input, ref) {
+    const root = input.getRootNode();
+    const all = [...root.querySelectorAll("input")];
+    const start = Math.max(0, all.indexOf(input) - 16);
+    const fields = all.slice(start, start + 32);
+    const tags = new Set(["HTML", "BODY", "FORM", "DIV", "SPAN", "SECTION", "MAIN", "FIELDSET", "LABEL", "INPUT"]);
+    const tag = (el) => tags.has(el.tagName) ? el.tagName.toLowerCase() : "element";
+    const path = (el) => {
+      const parts = [];
+      for (let n = el, depth = 0; n && depth < 12; n = n.parentElement, depth++) {
+        parts.unshift(tag(n) + "[" + [...(n.parentNode?.children || [])].indexOf(n) + "]");
+      }
+      return parts.join("/");
+    };
+    const hint = (text) => /one-time-code|otp|one.?time|verification|passcode|\bcode\b/i.test(String(text || ""));
+    const modes = new Set(["", "none", "text", "decimal", "numeric", "tel", "search", "email", "url"]);
+    const tokens = new Set(["one-time-code", "username", "current-password", "new-password", "email", "tel", "on", "off"]);
+    const ancestors = [];
+    for (let n = input.parentElement, depth = 0; n && depth < 12; n = n.parentElement, depth++) {
+      const children = [...n.querySelectorAll("input")].filter((f) => visible(f) && f.type !== "hidden");
+      ancestors.push({ path: path(n), visibleInputs: children.length,
+        shapedInputs: children.filter(codePartShape).length,
+        bodyBoundary: n === document.body,
+        allMaxlengthOne: children.every((f) => f.maxLength === 1) });
+    }
+    return { version: 1, ref, origin: location.origin, inFrame: window !== window.top,
+      root: root === document ? "document" : root.host ? "shadow" : "other",
+      target: fields.indexOf(input), firstInputIndex: start, inputCount: all.length,
+      truncated: all.length > fields.length || ancestors.length === 12,
+      fields: fields.map((f) => {
+        const mode = (f.getAttribute("inputmode") || "").toLowerCase();
+        return { path: path(f), type: f.type, maxlength: f.maxLength,
+          inputmode: modes.has(mode) ? mode : "other",
+          autocomplete: [...new Set((f.autocomplete || "").toLowerCase().split(/\s+/)
+            .filter(Boolean).map((t) => tokens.has(t) ? t : "other"))],
+          nameHint: hint(f.name), idHint: hint(f.id), labelHint: hint(f.getAttribute("aria-label")),
+          placeholderHint: hint(f.placeholder), titleHint: hint(f.title),
+          associatedLabelHint: [...(f.labels || [])].some((label) => hint(label.textContent)),
+          visible: visible(f), disabled: f.disabled, readonly: f.readOnly,
+          shaped: codePartShape(f), singleEligible: looksLikeCodeBox(f) };
+      }), ancestors };
+  }
+  function splitCodeGroup(input, size) {
+    const root = input.getRootNode();
+    const shaped = codePartShape;
     const part = (el) => shaped(el) && !el.disabled && !el.readOnly;
     const groups = [];
     for (const el of root.querySelectorAll("input")) {
@@ -490,7 +537,7 @@ EVAL_HELPERS = r"""
     // A saved login or a card detail, typed into the focused field only when this document is on its
     // site. Checked in the same evaluation as the fill, so a navigation cannot slip in between.
     // Private-LAN plain HTTP is not a login target, even when the page origin matches.
-    fill(value, origin, field) {
+    fill(value, origin, field, targetRef) {
       const card = field === "card";
       // A code the user entered for this page: a visible field like a username, but drawn as dots
       // and only into a box that looks made for a code.
@@ -523,17 +570,26 @@ EVAL_HELPERS = r"""
       if (password && !(input && input.type === "password")) {
         throw refused("A saved password can only be typed into a password field.");
       }
+      const layout = code && input && typeof targetRef === "string" && /^(?:f\d+)?e\d{1,8}$/.test(targetRef)
+        ? codeLayout(input, targetRef) : null;
+      const codeRefused = (message) => refused(message + (layout ? "; code_layout_before_fill=" + JSON.stringify(layout) : ""));
+      const codeResult = (result) => layout ? { ...(result === true ? { codeFilled: true } : result), codeLayout: layout } : result;
       if (code && input) {
         const text = numericBox(input) ? String(value).replaceAll("-", "") : String(value);
-        const group = splitCodeGroup(input, text.length);
-        if (group) return fillCodeGroup(group, text, saved.origin);
+        try {
+          const group = splitCodeGroup(input, text.length);
+          if (group) return codeResult(fillCodeGroup(group, text, saved.origin));
+        } catch (error) {
+          if (layout && String(error.message).startsWith("Refused: ")) throw codeRefused(error.message.slice(9));
+          throw error;
+        }
       }
       if (!card && !password && !(input && ["text", "email", "tel"].includes(input.type))) {
-        throw refused(code ? "A code can only be typed into a text, email, or telephone field."
-          : "A saved username can only be typed into a text, email, or telephone field.");
+        throw code ? codeRefused("A code can only be typed into a text, email, or telephone field.")
+          : refused("A saved username can only be typed into a text, email, or telephone field.");
       }
       if (code && !looksLikeCodeBox(input)) {
-        throw refused("This field doesn't look like a code box; ask the user to take over.");
+        throw codeRefused("This field doesn't look like a code box; ask the user to take over.");
       }
       // A numeric box takes the digits of a code written with dashes.
       if (code && numericBox(input)) value = String(value).replaceAll("-", "");
@@ -553,12 +609,15 @@ EVAL_HELPERS = r"""
       else unmaskCard(input);
       input.dispatchEvent(new Event("input", { bubbles: true }));
       input.dispatchEvent(new Event("change", { bubbles: true }));
+      // React or an input listener may replace/alter a controlled password after the native setter.
+      // Do not report successful delivery (or retry) when its final value is uncertain.
+      if (password && (!input.isConnected || input.value !== String(value))) return { loginUncertain: true };
       if (code) {
         // The widget may draw its slots right away or a moment later.
         maskCodeSlots(input, value);
         setTimeout(() => { if (cardMasked.has(input)) maskCodeSlots(input, value); }, 50);
       }
-      return true;
+      return codeResult(true);
     },
     payTokenAccount() {
       const blocks = [...document.querySelectorAll(".AiAgentPaymentSteering")]
@@ -803,18 +862,25 @@ def frame_site_check(client: CdpClient, frame: tuple[str, str, int], step: dict[
                       "so nothing was filled.")
 
 
-def fill_focused(client: CdpClient, session_id: str, step: dict[str, Any]) -> None:
+def fill_focused(client: CdpClient, session_id: str, step: dict[str, Any]) -> dict[str, Any] | None:
     """A saved login, or a card detail the bot pointed to, typed into the field the page browser focused."""
     frame = focused_frame(client, session_id)
     if frame[0] != session_id or frame[2] != client.context_id:
         frame_site_check(client, frame, step)
-    result = call_with(client, frame[0], frame[2], "function (value, origin, field) { "
-              "return window.__rakazoPageBrowser.fill(value, origin, field); }",
-              step["text"], step["origin"], step.get("field"))
+    args = [step["text"], step["origin"], step.get("field")]
+    if step.get("field") == "code":
+        args.append(step.get("ref"))
+    result = call_with(client, frame[0], frame[2], "function (value, origin, field, ref) { "
+              "return window.__rakazoPageBrowser.fill(value, origin, field, ref); }", *args)
+    layout = result.get("codeLayout") if isinstance(result, dict) else None
+    if isinstance(result, dict) and result.get("loginUncertain"):
+        raise CardFieldUncertain("The password field changed after filling. Do not replay or submit; ask the user to take over.")
     if isinstance(result, dict) and result.get("codePartial"):
         # A secret may already be on the page: never restore its one-shot claim or replay it.
+        detail = "; code_layout_before_fill=" + json.dumps(layout, separators=(",", ":")) if layout else ""
         raise CardFieldUncertain("Code entry was partial or uncertain. Do not replay, submit, or request a new code; "
-                                 "ask the user to take over.")
+                                 "ask the user to take over." + detail)
+    return layout
 
 
 def find_card_field(client: CdpClient, session_id: str, main_frame_id: str, token: str) -> tuple[str, str, int]:
@@ -969,7 +1035,7 @@ def connect(port: int) -> CdpClient:
     return client
 
 
-def run_step(port: int, target_id: str, step: dict[str, Any]) -> None:
+def run_step(port: int, target_id: str, step: dict[str, Any]) -> dict[str, Any] | None:
     """One saved-login, card or pay-token step on the tab target_id. Raises Refused when declined."""
     client = connect(port)
     try:
@@ -979,7 +1045,7 @@ def run_step(port: int, target_id: str, step: dict[str, Any]) -> None:
         elif step.get("ref") is None:
             fill_card(client, session_id, step)
         else:
-            fill_focused(client, session_id, step)
+            return fill_focused(client, session_id, step)
     finally:
         client.close()
 

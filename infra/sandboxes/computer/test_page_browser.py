@@ -1227,6 +1227,16 @@ class ActTest(unittest.TestCase):
         for secret in ("fake-password", CARD_NUMBER, PAY_TOKEN):
             self.assertNotIn(secret, sent)
 
+    def test_code_layout_is_retained_in_notes_without_sending_the_secret_to_ordinary_tools(self):
+        layout = {"version": 1, "ref": "e3", "target": 0, "fields": [{"type": "text", "maxlength": 1}]}
+        step = {"kind": "fill", "ref": "e3", "text": "ABC123", "origin": "https://portal.example.test", "field": "code"}
+        with patch.object(secrets, "run_step", return_value=layout):
+            result, browser = self.act([step])
+        self.assertEqual(result["completed"], 1)
+        self.assertIn('"ref":"e3"', result.get("note", ""))
+        self.assertNotIn(step["text"], json.dumps(result))
+        self.assertNotIn(step["text"], json.dumps(browser.sent))
+
     def test_a_refused_secret_is_settled_and_an_unconfirmed_card_field_is_uncertain(self):
         step = {"kind": "fill", "text": CARD_NUMBER, "origin": MERCHANT, "field": "card", "cardField": "number"}
         with patch.object(secrets, "run_step", side_effect=secrets.Refused(secrets.NOT_ON_MERCHANT)):
@@ -2127,6 +2137,24 @@ class SavedLoginTest(unittest.TestCase):
             with self.assertRaisesRegex(secrets.CardFieldUncertain, "Do not replay") as error:
                 secrets.fill_focused(browser.client, "page", step)
         self.assertNotIn(step["text"], str(error.exception))
+
+    def test_code_fill_forwards_the_actual_ref_and_returns_only_the_value_free_layout(self):
+        browser = LoginFrameBrowser()
+        step = dict(self.STEP, text="ABC123", field="code")
+        layout = {"version": 1, "ref": "e2", "fields": [{"maxlength": 1}]}
+        with patch.object(secrets, "focused_frame", return_value=("page", "main", 1)), \
+                patch.object(secrets, "call_with", return_value={"codeFilled": True, "codeLayout": layout}) as call:
+            self.assertEqual(secrets.fill_focused(browser.client, "page", step), layout)
+        self.assertEqual(call.call_args.args[-4:], (step["text"], step["origin"], "code", "e2"))
+        self.assertNotIn(step["text"], json.dumps(layout))
+
+    def test_a_password_changed_by_page_events_is_uncertain_not_a_success_or_replayable_refusal(self):
+        browser = LoginFrameBrowser()
+        with patch.object(secrets, "focused_frame", return_value=("page", "main", 1)), \
+                patch.object(secrets, "call_with", return_value={"loginUncertain": True}):
+            with self.assertRaisesRegex(secrets.CardFieldUncertain, "Do not replay") as error:
+                secrets.fill_focused(browser.client, "page", dict(self.STEP))
+        self.assertNotIn(self.STEP["text"], str(error.exception))
 
     def test_a_field_in_another_site_s_frame_is_refused_and_its_own_site_s_is_filled(self):
         browser = LoginFrameBrowser(focus_in_frame=True)

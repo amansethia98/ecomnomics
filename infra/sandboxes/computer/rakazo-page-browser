@@ -1783,7 +1783,9 @@ class PageBrowser:
                 if kind == "pay_token" or step.get("origin"):
                     if ref is not None:
                         self.step([["focus", f"@{ref}"]])
-                    page_secrets.run_step(self.port, self.target, step)
+                    layout = page_secrets.run_step(self.port, self.target, step)
+                    if step.get("field") == "code" and isinstance(layout, dict):
+                        self.notes.append("Code layout before fill: " + json.dumps(layout, separators=(",", ":")))
                 elif kind == "click":
                     refused = purchase_refusal(step, *self.click_purchase(ref, node), completed)  # type: ignore[arg-type]
                     if refused:
