@@ -29,6 +29,11 @@
       "types": "./src/content-security-policy.ts",
       "development": "./src/content-security-policy.ts",
       "default": "./src/content-security-policy.ts"
+    },
+    "./payout": {
+      "types": "./src/payout.ts",
+      "development": "./src/payout.ts",
+      "default": "./src/payout.ts"
     }
   },
   "scripts": {
@@ -37,6 +42,7 @@
   },
   "dependencies": {
     "@orpc/contract": "1.16.2",
+    "exceljs": "4.4.0",
     "zod": "4.6.7"
   },
   "devDependencies": {

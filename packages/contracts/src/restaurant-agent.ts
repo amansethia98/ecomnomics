@@ -62,7 +62,13 @@ export {
   missingPlatformIdReason,
   reportGranularity,
 } from "./metric-parse.js";
-export type { MetricRollup, RollupFact, RollupQuery, RollupValue } from "./metric-rollup.js";
+export type {
+  MetricRollup,
+  PayoutRollupInput,
+  RollupFact,
+  RollupQuery,
+  RollupValue,
+} from "./metric-rollup.js";
 export { comparePlatformValue, rollupMetrics } from "./metric-rollup.js";
 export type { ReplacePlan, StoredWindowRow, WindowWrite } from "./metric-window.js";
 export { planReplaceWindow } from "./metric-window.js";
@@ -274,6 +280,25 @@ export const IngestMetricReportSchema = z
     error: "periodEnd must be after periodStart",
   });
 export type IngestMetricReportInput = z.infer<typeof IngestMetricReportSchema>;
+
+/** A payout workbook, base64-encoded. The server parses it and checks the outlet before storing orders. */
+export const IngestPayoutReportSchema = z
+  .object({
+    outletId: z.string().trim().min(1).max(200),
+    platform: z.enum(PLATFORMS),
+    periodStart: IsoDate,
+    periodEnd: IsoDate,
+    fileBase64: z.string().min(1).max(12_000_000),
+    attempt: z.number().int().positive().max(20).optional(),
+    runId: z.string().trim().min(1).max(200),
+    source: z.string().trim().min(1).max(200),
+    capturedAt: IsoTime,
+  })
+  .strict()
+  .refine((value) => value.periodEnd > value.periodStart, {
+    error: "periodEnd must be after periodStart",
+  });
+export type IngestPayoutReportInput = z.infer<typeof IngestPayoutReportSchema>;
 
 export const CreateReportSchema = z
   .object({

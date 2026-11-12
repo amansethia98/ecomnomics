@@ -216,9 +216,9 @@ export const METRIC_DEFINITIONS = {
   ),
   paid_amount_paise: payout(
     "paise",
-    "Amount marked paid on the Payouts screen, tied to a bank reference stored as the last 4 digits.",
-    "Payouts screen paid amount",
-    "Payouts screen paid amount",
+    "Amount the bank paid. Zomato's Amount Settled, or Swiggy's summary total payout.",
+    "Amount Settled",
+    "Summary total payout",
     true,
   ),
   payout_orders: payout(

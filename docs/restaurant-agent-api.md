@@ -93,7 +93,7 @@ Sums add the daily parts. A ratio or weighted average is computed from those sum
 
 Every value includes `accuracy` (`exact` or `approx`) and, for a ratio, `coverageDays` and `expectedDays`. `combined` adds only keys marked cross-platform in the dictionary. Any other key is `not_available` with `This figure is not combined across platforms.`
 
-`basis=settlement_date` is reserved for payout-order totals. Those rows are not stored yet, so every value is `not_available` with `Settlement-date totals need payout orders, which are not stored yet.` Distinct customers use the same reason family: `Distinct customers are counted from payout orders, which are not stored yet.` Online percentage weights each day by its scheduled hours. A day without scheduled hours counts as one day, and that result is approximate. If a day has neither hours nor a daily percentage, and no platform figure is stored for this exact window, the reason is `Online percentage needs each day's scheduled hours. No platform figure is stored for this exact window.`
+`basis=settlement_date` sums payout orders and the adjustments booked on cycles that settled in the window. Until an outlet has a stored payout file, every value is `not_available` with `Settlement-date totals need payout orders, which are not stored yet.` After that, a key that is not part of the payout is `not_available` with `This figure is not part of the settlement-date payout.` The bank paid amount is Zomato's Amount Settled or Swiggy's summary total payout, on the payout settlement date. A file with neither is `not_available` with `This payout file has no settled amount.` `basis=order_date` takes those same payout keys from the order's date. Adjustments are spread day by day across their own period and are not subtracted from that order-date net. The response includes `gap`: `settledFromEarlierPaise` (settled in this window from an earlier order date), `notYetSettledPaise` (pending order nets in the window), and `adjustmentsPaise`. A pending settlement sets `provisional` to true. Distinct customers on Zomato are the count of salted customer hashes. On Swiggy, and on a combined read, the reason is `Distinct customers are counted from Zomato payout orders.` When a Zomato order in the window has no stored hash, the reason is `Distinct customers need the stored customer hash.` Until payout orders exist, distinct customers stay `Distinct customers are counted from payout orders, which are not stored yet.` Online percentage weights each day by its scheduled hours. A day without scheduled hours counts as one day, and that result is approximate. If a day has neither hours nor a daily percentage, and no platform figure is stored for this exact window, the reason is `Online percentage needs each day's scheduled hours. No platform figure is stored for this exact window.`
 
 `PUT /agent/v1/metrics`
 
@@ -118,6 +118,23 @@ Swiggy Daily accepts at most 7 days per file. Split a backfill into chunks of 7 
   "runId": "fetch-1",
   "source": "business-report",
   "capturedAt": "2026-11-09T05:00:00.000Z"
+}
+```
+
+`POST /agent/v1/payout-reports`
+
+Sends one Swiggy invoice annexure or Zomato settlement workbook, base64-encoded. The server reads the outlet and the cycle from the file, then rejects it when the platform outlet id or the cycle dates do not match the request. Nothing from a rejected file is stored, and the attempt is logged with status `rejected_mismatch`. After 3 mismatches for the same request the status is `needs_owner`. The response is 422 with code `file_identity`. A different restaurant name or city is stored with the file and written as a warning. Orders are upserted on platform, outlet, and order id. A changed settlement replaces the current row and keeps the previous one. Adjustments for that cycle are replaced together. A check that misses the platform's own total is logged and does not change the stored order. The bank reference is stored as the last four characters. Zomato customer ids are stored only as a salted hash. If `CUSTOMER_HASH_SALT` is not set, the warning is `Customer hashes were not stored because CUSTOMER_HASH_SALT is not set.`
+
+```json
+{
+  "outletId": "ck...",
+  "platform": "zomato",
+  "periodStart": "2026-11-02",
+  "periodEnd": "2026-11-09",
+  "fileBase64": "...",
+  "runId": "payout-1",
+  "source": "payout-file",
+  "capturedAt": "2026-11-12T05:00:00.000Z"
 }
 ```
 
@@ -165,7 +182,7 @@ Paise and counts are non-negative integers. A `pct` value on this call is from 0
 - `tds_paise` (paise, sum, exact, crossPlatform true): Tax deducted at source and withheld from the payout. A tax credit, not a cost.
 - `tcs_paise` (paise, sum, exact, crossPlatform true): Tax collected at source, including TCS IGST where it is present.
 - `cv_paise` (paise, sum, exact, crossPlatform true): Commissionable value: item total plus packaging, minus the restaurant-funded discount.
-- `paid_amount_paise` (paise, sum, exact, crossPlatform true): Amount marked paid on the Payouts screen, tied to a bank reference stored as the last 4 digits.
+- `paid_amount_paise` (paise, sum, exact, crossPlatform true): Amount the bank paid. Zomato's Amount Settled, or Swiggy's summary total payout.
 - `payout_orders` (count, sum, exact, crossPlatform true): Payout-file orders: delivered plus cancelled or rejected, for the payout period.
 - `commission_pg_gst_paise` (paise, sum, exact, crossPlatform false): The payout calculator's Comm.+PG+GST row as printed. Swiggy's row excludes GST on fees.
 - `gst_collected_paise` (paise, sum, exact, crossPlatform false): GST collected from customers. Not restaurant revenue on delivery orders.

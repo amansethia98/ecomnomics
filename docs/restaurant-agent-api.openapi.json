@@ -324,7 +324,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Rolled-up values. Sums add. Ratios use summed parts. platform_only is not_available unless the window matches. settlement_date is not_available until payout orders are stored."
+            "description": "Rolled-up values. Sums add. Ratios use summed parts. platform_only is not_available unless the window matches. settlement_date sums stored payout orders and adjustments and includes gap. paid_amount_paise is the file's settled amount. Until a payout file is stored, settlement_date is not_available."
           }
         }
       }
@@ -405,6 +405,49 @@
           },
           "422": {
             "description": "file_identity. The platform outlet id or the date columns do not match, or the outlet has no platform id. Nothing from the file is stored. A different name or city is stored with a warning. Swiggy Daily is at most 7 days."
+          }
+        }
+      }
+    },
+    "/agent/v1/payout-reports": {
+      "post": {
+        "operationId": "ingestPayoutReport",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "outletId",
+                  "platform",
+                  "periodStart",
+                  "periodEnd",
+                  "fileBase64",
+                  "runId",
+                  "source",
+                  "capturedAt"
+                ],
+                "properties": {
+                  "outletId": { "type": "string" },
+                  "platform": { "type": "string", "enum": ["zomato", "swiggy"] },
+                  "periodStart": { "type": "string" },
+                  "periodEnd": { "type": "string" },
+                  "fileBase64": { "type": "string" },
+                  "runId": { "type": "string" },
+                  "source": { "type": "string" },
+                  "capturedAt": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Orders stored or the same file skipped. The body has order and adjustment counts, checks, warnings, and, on a later metrics read, gap."
+          },
+          "422": {
+            "description": "file_identity. The platform outlet id or the payout cycle does not match, or the outlet has no platform id. Nothing from the file is stored. A different name or city is stored with a warning."
           }
         }
       }

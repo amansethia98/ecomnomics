@@ -16,6 +16,7 @@ import {
 } from "@rakazo/contracts";
 import type { PrismaClient } from "./client.js";
 import type { Prisma } from "./generated/prisma/client.js";
+import { loadPayoutRollup } from "./payout-reports.js";
 import type { RestaurantScope } from "./restaurant-agent.js";
 import { lockMetricWindow, metricWindowLockKey, RestaurantAgentError } from "./restaurant-agent.js";
 
@@ -464,6 +465,7 @@ export async function readMetrics(
       periodStart: { gte: range.start, lt: range.end },
     },
   });
+  const payout = await loadPayoutRollup(db, scope, query);
   return rollupMetrics(
     stored.flatMap((row) => {
       if (row.platform !== "zomato" && row.platform !== "swiggy") return [];
@@ -487,5 +489,6 @@ export async function readMetrics(
       today: indiaToday(),
       basis: query.basis,
     },
+    payout,
   );
 }
