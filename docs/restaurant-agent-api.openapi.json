@@ -27,6 +27,7 @@
           "net_payout_paise",
           "aov_paise",
           "commission_paise",
+          "commission_pg_gst_paise",
           "platform_fees_paise",
           "taxes_paise",
           "discount_paise",
@@ -77,12 +78,16 @@
       },
       "JobRun": {
         "type": "object",
-        "required": ["runId", "skill", "status", "startedAt"],
+        "required": ["runId", "skill", "status"],
         "properties": {
           "runId": { "type": "string" },
           "skill": { "type": "string" },
           "status": { "enum": ["running", "succeeded", "failed", "needs_owner"] },
-          "startedAt": { "type": "string", "format": "date-time" },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Required on the first post for a runId. Omit it on a repeat post to keep the stored start time. A different value sent later is ignored. The stored run always includes the first startedAt. Do not send null."
+          },
           "endedAt": { "type": ["string", "null"], "format": "date-time" },
           "outletId": { "type": ["string", "null"] },
           "model": { "type": ["string", "null"] },
@@ -180,7 +185,7 @@
         },
         "responses": {
           "200": {
-            "description": "Stored run. The first startedAt is kept.",
+            "description": "Stored run. The first startedAt is kept. A repeat post may omit startedAt.",
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/JobRun" } }
             }

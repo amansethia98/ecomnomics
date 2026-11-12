@@ -9,6 +9,14 @@ Read this skill before acting, including separately authorized login tasks. Reus
 
 Before opening a login or finance page, run `/usr/local/bin/payout-preflight --platform zomato` or `--platform swiggy` once. If it reports an absent/inaccessible installed library, stop and report that the computer image needs rebuilding. Do not spend time on login, dependency installation, permission workarounds, helper discovery or source inspection. The installed commands and private-file paths are listed below; use them directly.
 
+Then record the job for each platform this task will read, before any login or download. Use one run id per platform: this task's label plus `-zomato` or `-swiggy`. Reuse that same id for the result and the failure.
+
+`/usr/local/bin/agent-v1-post start --platform zomato --run-id <task-label>-zomato`
+
+`/usr/local/bin/agent-v1-post start --platform swiggy --run-id <task-label>-swiggy`
+
+The command reads its configuration from the computer environment. Do not print that configuration, and do not put a token in a file or a prompt. If it says the restaurant agent API is not configured, skip every later `agent-v1-post` call and still produce the owner report.
+
 After sign-in, use the page returned by `browser_act`: it already contains a fresh snapshot. Do not immediately request another full snapshot unless relevant refs are missing, navigation has not settled, or the page changed. When available, use a focused snapshot query for the outlet ID or period. For an outlet switch, use the visible selector's search once with the outlet ID from this restaurant's settings, verify the selected ID/name against those settings, then continue. Never guess URLs, bypass verification, or change the separately authorized login method to save time.
 
 For every platform, determine payment scope from this restaurant's actual export and live dashboard. Do not assume a particular tab exists, that an export combines brands/components, or that a tab named All is appropriate. Select only a dashboard view covering the same components, configured outlet, period and payment reference as the export; record the observed scope in the screen JSON. If no matching view exists, or the calculator does not support that export scope, stop and explain the mismatch. Keep component-only discrepancies separate; never call them rounding or silently allocate them elsewhere. Capture the verified scope/period/payment once, download one fresh file, run the installed calculator, and stop browser exploration once required checks are complete.
@@ -40,6 +48,18 @@ Zomato, after the fresh settlement workbook is on disk:
 Swiggy, after the fresh annexure is on disk. Write `~/.local/share/payout-reconciliation/job.json` first, as `{"label":"<this task id>","issued_epoch":<seconds>}`. The screen file's `job_label` is that same label. The annexure must be newer than `issued_epoch`.
 
 `/usr/local/bin/payout-swiggy-reconcile <annexure> --settings ~/.local/share/payout-reconciliation/swiggy-settings.json --screen <swiggy-payout-screen.json>`
+
+As soon as a calculator writes its json, record that platform. Do not wait for the combined report, and do not send a start time again:
+
+`/usr/local/bin/agent-v1-post result --platform zomato --run-id <task-label>-zomato --result <calculator.json> --screen <payout-screen.json>`
+
+`/usr/local/bin/agent-v1-post result --platform swiggy --run-id <task-label>-swiggy --result <calculator.json> --screen <swiggy-payout-screen.json>`
+
+If that platform's work fails after start was recorded, stop it and record the failure. The reason is short and has no password, one-time code, token, or full payment reference:
+
+`/usr/local/bin/agent-v1-post fail --platform zomato --run-id <task-label>-zomato --error "<short reason>"`
+
+Use `--platform swiggy` and the Swiggy run id when Swiggy failed.
 
 Then once for that outlet pair:
 
@@ -687,6 +707,8 @@ No hardcoded outlet, week, paid amount or commission contract. Read the restaura
 
 ## Adaptive workflow
 
+Record `agent-v1-post start` before these steps, `agent-v1-post result` as soon as each calculator json exists, and `agent-v1-post fail` if that platform errors after start was recorded.
+
 1. Read configured outlet scope and `owner-confirmed-outlet-map.csv`. Verify selected name/ID BEFORE reading payout figures on each app; a preselected different outlet is not authority. Fail closed on a wrong outlet, conflicting IDs or ambiguous selection.
 2. On Zomato Finance/Payouts, find the latest FULLY PAID service period within the requested reporting window, skipping processing/unpaid periods. On Swiggy Finance/Past Payouts (`https://partner.swiggy.com/food/finance`), take fully paid cycle(s) ending inside that same reporting window. Discover dates from live evidence, not example dates or stale downloads. State both service periods.
 3. Directly download fresh correct-outlet settlement/annexure files. Read same-period status, amount paid, paid date and UTR last four from the live payout screen; do not call estimates paid. Keep source files private.
@@ -710,7 +732,7 @@ Read configured restaurant scope; verify selected outlet name/ID before figures.
 
 Save `payout-screen.json` with only period [ISO start,end], status paid, paid_amount decimal string, paid_date ISO and utr_last4 exactly four characters. Never record full UTR/customer fields. Read these from the same-period payout screen, not previous files. Match configured source outlet and requested/selected period.
 
-Run `payout-owner-reconcile <fresh-workbook> --config <private-runtime-settings> --screen <fresh-screen-json>`. Payout Breakup primary; blank formula summary permits Order Level + Addition Deductions Details fallback. Exactly eleven rows, with ads allocated once by invoice period; include outstanding ads correctly in bridge. Fees include service/long-distance/payment fees and GST on fees. TDS/TCS, GST differences, cancellations/rejections, additions/refunds, outstanding ads and non-ad deductions are bridge-only.
+Run `payout-owner-reconcile <fresh-workbook> --config <private-runtime-settings> --screen <fresh-screen-json>`. Then `agent-v1-post result` for zomato with that json and the fresh screen file. On any error, `agent-v1-post fail` for zomato and stop. Payout Breakup primary; blank formula summary permits Order Level + Addition Deductions Details fallback. Exactly eleven rows, with ads allocated once by invoice period; include outstanding ads correctly in bridge. Fees include service/long-distance/payment fees and GST on fees. TDS/TCS, GST differences, cancellations/rejections, additions/refunds, outstanding ads and non-ad deductions are bridge-only.
 
 Commission contract is a per-outlet setting. When absent, assume the modal charged service-fee percentage, label the assumption and flag every different charged percentage. Do not claim contractual correctness. Keep actual fee money unchanged.
 
@@ -724,7 +746,7 @@ Use retained session at https://partner.swiggy.com/food/finance and navigate by 
 
 Direct download: the actual annexure/report file, never a mail-generation control. Read the same-cycle paid amount/date/UTR last four and source service period. If UI navigation boundary differs from annexure period, preserve the actual annexure service period and put the discrepancy in Excel technical notes.
 
-Save `swiggy-payout-screen.json`: outlet_id, outlet_name, period ISO pair, status paid, paid_amount string, paid_date ISO, utr_last4 exactly four, job_label copied from current job.json. Verify source freshness/logical job. Run `payout-swiggy-reconcile <fresh-annexure> --settings <private-runtime-settings> --screen <fresh-screen-json>` once.
+Save `swiggy-payout-screen.json`: outlet_id, outlet_name, period ISO pair, status paid, paid_amount string, paid_date ISO, utr_last4 exactly four, job_label copied from current job.json. Verify source freshness/logical job. Run `payout-swiggy-reconcile <fresh-annexure> --settings <private-runtime-settings> --screen <fresh-screen-json>` once. Then `agent-v1-post result` for swiggy with that json and the fresh screen file. On any error, `agent-v1-post fail` for swiggy and stop.
 
 Payout Breakup TOTAL column is primary. Comm.+PG+GST = B Total fees EXCLUDING GST-on-service-fees; the separate GST moves to the bridge. Ads = all genuine advertising E Other Charges lines plus D Growth Investment In Ads, each once. Non-ad E lines/refunds are bridge-only. Keep source-derived residuals distinct; never plug the paid amount into an unexplained adjustment.
 

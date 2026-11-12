@@ -45,6 +45,11 @@ export const METRIC_DEFINITIONS = {
     definition:
       "Platform commission or base service fee only, not long-distance, payment-gateway, or GST on fees.",
   },
+  commission_pg_gst_paise: {
+    unit: "paise",
+    definition:
+      "The payout calculator's Comm.+PG+GST row: platform commission plus payment-gateway fees plus GST, as that row is printed. Swiggy's row excludes GST on fees.",
+  },
   platform_fees_paise: {
     unit: "paise",
     definition: "Other platform fees besides commission, excluding GST on fees.",
@@ -466,7 +471,8 @@ export const CreateJobRunSchema = z
     runId: z.string().trim().min(1).max(200),
     skill: z.string().trim().min(1).max(120),
     status: z.enum(JOB_RUN_STATUSES),
-    startedAt: IsoTime,
+    // Required the first time a runId is posted. A repeat may omit it; the stored start stays.
+    startedAt: IsoTime.optional(),
     endedAt: IsoTime.nullable().optional(),
     costPaise: paise.nullable().optional(),
     costUsdMicros: usdMicros.nullable().optional(),
@@ -477,7 +483,11 @@ export const CreateJobRunSchema = z
   })
   .strict()
   .superRefine((value, ctx) => {
-    if (value.endedAt && Date.parse(value.endedAt) < Date.parse(value.startedAt)) {
+    if (
+      value.startedAt &&
+      value.endedAt &&
+      Date.parse(value.endedAt) < Date.parse(value.startedAt)
+    ) {
       ctx.addIssue({
         code: "custom",
         path: ["endedAt"],

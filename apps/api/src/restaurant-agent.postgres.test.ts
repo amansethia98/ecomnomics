@@ -599,4 +599,64 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
     });
     expect(foreign.status).toBe(422);
   });
+
+  it("requires startedAt on the first post and keeps it when a repeat omits it", async () => {
+    const missing = await call("POST", "/agent/v1/runs", tokenA, {
+      runId: `job-nostart-${suffix}`,
+      skill: "payout-zomato",
+      status: "running",
+    });
+    expect(missing.status).toBe(400);
+    expect(await missing.json()).toEqual({
+      error: "startedAt is required the first time a run is posted.",
+      code: "invalid_body",
+    });
+
+    const started = await call("POST", "/agent/v1/runs", tokenA, {
+      runId: `job-repeat-${suffix}`,
+      skill: "payout-zomato",
+      status: "running",
+      startedAt: "2026-01-07T04:00:00.000Z",
+    });
+    expect(started.status).toBe(200);
+
+    const finished = await call("POST", "/agent/v1/runs", tokenA, {
+      runId: `job-repeat-${suffix}`,
+      skill: "payout-zomato",
+      status: "succeeded",
+      endedAt: "2026-01-07T04:10:00.000Z",
+      outletId: outletA,
+      error: null,
+    });
+    expect(finished.status).toBe(200);
+    const body = (await finished.json()) as {
+      startedAt: string;
+      endedAt: string;
+      status: string;
+      outletId: string;
+      error: string | null;
+    };
+    expect(body.startedAt.startsWith("2026-01-07T04:00:00")).toBe(true);
+    expect(body.endedAt.startsWith("2026-01-07T04:10:00")).toBe(true);
+    expect(body.status).toBe("succeeded");
+    expect(body.outletId).toBe(outletA);
+    expect(body.error).toBeNull();
+
+    const early = await call("POST", "/agent/v1/runs", tokenA, {
+      runId: `job-repeat-${suffix}`,
+      skill: "payout-zomato",
+      status: "failed",
+      endedAt: "2026-01-07T03:00:00.000Z",
+      error: "too early",
+    });
+    expect(early.status).toBe(400);
+    expect(((await early.json()) as { code: string }).code).toBe("invalid_body");
+    const still = await call("POST", "/agent/v1/runs", tokenA, {
+      runId: `job-repeat-${suffix}`,
+      skill: "payout-zomato",
+      status: "succeeded",
+      endedAt: "2026-01-07T04:10:00.000Z",
+    });
+    expect(await still.json()).toMatchObject({ status: "succeeded", error: null });
+  });
 });

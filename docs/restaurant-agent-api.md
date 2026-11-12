@@ -113,7 +113,7 @@ Response: `{ "upserted": 1 }`.
 
 `orders` is not a key. Send `delivered_orders` for the ops card and `payout_orders` for the payout file.
 
-These names are computed, not stored: `effective_discount_pct` (`discount_paise / gross_sales_paise`), `ads_pct` (`ad_spend_paise / gross_sales_paise`), `payout_pct` (`net_payout_paise / gross_sales_paise`), `burn_pct` (`1 - payout_pct`), `ops_aov_paise` (`ops_sales_paise / delivered_orders`), `gross_aov_paise` (`gross_sales_paise / delivered_orders`), and `fees_incl_gst_paise` (`commission_paise + platform_fees_paise + taxes_paise`). A combined fee tile uses `fees_incl_gst_paise` because Zomato's fee row includes GST on fees and Swiggy's does not. `aov_paise` is the on-screen average and is stored. The two computed AOV figures are not.
+These names are computed, not stored: `effective_discount_pct` (`discount_paise / gross_sales_paise`), `ads_pct` (`ad_spend_paise / gross_sales_paise`), `payout_pct` (`net_payout_paise / gross_sales_paise`), `burn_pct` (`1 - payout_pct`), `ops_aov_paise` (`ops_sales_paise / delivered_orders`), `gross_aov_paise` (`gross_sales_paise / delivered_orders`), and `fees_incl_gst_paise` (`commission_paise + platform_fees_paise + taxes_paise`). A combined fee tile uses `fees_incl_gst_paise` because Zomato's fee row includes GST on fees and Swiggy's does not. `commission_pg_gst_paise` is stored: it is the calculator's Comm.+PG+GST row as printed, and Swiggy's printed row excludes GST on fees. `aov_paise` is the on-screen average and is stored. The two computed AOV figures are not.
 
 | Key                                     | Unit    | Meaning                                                                                                                                   |
 | --------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
@@ -121,6 +121,7 @@ These names are computed, not stored: `effective_discount_pct` (`discount_paise 
 | `net_payout_paise`                      | paise   | Owner's Net Payout: commissionable value minus ads minus commission, other fees, and GST on fees. Not the amount paid under the bank UTR. |
 | `aov_paise`                             | paise   | Average order value as shown on the weekly ops screen. Not an average computed from payout sales.                                         |
 | `commission_paise`                      | paise   | Platform commission or base service fee only, not long-distance, payment-gateway, or GST on fees.                                         |
+| `commission_pg_gst_paise`               | paise   | The payout calculator's Comm.+PG+GST row: platform commission plus payment-gateway fees plus GST, as that row is printed. Swiggy's row excludes GST on fees. |
 | `platform_fees_paise`                   | paise   | Other platform fees besides commission, excluding GST on fees.                                                                            |
 | `taxes_paise`                           | paise   | 18% GST on platform fees only. Not customer GST, and not TDS or TCS.                                                                      |
 | `discount_paise`                        | paise   | Discounts the restaurant pays for. Not platform-funded discounts.                                                                         |
@@ -256,7 +257,9 @@ An action cannot skip from `proposed` to `executing` or `executed`.
 
 ## Runs
 
-`POST /agent/v1/runs` records one job. Post it when the job starts and again when it finishes. `runId` is your id for that job and is unique inside the restaurant. A second post with the same `runId` updates the row. The first `startedAt` is kept. A field you leave out stays as it was. Send `null` to clear an optional field. Do not reuse a `runId` for a different job.
+`POST /agent/v1/runs` records one job. Post it when the job starts and again when it finishes. `runId` is your id for that job and is unique inside the restaurant. A second post with the same `runId` updates the row. The first `startedAt` is kept. A field you leave out stays as it was. Send `null` to clear an optional field, except `startedAt`, which cannot be cleared. Do not reuse a `runId` for a different job.
+
+`startedAt` is required the first time a run is posted. Leaving it out then is `400` `invalid_body`. On a repeat post, leave `startedAt` out; the stored start time stays. A different `startedAt` on a repeat post does not replace the first one. When `endedAt` is sent, it must be at or after that stored start time.
 
 ```json
 {
@@ -271,6 +274,17 @@ An action cannot skip from `proposed` to `executing` or `executed`.
   "model": "example-model",
   "outletId": "ck...",
   "error": null
+}
+```
+
+A finish post can omit `startedAt`:
+
+```json
+{
+  "runId": "payout-2026-01-06",
+  "skill": "payout",
+  "status": "succeeded",
+  "endedAt": "2026-01-07T04:10:00.000Z"
 }
 ```
 

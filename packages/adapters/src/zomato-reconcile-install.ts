@@ -13,6 +13,7 @@ const BIN_SCRIPTS = [
   "payout-owner-reconcile",
   "payout-swiggy-reconcile",
   "payout-combined",
+  "agent-v1-post",
 ] as const;
 
 const LIB_FILES = [

@@ -1,0 +1,292 @@
+#!/usr/bin/env python3
+"""Send one payout job to the restaurant agent API (/agent/v1).
+
+The outlet is resolved from GET /agent/v1/restaurant by the platform id in the
+calculator result. No restaurant, outlet, or id is built in.
+
+Usage:
+  agent-v1-post start  --platform zomato|swiggy --run-id ID
+  agent-v1-post result --platform zomato|swiggy --run-id ID --result <calculator.json> [--screen <screen.json>]
+  agent-v1-post fail   --platform zomato|swiggy --run-id ID --error "short reason"
+
+Reads RESTAURANT_AGENT_TOKEN and RESTAURANT_AGENT_API_BASE_URL from the
+environment. Never prints or logs the token. `start` sends startedAt. `result`
+and `fail` omit it so a repeat post keeps the stored start time.
+"""
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+
+BASE = os.environ.get("RESTAURANT_AGENT_API_BASE_URL", "").rstrip("/")
+TOKEN = os.environ.get("RESTAURANT_AGENT_TOKEN", "")
+
+# Payout weeks are India civil dates, the same offset the agent API examples use.
+INDIA_OFFSET = "+05:30"
+
+CALCULATOR_ROWS = (
+    ("payout_orders", "Orders", "count"),
+    ("gross_sales_paise", "ST+PC", "paise"),
+    ("discount_paise", "Merchant Discount Burn", "paise"),
+    ("cv_paise", "CV", "paise"),
+    ("ad_spend_paise", "Ads", "paise"),
+    ("commission_pg_gst_paise", "Comm.+PG+GST", "paise"),
+    ("net_payout_paise", "Net Payout", "paise"),
+)
+
+
+def redact(text):
+    secret = TOKEN
+    if secret:
+        return text.replace(secret, "[redacted]")
+    return text
+
+
+def call(method, path, body=None):
+    data = None if body is None else json.dumps(body).encode()
+    request = urllib.request.Request(
+        BASE + path,
+        method=method,
+        data=data,
+        headers={"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            raw = response.read() or b"{}"
+            return response.status, json.loads(raw or b"{}")
+    except urllib.error.HTTPError as error:
+        try:
+            detail = json.loads(error.read() or b"{}")
+        except Exception:
+            detail = {}
+        if not isinstance(detail, dict):
+            detail = {}
+        message = (
+            f"{method} {path} -> HTTP {error.code} {detail.get('code', '')}: "
+            f"{detail.get('error', '')}"
+        )
+        print(redact(message))
+        sys.exit(1)
+    except Exception as error:
+        print(redact(f"{method} {path} failed: {error}"))
+        sys.exit(1)
+
+
+def now():
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def paise(value):
+    """Rupees to non-negative integer paise. Blank is missing, not zero."""
+    if value is None:
+        return None
+    text = str(value).replace(",", "").strip()
+    if text == "":
+        return None
+    try:
+        amount = abs(Decimal(text)) * 100
+    except InvalidOperation as error:
+        raise ValueError(f"Not a money amount: {text[:40]}") from error
+    return int(amount.quantize(Decimal("1"), ROUND_HALF_UP))
+
+
+def count_value(value):
+    if value is None:
+        return None
+    text = str(value).replace(",", "").strip()
+    if text == "":
+        return None
+    try:
+        return int(Decimal(text))
+    except InvalidOperation as error:
+        raise ValueError(f"Not a count: {text[:40]}") from error
+
+
+def match_outlet(outlets, platform, platform_id):
+    key = "resId" if platform == "zomato" else "rid"
+    wanted = str(platform_id)
+    matches = [
+        outlet
+        for outlet in outlets
+        if ((outlet.get(platform) or {}).get(key) == wanted)
+    ]
+    if len(matches) != 1:
+        raise LookupError(
+            f"No single outlet in this restaurant has {platform} id {wanted}; nothing sent."
+        )
+    return matches[0]["outletId"]
+
+
+def period_bounds(period):
+    start = date.fromisoformat(str(period[0])[:10])
+    end = date.fromisoformat(str(period[1])[:10]) + timedelta(days=1)
+    return (
+        f"{start.isoformat()}T00:00:00.000{INDIA_OFFSET}",
+        f"{end.isoformat()}T00:00:00.000{INDIA_OFFSET}",
+    )
+
+
+def metric_values(result, screen):
+    rows_in = result["rows"]
+    values = {}
+    for key, label, kind in CALCULATOR_ROWS:
+        raw = rows_in.get(label)
+        values[key] = count_value(raw) if kind == "count" else paise(raw)
+    values["platform_net_payout_paise"] = paise(result.get("platform_net"))
+    paid = result.get("paid_amount")
+    if paid in (None, ""):
+        paid = (screen or {}).get("paid_amount")
+    values["paid_amount_paise"] = paise(paid)
+    return values
+
+
+def metrics_body(run_id, platform, outlet_id, result, screen, captured_at):
+    start, end = period_bounds(result["period"])
+    rows = [
+        {
+            "outletId": outlet_id,
+            "platform": platform,
+            "granularity": "week",
+            "periodStart": start,
+            "periodEnd": end,
+            "key": key,
+            "value": value,
+        }
+        for key, value in metric_values(result, screen).items()
+    ]
+    body = {
+        "runId": run_id,
+        "source": "payout-export",
+        "capturedAt": captured_at,
+        "rows": rows,
+    }
+    return body, start, end
+
+
+def report_body(run_id, platform, outlet_id, result, summary, period_start, period_end):
+    status = "green" if result.get("paid_match") else "amber"
+    nonce = f"{run_id}-report"
+    return {
+        "type": f"weekly-payout-{platform}",
+        "outletId": outlet_id,
+        "periodStart": period_start,
+        "periodEnd": period_end,
+        "status": status,
+        "summaryMarkdown": summary[:20000],
+        "files": [],
+        "clientNonce": nonce[:200],
+    }, status
+
+
+def skill_name(platform):
+    return f"payout-{platform}"
+
+
+def start_body(run_id, platform):
+    return {
+        "runId": run_id,
+        "skill": skill_name(platform),
+        "status": "running",
+        "startedAt": now(),
+    }
+
+
+def finish_body(run_id, platform, status, **extra):
+    """A repeat post. startedAt is omitted so the stored start time stays."""
+    body = {
+        "runId": run_id,
+        "skill": skill_name(platform),
+        "status": status,
+        "endedAt": now(),
+    }
+    body.update(extra)
+    return body
+
+
+def outlet_for(platform, platform_id):
+    _, restaurant = call("GET", "/agent/v1/restaurant")
+    return match_outlet(restaurant["outlets"], platform, platform_id)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("mode", choices=["start", "result", "fail"])
+    parser.add_argument("--platform", required=True, choices=["zomato", "swiggy"])
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--result")
+    parser.add_argument("--screen")
+    parser.add_argument("--error", default="")
+    args = parser.parse_args(argv)
+    if not BASE or not TOKEN:
+        print("Restaurant agent API is not configured on this computer.")
+        return 1
+    if args.mode == "start":
+        _, run = call("POST", "/agent/v1/runs", start_body(args.run_id, args.platform))
+        print("run recorded:", run["status"])
+        return 0
+    if args.mode == "fail":
+        reason = (args.error or "failed")[:500]
+        _, run = call(
+            "POST",
+            "/agent/v1/runs",
+            finish_body(args.run_id, args.platform, "failed", error=reason),
+        )
+        print("run recorded:", run["status"])
+        return 0
+    if not args.result:
+        print("result needs --result")
+        return 2
+    with open(args.result, encoding="utf-8") as handle:
+        result = json.load(handle)
+    screen = {}
+    if args.screen:
+        with open(args.screen, encoding="utf-8") as handle:
+            screen = json.load(handle)
+    try:
+        outlet_id = outlet_for(args.platform, result["outlet_id"])
+        metrics, period_start, period_end = metrics_body(
+            args.run_id, args.platform, outlet_id, result, screen, now()
+        )
+    except (LookupError, ValueError, KeyError) as error:
+        print(redact(str(error)))
+        return 1
+    _, stored = call("PUT", "/agent/v1/metrics", metrics)
+    markdown = os.path.splitext(args.result)[0] + ".md"
+    if os.path.exists(markdown):
+        with open(markdown, encoding="utf-8") as handle:
+            summary = handle.read()
+    else:
+        summary = json.dumps(result["rows"])
+    report, status = report_body(
+        args.run_id,
+        args.platform,
+        outlet_id,
+        result,
+        summary,
+        period_start,
+        period_end,
+    )
+    call("POST", "/agent/v1/reports", report)
+    _, run = call(
+        "POST",
+        "/agent/v1/runs",
+        finish_body(
+            args.run_id,
+            args.platform,
+            "succeeded",
+            outletId=outlet_id,
+            error=None,
+        ),
+    )
+    print(
+        f"agent API: {stored.get('upserted')} metrics stored, report {status}, run {run['status']}"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
