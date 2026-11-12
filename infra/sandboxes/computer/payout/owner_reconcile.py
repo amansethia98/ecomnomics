@@ -8,6 +8,7 @@ from collections import Counter
 from datetime import datetime,timedelta
 from zoneinfo import ZoneInfo
 import reconcile_base as b
+from download_finder import find_download, zomato_pattern
 LABELS=['Orders','ST+PC','Merchant Discount Burn','Effective Discount %','CV','Ads','Ads %','Comm.+PG+GST','Net Payout','Payout %','Burn %']
 MEANINGS=['Total number of orders','Total Sales','Discounts given by restaurant','discount %','commissionable value','ads spent','ads spent against total sales','commission + pg + gst','total amount in bank account','% of sales in bank account','% of burn']
 def q(v):return b.cents(D(str(v)))
@@ -137,8 +138,13 @@ def render(report):
  for label,meaning in zip(LABELS,MEANINGS):
   value=values[label];text=value if label=='Orders' else (f'{q(value):.2f}%' if '%' in label else rupee(value));bold=label in ('Net Payout','Payout %');out.append('| '+('**'+label+'**' if bold else label)+' | '+meaning+' | '+('**'+text+'**' if bold else text)+' |')
  out+=['','Notes:']+['- '+x for x in report['notes']];return '\n'.join(out)
+def pick_workbook(a,args,config):
+ if bool(args.workbook)==bool(args.find_in):a.error('pass either a workbook or --find-in <download folder>')
+ if args.workbook:return Path(args.workbook)
+ if not config.get('outlet_id'):raise ValueError('--find-in needs outlet_id in the settings')
+ path=find_download(args.find_in,zomato_pattern(config['outlet_id']),args.since);print('Using download: '+path.name);return path
 def main(argv=None):
- a=argparse.ArgumentParser();a.add_argument('workbook');a.add_argument('--config',required=True);a.add_argument('--screen',required=True);args=a.parse_args(argv);path=Path(args.workbook);config=json.loads(Path(args.config).read_text());screen=json.loads(Path(args.screen).read_text());report=parse(path,config,screen);text=render(report);stem=path.with_name(path.stem+'-owner-reconciliation');stem.with_suffix('.json').write_text(json.dumps(report,indent=2,ensure_ascii=False));stem.with_suffix('.md').write_text(text)
+ a=argparse.ArgumentParser();a.add_argument('workbook',nargs='?');a.add_argument('--find-in',help='download folder: take the newest settlement report for the configured outlet');a.add_argument('--since',type=float,default=0.0);a.add_argument('--config',required=True);a.add_argument('--screen',required=True);args=a.parse_args(argv);config=json.loads(Path(args.config).read_text());path=pick_workbook(a,args,config);screen=json.loads(Path(args.screen).read_text());report=parse(path,config,screen);text=render(report);stem=path.with_name(path.stem+'-owner-reconciliation');stem.with_suffix('.json').write_text(json.dumps(report,indent=2,ensure_ascii=False));stem.with_suffix('.md').write_text(text)
  with stem.with_suffix('.csv').open('w') as f:
   writer=csv.writer(f);writer.writerow(['Terms','What it means','Zomato']);writer.writerows((l,m,report['rows'][l]) for l,m in zip(LABELS,MEANINGS))
  b.write_workbook(str(stem.with_suffix('.xlsx')),{'Summary':[['Terms','What it means','Zomato'],*[[l,m,report['rows'][l]] for l,m in zip(LABELS,MEANINGS)],[],['Notes'],*[[x] for x in report['notes']]]});print(text);print('\nOUTPUT: '+str(stem)+'.md / .json / .csv / .xlsx')

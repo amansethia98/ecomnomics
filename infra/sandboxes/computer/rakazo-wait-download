@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""Wait for a file a page download is still saving, and print where it is.
+
+  rakazo-wait-download --dir Downloads --pattern 'invoice_Annexure_*' --since <epoch seconds> --timeout 120
+
+Matches the site's own file name. Prints one JSON line: {"ok": true, "name", "path", "size", "mtime"},
+or {"ok": false, "error", "downloading"} and exits 3 when nothing finished in time. It never renames
+a file to fit the pattern; a download still under Chromium's temporary name is waited for.
+"""
+import argparse
+import json
+import os
+import subprocess
+import sys
+
+parser = argparse.ArgumentParser(description=__doc__.split("\n")[1])
+parser.add_argument("--dir", default="Downloads", help="the download folder (default: ./Downloads)")
+parser.add_argument("--pattern", default="", help="shell-style pattern for the site's file name")
+parser.add_argument("--since", type=float, default=0.0, help="only files saved at or after this epoch second")
+parser.add_argument("--timeout", type=float, default=120.0, help="seconds to wait (at most 600)")
+args = parser.parse_args()
+helper = os.environ.get("RAKAZO_PAGE_BROWSER") or "/usr/local/bin/rakazo-page-browser"
+request = {"dir": args.dir, "pattern": args.pattern, "since": args.since, "timeout": args.timeout}
+sys.exit(subprocess.call([sys.executable, helper, "wait_download", json.dumps(request)]))

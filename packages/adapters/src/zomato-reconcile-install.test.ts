@@ -23,6 +23,7 @@ const libraries = [
   "payout/combined_owner.py",
   "payout/outlet_map.py",
   "payout/reconciliation_policy.py",
+  "payout/download_finder.py",
   "payout/owner-confirmed-outlet-map.csv",
   "payout/examples/outlet-settings.example.json",
   "payout/examples/swiggy-settings.example.json",
