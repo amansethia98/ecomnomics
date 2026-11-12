@@ -309,8 +309,48 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
     const rows = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
       db.metricValue.findMany({ where: { outletId: outletA, key: "delivered_orders" } }),
     );
-    expect(rows).toHaveLength(1);
-    expect(Number(rows[0]?.value?.toString())).toBe(9);
+    const current = rows.filter((row) => row.supersededAt == null);
+    const previous = rows.filter((row) => row.supersededAt != null);
+    expect(current).toHaveLength(1);
+    expect(previous).toHaveLength(1);
+    expect(Number(current[0]?.value?.toString())).toBe(9);
+    expect(Number(previous[0]?.value?.toString())).toBe(4);
+    expect(current[0]?.periodStart.toISOString()).toBe("2026-01-06T00:00:00.000Z");
+    expect(current[0]?.periodEnd.toISOString()).toBe("2026-01-07T00:00:00.000Z");
+
+    await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricValue.create({
+        data: {
+          restaurantId: current[0]!.restaurantId,
+          spaceId: spaceA,
+          outletId: outletA,
+          platform: "zomato",
+          granularity: "day",
+          periodStart: new Date("2026-01-08T00:00:00.000+05:30"),
+          periodEnd: new Date("2026-01-09T00:00:00.000+05:30"),
+          key: "delivered_orders",
+          value: 3,
+          runId: "legacy-ist",
+          source: "export",
+          capturedAt: new Date("2026-01-09T05:00:00.000Z"),
+        },
+      }),
+    );
+    const readDay = async (from: string, to: string) => {
+      const response = await call(
+        "GET",
+        `/agent/v1/metrics?outletId=${outletA}&platform=zomato&from=${from}&to=${to}`,
+        tokenA,
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        values: Array<{ key: string; value: number | null }>;
+      };
+      return body.values.find((value) => value.key === "delivered_orders")?.value;
+    };
+    expect(await readDay("2026-01-06", "2026-01-07")).toBe(9);
+    expect(await readDay("2026-01-07", "2026-01-08")).toBeNull();
+    expect(await readDay("2026-01-08", "2026-01-09")).toBe(3);
 
     const foreign = await call("PUT", "/agent/v1/metrics", tokenA, {
       runId: "metrics-2",

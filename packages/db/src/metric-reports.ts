@@ -1,19 +1,23 @@
 import { createHash } from "node:crypto";
-import type { IngestMetricReportInput, ReadMetricsQuery } from "@rakazo/contracts";
+import type { IngestMetricReportInput, ReadMetricsQuery, StoredWindowRow } from "@rakazo/contracts";
 import {
+  civilDayBounds,
+  civilRangeBounds,
   comparePlatformValue,
   evaluateBusinessReport,
   FILE_IDENTITY_ATTEMPT_LIMIT,
+  indiaCivilDate,
   METRIC_PARSER_VERSION,
   missingPlatformIdReason,
   planReplaceWindow,
   reportGranularity,
   rollupMetrics,
+  utcMidnight,
 } from "@rakazo/contracts";
 import type { PrismaClient } from "./client.js";
 import type { Prisma } from "./generated/prisma/client.js";
 import type { RestaurantScope } from "./restaurant-agent.js";
-import { RestaurantAgentError } from "./restaurant-agent.js";
+import { lockMetricWindow, metricWindowLockKey, RestaurantAgentError } from "./restaurant-agent.js";
 
 export interface IngestMetricReportResult {
   fetchId: string;
@@ -24,16 +28,8 @@ export interface IngestMetricReportResult {
   checks: number;
 }
 
-function utcDate(iso: string): Date {
-  return new Date(`${iso}T00:00:00.000Z`);
-}
-
-function isoDay(value: Date): string {
-  return value.toISOString().slice(0, 10);
-}
-
 function indiaToday(now = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(now);
+  return indiaCivilDate(now);
 }
 
 function sha256(text: string): string {
@@ -54,8 +50,8 @@ export async function ingestBusinessReport(
   }
   const restaurantId = input.platform === "zomato" ? outlet.zomatoResId : outlet.swiggyRid;
   const digest = sha256(input.csv);
-  const requestedStart = utcDate(input.periodStart);
-  const requestedEnd = utcDate(input.periodEnd);
+  const requestedStart = utcMidnight(input.periodStart);
+  const requestedEnd = utcMidnight(input.periodEnd);
   const capturedAt = new Date(input.capturedAt);
   if (!restaurantId) {
     const reason = missingPlatformIdReason(input.platform);
@@ -177,6 +173,20 @@ export async function ingestBusinessReport(
   const periods = evaluation.observed.periods;
   const ownedKeys = [...new Set(evaluation.rows.map((row) => row.key))];
   const result = await db.$transaction(async (tx) => {
+    const locks = [
+      ...new Set(
+        periods.map((period) =>
+          metricWindowLockKey({
+            outletId: input.outletId,
+            platform: input.platform,
+            granularity,
+            periodStart: period.start,
+            periodEnd: period.end,
+          }),
+        ),
+      ),
+    ].sort();
+    for (const key of locks) await lockMetricWindow(tx, key);
     const fetch = await tx.metricFetch.create({
       data: fetchData(scope, input, {
         status: "stored",
@@ -199,22 +209,39 @@ export async function ingestBusinessReport(
         granularity,
         supersededAt: null,
         key: { in: ownedKeys },
-        OR: periods.map((period) => ({
-          periodStart: utcDate(period.start),
-          periodEnd: utcDate(period.end),
-        })),
+        OR: periods.map((period) => {
+          const start = civilDayBounds(period.start);
+          const end = civilDayBounds(period.end);
+          return {
+            periodStart: { gte: start.start, lt: start.end },
+            periodEnd: { gte: end.start, lt: end.end },
+          };
+        }),
       },
     });
-    const plan = planReplaceWindow(
-      existing.map((row) => ({
+    const mapped: StoredWindowRow[] = [];
+    const duplicateIds: string[] = [];
+    const seen = new Set<string>();
+    for (const row of existing) {
+      const item = {
         id: row.id,
         key: row.key,
-        periodStart: isoDay(row.periodStart),
-        periodEnd: isoDay(row.periodEnd),
-        rowRole: row.rowRole === "platform_check" ? "platform_check" : "fact",
+        periodStart: indiaCivilDate(row.periodStart),
+        periodEnd: indiaCivilDate(row.periodEnd),
+        rowRole: row.rowRole === "platform_check" ? ("platform_check" as const) : ("fact" as const),
         value: row.value == null ? null : Number(row.value.toString()),
         source: row.source,
-      })),
+      };
+      const slot = `${item.periodStart}\t${item.periodEnd}\t${item.key}\t${item.rowRole}`;
+      if (seen.has(slot)) {
+        duplicateIds.push(row.id);
+        continue;
+      }
+      seen.add(slot);
+      mapped.push(item);
+    }
+    const plan = planReplaceWindow(
+      mapped,
       evaluation.rows.map((row) => ({
         key: row.key,
         periodStart: row.periodStart,
@@ -224,9 +251,10 @@ export async function ingestBusinessReport(
         source: row.source,
       })),
     );
-    if (plan.supersedeIds.length > 0) {
+    const supersedeIds = [...plan.supersedeIds, ...duplicateIds];
+    if (supersedeIds.length > 0) {
       await tx.metricValue.updateMany({
-        where: { id: { in: plan.supersedeIds } },
+        where: { id: { in: supersedeIds } },
         data: { supersededAt: capturedAt },
       });
     }
@@ -238,8 +266,8 @@ export async function ingestBusinessReport(
           outletId: input.outletId,
           platform: input.platform,
           granularity,
-          periodStart: utcDate(row.periodStart),
-          periodEnd: utcDate(row.periodEnd),
+          periodStart: utcMidnight(row.periodStart),
+          periodEnd: utcMidnight(row.periodEnd),
           key: row.key,
           rowRole: row.rowRole,
           value: row.value,
@@ -257,8 +285,8 @@ export async function ingestBusinessReport(
           spaceId: scope.spaceId,
           outletId: input.outletId,
           platform: input.platform,
-          periodStart: utcDate(item.periodStart),
-          periodEnd: utcDate(item.periodEnd),
+          periodStart: utcMidnight(item.periodStart),
+          periodEnd: utcMidnight(item.periodEnd),
           rank: item.rank,
           itemName: item.itemName,
           revenuePaise: item.revenuePaise,
@@ -270,7 +298,7 @@ export async function ingestBusinessReport(
     return {
       fetchId: fetch.id,
       written: plan.inserts.length,
-      superseded: plan.supersedeIds.length,
+      superseded: supersedeIds.length,
       checks,
     };
   });
@@ -289,6 +317,7 @@ async function writeChecks(
   const granularity = reportGranularity(input.platform, input.report);
   let written = 0;
   for (const period of evaluation.observed.periods) {
+    const range = civilRangeBounds(period.start, period.end);
     const facts = await tx.metricValue.findMany({
       where: {
         outletId: input.outletId,
@@ -296,7 +325,7 @@ async function writeChecks(
         granularity: "day",
         rowRole: "fact",
         supersededAt: null,
-        periodStart: { gte: utcDate(period.start), lt: utcDate(period.end) },
+        periodStart: { gte: range.start, lt: range.end },
       },
     });
     const rollup = rollupMetrics(
@@ -304,8 +333,8 @@ async function writeChecks(
         key: row.key,
         platform: input.platform,
         granularity: row.granularity,
-        periodStart: isoDay(row.periodStart),
-        periodEnd: isoDay(row.periodEnd),
+        periodStart: indiaCivilDate(row.periodStart),
+        periodEnd: indiaCivilDate(row.periodEnd),
         value: row.value == null ? null : Number(row.value.toString()),
         rowRole: "fact" as const,
       })),
@@ -340,8 +369,8 @@ async function writeChecks(
         outletId: input.outletId,
         platform: input.platform,
         key: row.key,
-        periodStart: utcDate(period.start),
-        periodEnd: utcDate(period.end),
+        periodStart: utcMidnight(period.start),
+        periodEnd: utcMidnight(period.end),
         rebuiltValue: rebuilt.get(row.key) ?? null,
         platformValue: row.value,
         gap: comparison.gap,
@@ -398,8 +427,8 @@ function fetchData(
     observedRestaurantId: details.observed?.restaurantId ?? null,
     observedName: details.observed?.name ?? null,
     observedCity: details.observed?.city ?? null,
-    observedPeriodStart: first ? utcDate(first.start) : null,
-    observedPeriodEnd: last ? utcDate(last.end) : null,
+    observedPeriodStart: first ? utcMidnight(first.start) : null,
+    observedPeriodEnd: last ? utcMidnight(last.end) : null,
     observedLabels: details.observed?.periods.map((period) => period.label).join(", ") ?? null,
     sha256: details.digest,
     attemptCount: details.attempt,
@@ -424,8 +453,7 @@ export async function readMetrics(
     throw new RestaurantAgentError("unknown_outlet", 422, "Outlet is not part of this restaurant.");
   }
   const platforms = query.platform === "combined" ? ["zomato", "swiggy"] : [query.platform];
-  const from = utcDate(query.from);
-  const to = utcDate(query.to);
+  const range = civilRangeBounds(query.from, query.to);
   const stored = await db.metricValue.findMany({
     where: {
       restaurantId: scope.restaurantId,
@@ -433,10 +461,7 @@ export async function readMetrics(
       outletId: query.outletId,
       platform: { in: platforms },
       supersededAt: null,
-      OR: [
-        { granularity: "day", periodStart: { gte: from, lt: to } },
-        { periodStart: from, periodEnd: to },
-      ],
+      periodStart: { gte: range.start, lt: range.end },
     },
   });
   return rollupMetrics(
@@ -448,8 +473,8 @@ export async function readMetrics(
           key: row.key,
           platform: row.platform,
           granularity: row.granularity,
-          periodStart: isoDay(row.periodStart),
-          periodEnd: isoDay(row.periodEnd),
+          periodStart: indiaCivilDate(row.periodStart),
+          periodEnd: indiaCivilDate(row.periodEnd),
           value: row.value == null ? null : Number(row.value.toString()),
           rowRole: row.rowRole,
         },

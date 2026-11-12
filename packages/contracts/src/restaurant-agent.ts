@@ -9,6 +9,12 @@ import {
   requireMetric,
 } from "./metric-dictionary.js";
 
+export {
+  civilDayBounds,
+  civilRangeBounds,
+  indiaCivilDate,
+  utcMidnight,
+} from "./metric-dates.js";
 export type {
   AggregationKind,
   CheckRule,

@@ -7,7 +7,14 @@ import type {
   PatchActionInput,
   PutMetricsInput,
 } from "@rakazo/contracts";
-import { AGENT_TOKEN_PREFIX, actionTransition, isValidTimeZone } from "@rakazo/contracts";
+import {
+  AGENT_TOKEN_PREFIX,
+  actionTransition,
+  civilDayBounds,
+  indiaCivilDate,
+  isValidTimeZone,
+  utcMidnight,
+} from "@rakazo/contracts";
 import type { PrismaClient } from "./client.js";
 import { Prisma } from "./generated/prisma/client.js";
 import { notifyRestaurantAgentReady } from "./restaurant-agent-access.js";
@@ -443,28 +450,52 @@ export async function upsertMetrics(
     throw new RestaurantAgentError("unknown_outlet", 422, "Outlet is not part of this restaurant.");
   }
   const capturedAt = new Date(input.capturedAt);
+  const prepared = input.rows.map((row) => {
+    const start = indiaCivilDate(new Date(row.periodStart));
+    const end = indiaCivilDate(new Date(row.periodEnd));
+    return { row, start, end, periodStart: utcMidnight(start), periodEnd: utcMidnight(end) };
+  });
+  const locks = [
+    ...new Set(
+      prepared.map((item) =>
+        metricWindowLockKey({
+          outletId: item.row.outletId,
+          platform: item.row.platform,
+          granularity: item.row.granularity,
+          periodStart: item.start,
+          periodEnd: item.end,
+        }),
+      ),
+    ),
+  ].sort();
   const upserted = await db.$transaction(async (tx) => {
+    for (const key of locks) await lockMetricWindow(tx, key);
     let written = 0;
-    for (const row of input.rows) {
-      const periodStart = new Date(row.periodStart);
-      const periodEnd = new Date(row.periodEnd);
-      const stored = storedMetricValue(row.value);
-      const current = await tx.metricValue.findFirst({
+    for (const item of prepared) {
+      const stored = storedMetricValue(item.row.value);
+      const day = civilDayBounds(item.start);
+      const end = civilDayBounds(item.end);
+      const matches = await tx.metricValue.findMany({
         where: {
-          outletId: row.outletId,
-          platform: row.platform,
-          granularity: row.granularity,
-          periodStart,
-          periodEnd,
-          key: row.key,
+          outletId: item.row.outletId,
+          platform: item.row.platform,
+          granularity: item.row.granularity,
+          key: item.row.key,
           rowRole: "fact",
           supersededAt: null,
+          periodStart: { gte: day.start, lt: day.end },
+          periodEnd: { gte: end.start, lt: end.end },
         },
       });
-      if (current && sameMetricValue(current, stored)) continue;
-      if (current) {
-        await tx.metricValue.update({
-          where: { id: current.id },
+      const canonical = matches.find(
+        (row) =>
+          row.periodStart.getTime() === item.periodStart.getTime() &&
+          row.periodEnd.getTime() === item.periodEnd.getTime(),
+      );
+      if (matches.length === 1 && canonical && sameMetricValue(canonical, stored)) continue;
+      if (matches.length > 0) {
+        await tx.metricValue.updateMany({
+          where: { id: { in: matches.map((row) => row.id) } },
           data: { supersededAt: capturedAt },
         });
       }
@@ -472,12 +503,12 @@ export async function upsertMetrics(
         data: {
           restaurantId: scope.restaurantId,
           spaceId: scope.spaceId,
-          outletId: row.outletId,
-          platform: row.platform,
-          granularity: row.granularity,
-          periodStart,
-          periodEnd,
-          key: row.key,
+          outletId: item.row.outletId,
+          platform: item.row.platform,
+          granularity: item.row.granularity,
+          periodStart: item.periodStart,
+          periodEnd: item.periodEnd,
+          key: item.row.key,
           rowRole: "fact",
           ...stored,
           runId: input.runId,
@@ -490,6 +521,29 @@ export async function upsertMetrics(
     return written;
   });
   return { upserted };
+}
+
+/** One lock per outlet window so two replacements cannot insert the same current row. */
+export function metricWindowLockKey(parts: {
+  outletId: string;
+  platform: string;
+  granularity: string;
+  periodStart: string;
+  periodEnd: string;
+}): string {
+  return [
+    parts.outletId,
+    parts.platform,
+    parts.granularity,
+    parts.periodStart,
+    parts.periodEnd,
+  ].join("\t");
+}
+
+export async function lockMetricWindow(tx: Prisma.TransactionClient, key: string): Promise<void> {
+  await tx.$queryRaw(Prisma.sql`
+    SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))::text AS "lock"
+  `);
 }
 
 function sameMetricValue(

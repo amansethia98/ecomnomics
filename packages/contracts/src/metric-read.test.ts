@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { isoWeekRange } from "./metric-dates.js";
+import { civilRangeBounds, indiaCivilDate, isoWeekRange } from "./metric-dates.js";
 import {
   CROSS_PLATFORM_KEYS,
   METRIC_DEFINITIONS,
@@ -485,5 +485,24 @@ describe("dictionary", () => {
     expect(money).toEqual({ mode: "absolute", amount: 100, relative: 0 });
     const orders = resolveCheck("delivered_orders", "swiggy", "day");
     expect(orders).toEqual({ mode: "absolute", amount: 0 });
+  });
+});
+
+describe("civil metric dates", () => {
+  it("treats India midnight and UTC midnight as the same civil day", () => {
+    const india = new Date("2026-01-06T00:00:00.000+05:30");
+    const utc = new Date("2026-01-06T00:00:00.000Z");
+    const nextIndia = new Date("2026-01-07T00:00:00.000+05:30");
+    expect(indiaCivilDate(india)).toBe("2026-01-06");
+    expect(indiaCivilDate(utc)).toBe("2026-01-06");
+    expect(indiaCivilDate(nextIndia)).toBe("2026-01-07");
+    const day = civilRangeBounds("2026-01-06", "2026-01-07");
+    expect(india.getTime() >= day.start.getTime() && india.getTime() < day.end.getTime()).toBe(
+      true,
+    );
+    expect(utc.getTime() >= day.start.getTime() && utc.getTime() < day.end.getTime()).toBe(true);
+    expect(
+      nextIndia.getTime() >= day.start.getTime() && nextIndia.getTime() < day.end.getTime(),
+    ).toBe(false);
   });
 });

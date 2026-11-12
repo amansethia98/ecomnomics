@@ -1,5 +1,35 @@
 /** ISO dates, interpreted as civil days. India has no daylight-saving shift. */
 
+const INDIA = "Asia/Kolkata";
+
+/** Calendar date of an instant in Asia/Kolkata. */
+export function indiaCivilDate(value: Date): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: INDIA }).format(value);
+}
+
+/** Midnight at the start of an Asia/Kolkata civil date. The offset is fixed. */
+export function indiaMidnight(iso: string): Date {
+  return new Date(`${iso}T00:00:00.000+05:30`);
+}
+
+/**
+ * UTC midnight of a civil date. Metric windows are stored on these instants.
+ * A row written earlier may instead sit on `indiaMidnight` of the same date.
+ */
+export function utcMidnight(iso: string): Date {
+  return new Date(`${iso}T00:00:00.000Z`);
+}
+
+/** Inclusive start and exclusive end, covering both stored forms of each civil day. */
+export function civilRangeBounds(from: string, to: string): { start: Date; end: Date } {
+  return { start: indiaMidnight(from), end: indiaMidnight(to) };
+}
+
+/** Both stored instants of one civil day's midnight, and the next civil midnight. */
+export function civilDayBounds(iso: string): { start: Date; end: Date } {
+  return civilRangeBounds(iso, addIsoDays(iso, 1));
+}
+
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 
 export function addIsoDays(iso: string, days: number): string {
