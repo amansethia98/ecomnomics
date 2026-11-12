@@ -1,250 +1,63 @@
 import * as z from "zod";
 import { commandVariableName } from "./bot-secrets.js";
+import type { MetricKey } from "./metric-dictionary.js";
+import {
+  GRANULARITIES,
+  METRIC_DEFINITIONS,
+  METRIC_KEYS,
+  RETIRED_METRIC_KEYS,
+  requireMetric,
+} from "./metric-dictionary.js";
 
-/**
- * How a stored metric value is checked. Money is integer paise. A missing
- * figure is null, never a guessed zero. Derived figures are not keys.
- */
-export const METRIC_UNITS = [
-  "paise",
-  "count",
-  "percent",
-  "rating",
-  "minutes",
-  "hours",
-  "ratio",
-  "boolean",
-] as const;
-export type MetricUnit = (typeof METRIC_UNITS)[number];
-
-type MetricDefinition = { readonly unit: MetricUnit; readonly definition: string };
-
-/**
- * Canonical metric keys. Source fields and the figures that must stay derived
- * live in docs/metric-dictionary.md. `orders` is not a key: send
- * `delivered_orders` or `payout_orders`.
- */
-export const METRIC_DEFINITIONS = {
-  gross_sales_paise: {
-    unit: "paise",
-    definition:
-      "Item total plus packaging (ST+PC), before GST and before restaurant-funded discounts. Not the weekly ops Sales tile.",
-  },
-  net_payout_paise: {
-    unit: "paise",
-    definition:
-      "Owner's Net Payout: commissionable value minus ads minus commission, other fees, and GST on fees. Not the amount paid under the bank UTR.",
-  },
-  aov_paise: {
-    unit: "paise",
-    definition:
-      "Average order value as shown on the weekly ops screen. Not an average computed from payout sales.",
-  },
-  commission_paise: {
-    unit: "paise",
-    definition:
-      "Platform commission or base service fee only, not long-distance, payment-gateway, or GST on fees.",
-  },
-  commission_pg_gst_paise: {
-    unit: "paise",
-    definition:
-      "The payout calculator's Comm.+PG+GST row: platform commission plus payment-gateway fees plus GST, as that row is printed. Swiggy's row excludes GST on fees.",
-  },
-  platform_fees_paise: {
-    unit: "paise",
-    definition: "Other platform fees besides commission, excluding GST on fees.",
-  },
-  taxes_paise: {
-    unit: "paise",
-    definition: "18% GST on platform fees only. Not customer GST, and not TDS or TCS.",
-  },
-  discount_paise: {
-    unit: "paise",
-    definition: "Discounts the restaurant pays for. Not platform-funded discounts.",
-  },
-  ad_spend_paise: {
-    unit: "paise",
-    definition: "Ads charged to the restaurant for that period, counted once.",
-  },
-  ad_orders: {
-    unit: "count",
-    definition: "Orders attributed to ads.",
-  },
-  cancelled_orders: {
-    unit: "count",
-    definition:
-      "Cancelled orders for this platform. Do not add Zomato and Swiggy figures together.",
-  },
-  rating: {
-    unit: "rating",
-    definition: "Average customer star rating, from 0 to 5.",
-  },
-  menu_conversion_pct: {
-    unit: "percent",
-    definition:
-      "Starter funnel rate. Prefer impressions_to_menu_pct, menu_to_cart_pct, and cart_to_orders_pct until one meaning is chosen.",
-  },
-  delivered_orders: {
-    unit: "count",
-    definition: "Orders delivered in the ops week (what the ops card means by orders).",
-  },
-  payout_orders: {
-    unit: "count",
-    definition:
-      "Payout-file total orders: delivered plus cancelled or rejected, for the payout period.",
-  },
-  ops_sales_paise: {
-    unit: "paise",
-    definition: "Sales as shown on the weekly ops dashboard, stored separately from gross sales.",
-  },
-  bad_orders_pct: {
-    unit: "percent",
-    definition: "Share of orders Zomato treats as bad.",
-  },
-  rejected_orders: {
-    unit: "count",
-    definition: "Rejected orders in Zomato's bad-orders breakdown.",
-  },
-  delayed_orders: {
-    unit: "count",
-    definition: "Orders delayed past the kitchen or prep threshold.",
-  },
-  poor_rated_orders: {
-    unit: "count",
-    definition: "Orders with a poor customer rating.",
-  },
-  bad_order_complaints: {
-    unit: "count",
-    definition:
-      "Complaints slice inside Zomato's bad-orders breakdown. It can differ from total complaints.",
-  },
-  complaints: {
-    unit: "count",
-    definition: "Total complaints for the week.",
-  },
-  lost_sales_paise: {
-    unit: "paise",
-    definition: "Sales Zomato reports as lost, for example from being offline or rejecting.",
-  },
-  cancelled_order_loss_paise: {
-    unit: "paise",
-    definition: "Money Swiggy reports as lost to restaurant-cancelled orders.",
-  },
-  online_pct: {
-    unit: "percent",
-    definition: "Share of time the outlet was online or available.",
-  },
-  kpt_minutes: {
-    unit: "minutes",
-    definition: "Kitchen preparation time, in minutes to one decimal.",
-  },
-  food_ready_accuracy_pct: {
-    unit: "percent",
-    definition: "Swiggy food-ready accuracy (MFR) on the weekly screen.",
-  },
-  for_accuracy_pct: {
-    unit: "percent",
-    definition: "Zomato food-order-ready accuracy, from the monthly export only.",
-  },
-  offline_time_hours: {
-    unit: "hours",
-    definition: "Time the outlet was offline, in hours.",
-  },
-  rated_orders: {
-    unit: "count",
-    definition: "How many orders received a rating.",
-  },
-  lag_banner: {
-    unit: "boolean",
-    definition:
-      "Whether Swiggy showed the 48-hour lag banner on this week. The numbers on screen are still stored.",
-  },
-  cv_paise: {
-    unit: "paise",
-    definition:
-      "Commissionable value: item total plus packaging, minus the restaurant-funded discount.",
-  },
-  platform_net_payout_paise: {
-    unit: "paise",
-    definition: "The platform's own net payout figure, before comparing it to the bank.",
-  },
-  paid_amount_paise: {
-    unit: "paise",
-    definition: "Amount marked paid on the Payouts screen, tied to a bank UTR.",
-  },
-  tds_paise: {
-    unit: "paise",
-    definition: "Tax deducted at source and withheld from the payout. A tax credit, not a cost.",
-  },
-  tcs_paise: {
-    unit: "paise",
-    definition: "Tax collected at source, including TCS IGST where it is present.",
-  },
-  gst_collected_paise: {
-    unit: "paise",
-    definition: "GST collected from customers. Not restaurant revenue on delivery orders.",
-  },
-  complaints_cancellation_charges_paise: {
-    unit: "paise",
-    definition: "Complaint refunds and cancellation charges deducted from the payout.",
-  },
-  placed_orders: {
-    unit: "count",
-    definition: "Orders placed in the calendar month.",
-  },
-  ads_sales_paise: {
-    unit: "paise",
-    definition: "Sales from ads.",
-  },
-  ads_roi: {
-    unit: "ratio",
-    definition: "Platform-reported ads ROI. Not a 0 to 100 percent.",
-  },
-  ads_ctr_pct: {
-    unit: "percent",
-    definition: "Ads click-through rate.",
-  },
-  impressions: {
-    unit: "count",
-    definition: "Menu impressions.",
-  },
-  menu_opens: {
-    unit: "count",
-    definition: "Menu opens.",
-  },
-  cart_builds: {
-    unit: "count",
-    definition: "Cart builds.",
-  },
-  impressions_to_menu_pct: {
-    unit: "percent",
-    definition: "Share of impressions that became menu opens.",
-  },
-  menu_to_cart_pct: {
-    unit: "percent",
-    definition: "Share of menu opens that became cart builds.",
-  },
-  cart_to_orders_pct: {
-    unit: "percent",
-    definition: "Share of cart builds that became orders.",
-  },
-  new_user_orders: {
-    unit: "count",
-    definition: "Orders from new users.",
-  },
-  repeat_user_orders: {
-    unit: "count",
-    definition: "Orders from repeat users.",
-  },
-  lapsed_user_orders: {
-    unit: "count",
-    definition: "Orders from lapsed users.",
-  },
-} as const satisfies Record<string, MetricDefinition>;
-
-export type MetricKey = keyof typeof METRIC_DEFINITIONS;
-
-export const METRIC_KEYS = Object.keys(METRIC_DEFINITIONS) as [MetricKey, ...MetricKey[]];
+export type {
+  AggregationKind,
+  CheckRule,
+  MetricAccuracy,
+  MetricDefinition,
+  MetricGranularity,
+  MetricKey,
+  MetricPlatform,
+  MetricUnit,
+} from "./metric-dictionary.js";
+export {
+  AGGREGATION_KINDS,
+  APPROX_METRIC_KEYS,
+  CROSS_PLATFORM_KEYS,
+  checkExclusions,
+  FILE_IDENTITY_ATTEMPT_LIMIT,
+  GRANULARITIES,
+  isCrossPlatformKey,
+  METRIC_DEFINITIONS,
+  METRIC_KEYS,
+  METRIC_PARSER_VERSION,
+  METRIC_PLATFORMS,
+  METRIC_UNITS,
+  metricDefinition,
+  RETIRED_METRIC_KEYS,
+  requireMetric,
+  resolveCheck,
+  SWIGGY_DAILY_MAX_DAYS,
+} from "./metric-dictionary.js";
+export type {
+  ExpectedReportIdentity,
+  ObservedReportIdentity,
+  ParsedMetricRow,
+  ParsedWindowItem,
+  ReportEvaluation,
+  ReportKind,
+  ReportPeriod,
+} from "./metric-parse.js";
+export {
+  canonicalRestaurantId,
+  checkObservedIdentity,
+  evaluateBusinessReport,
+  expectedPeriods,
+  reportGranularity,
+} from "./metric-parse.js";
+export type { MetricRollup, RollupFact, RollupQuery, RollupValue } from "./metric-rollup.js";
+export { comparePlatformValue, rollupMetrics } from "./metric-rollup.js";
+export type { ReplacePlan, StoredWindowRow, WindowWrite } from "./metric-window.js";
+export { planReplaceWindow } from "./metric-window.js";
 
 export const METRIC_KEY_MEANINGS = Object.fromEntries(
   METRIC_KEYS.map((key) => [key, METRIC_DEFINITIONS[key].definition]),
@@ -267,12 +80,10 @@ export const DERIVED_METRIC_KEYS = [
 ] as const;
 
 const METRIC_KEY_SET = new Set<string>(METRIC_KEYS);
+const RETIRED_KEYS = RETIRED_METRIC_KEYS as Record<string, string>;
 
 export const PLATFORMS = ["zomato", "swiggy"] as const;
 export type RestaurantPlatform = (typeof PLATFORMS)[number];
-
-export const GRANULARITIES = ["day", "week", "month"] as const;
-export type MetricGranularity = (typeof GRANULARITIES)[number];
 
 export const ACTION_TYPES = [
   "discount",
@@ -329,6 +140,7 @@ export function isPlatformCommandVariable(name: string): boolean {
 }
 
 const IsoTime = z.string().datetime({ offset: true });
+const IsoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, { error: "Use a date as YYYY-MM-DD" });
 const FileName = z
   .string()
   .regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/, { error: "Use a plain file name" });
@@ -375,7 +187,12 @@ export function unknownMetricKeys(body: unknown): string[] {
 }
 
 export function unknownMetricKeyMessage(keys: readonly string[]): string {
-  const quoted = keys.map((key) => `"${key}"`).join(", ");
+  const quoted = keys
+    .map((key) => {
+      const retired = RETIRED_KEYS[key];
+      return retired ? `"${key}" (${retired})` : `"${key}"`;
+    })
+    .join(", ");
   return `Unknown metric key ${quoted}. Allowed keys: ${METRIC_KEYS.join(", ")}.`;
 }
 
@@ -411,6 +228,44 @@ export const PutMetricsSchema = z
   })
   .strict();
 export type PutMetricsInput = z.infer<typeof PutMetricsSchema>;
+
+export const METRIC_BASES = ["order_date", "settlement_date"] as const;
+export type MetricBasis = (typeof METRIC_BASES)[number];
+
+/** `to` is exclusive. Dates are civil dates in Asia/Kolkata. */
+export const ReadMetricsQuerySchema = z
+  .object({
+    outletId: z.string().trim().min(1).max(200),
+    platform: z.enum(["zomato", "swiggy", "combined"]),
+    from: IsoDate,
+    to: IsoDate,
+    basis: z.enum(METRIC_BASES).default("order_date"),
+  })
+  .strict()
+  .refine((value) => value.to > value.from, { error: "to must be after from" });
+export type ReadMetricsQuery = z.infer<typeof ReadMetricsQuerySchema>;
+
+export const REPORT_KINDS = ["daily", "weekly", "monthly"] as const;
+
+/** A business-report file. The server parses it and checks the outlet before storing anything. */
+export const IngestMetricReportSchema = z
+  .object({
+    outletId: z.string().trim().min(1).max(200),
+    platform: z.enum(PLATFORMS),
+    report: z.enum(REPORT_KINDS),
+    periodStart: IsoDate,
+    periodEnd: IsoDate,
+    csv: z.string().min(1).max(1_500_000),
+    attempt: z.number().int().positive().max(20).optional(),
+    runId: z.string().trim().min(1).max(200),
+    source: z.string().trim().min(1).max(200),
+    capturedAt: IsoTime,
+  })
+  .strict()
+  .refine((value) => value.periodEnd > value.periodStart, {
+    error: "periodEnd must be after periodStart",
+  });
+export type IngestMetricReportInput = z.infer<typeof IngestMetricReportSchema>;
 
 export const CreateReportSchema = z
   .object({
@@ -549,7 +404,8 @@ export function metricValueIssue(
   key: MetricKey,
   value: number | boolean | null,
 ): string | undefined {
-  const unit = METRIC_DEFINITIONS[key].unit;
+  const definition = requireMetric(key);
+  const unit = definition.unit;
   if (value === null) return undefined;
   if (unit === "boolean") {
     return typeof value === "boolean" ? undefined : `${key} must be true, false, or null`;
@@ -563,18 +419,13 @@ export function metricValueIssue(
     return undefined;
   }
   const places = decimalPlaces(value);
-  if (unit === "percent") {
-    if (places > 2 || value > 100) {
-      return `${key} must be from 0 to 100 with at most 2 decimal places`;
-    }
+  const decimals = definition.decimals ?? (unit === "minutes" ? 1 : 4);
+  const max = definition.max;
+  if (unit === "pct" || unit === "decimal" || unit === "minutes" || unit === "hours") {
+    if (places > decimals) return `${key} must have at most ${decimals} decimal places`;
+    if (max !== undefined && value > max) return `${key} must be from 0 to ${max}`;
+    if (value >= 1e16) return `${key} is too large`;
     return undefined;
-  }
-  if (unit === "rating") {
-    if (places > 2 || value > 5) return `${key} must be from 0 to 5 with at most 2 decimal places`;
-    return undefined;
-  }
-  if (unit === "minutes") {
-    return places > 1 ? `${key} must have at most 1 decimal place` : undefined;
   }
   if (places > 4) return `${key} must have at most 4 decimal places`;
   if (value >= 1e16) return `${key} is too large`;

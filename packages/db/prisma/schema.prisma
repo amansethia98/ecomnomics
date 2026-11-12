@@ -2768,6 +2768,9 @@ model Restaurant {
   updatedAt      DateTime     @updatedAt
   outlets        Outlet[]
   metrics        MetricValue[]
+  fetches        MetricFetch[]
+  checks         MetricCheck[]
+  windowItems    PlatformWindowItem[]
   reports        Report[]
   actions        Action[]
   tokens         AgentToken[]
@@ -2792,6 +2795,9 @@ model Outlet {
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
   metrics             MetricValue[]
+  fetches             MetricFetch[]
+  checks              MetricCheck[]
+  windowItems         PlatformWindowItem[]
   reports             Report[]
   actions             Action[]
   jobRuns             JobRun[]
@@ -2820,12 +2826,112 @@ model MetricValue {
   runId        String
   source       String
   capturedAt   DateTime
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  /// The fetch that wrote this row. Null for rows written before fetches existed.
+  fetchId      String?
+  fetch        MetricFetch? @relation(fields: [fetchId], references: [id], onDelete: SetNull)
+  /// Set when a later fetch replaced this value. Current rows are null.
+  supersededAt DateTime?
+  /// fact is displayed. platform_check is the platform's own figure and is not displayed.
+  rowRole      String       @default("fact")
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
-  @@unique([outletId, platform, granularity, periodStart, key], name: "metricUpsert")
+  /// Current rows are unique on (outlet, platform, granularity, periodStart, periodEnd, key, rowRole)
+  /// where supersededAt is null. That partial index is created in SQL; Prisma cannot express it.
+  @@index([outletId, platform, granularity, periodStart, periodEnd, key], map: "metric_values_window_idx")
   @@index([spaceId, key, periodStart])
+  @@index([fetchId], map: "metric_values_fetch_idx")
   @@map("restaurant_metric_values")
+}
+
+/// One download of a business report or payout file. A rejected file is logged here and stored nowhere else.
+model MetricFetch {
+  id                    String    @id @default(cuid())
+  restaurantId          String
+  restaurant            Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId               String
+  outletId              String
+  outlet                Outlet    @relation(fields: [outletId, spaceId], references: [id, spaceId], onDelete: Cascade)
+  platform              String
+  reportKind            String
+  /// stored, skipped, rejected_mismatch, or needs_owner.
+  status                String
+  requestedRestaurantId String?
+  requestedName         String?
+  requestedCity         String?
+  requestedPeriodStart  DateTime
+  requestedPeriodEnd    DateTime
+  observedRestaurantId  String?
+  observedName          String?
+  observedCity          String?
+  observedPeriodStart   DateTime?
+  observedPeriodEnd     DateTime?
+  observedLabels        String?   @db.Text
+  sha256                String
+  attemptCount          Int
+  source                String
+  parserVersion         String
+  reason                String?   @db.Text
+  runId                 String
+  capturedAt            DateTime
+  createdAt             DateTime  @default(now())
+  metrics               MetricValue[]
+  checks                MetricCheck[]
+  items                 PlatformWindowItem[]
+
+  @@index([spaceId, createdAt], map: "metric_fetches_space_idx")
+  @@index([outletId, platform, requestedPeriodStart], map: "metric_fetches_window_idx")
+  @@map("metric_fetches")
+}
+
+/// A rebuilt figure compared with the platform's own figure. A failure never overwrites the stored value.
+model MetricCheck {
+  id            String      @id @default(cuid())
+  restaurantId  String
+  restaurant    Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId       String
+  outletId      String
+  outlet        Outlet      @relation(fields: [outletId, spaceId], references: [id, spaceId], onDelete: Cascade)
+  platform      String
+  key           String
+  periodStart   DateTime
+  periodEnd     DateTime
+  rebuiltValue  Decimal?    @db.Decimal(20, 4)
+  platformValue Decimal?    @db.Decimal(20, 4)
+  gap           Decimal?    @db.Decimal(20, 4)
+  tolerance     Decimal?    @db.Decimal(20, 4)
+  pass          Boolean
+  fetchId       String
+  fetch         MetricFetch @relation(fields: [fetchId], references: [id], onDelete: Cascade)
+  checkedAt     DateTime
+
+  @@index([spaceId, checkedAt], map: "metric_checks_space_idx")
+  @@index([fetchId], map: "metric_checks_fetch_idx")
+  @@map("metric_checks")
+}
+
+/// Top items for one downloaded window. The list depends on the window and is not rolled up.
+model PlatformWindowItem {
+  id           String      @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId      String
+  outletId     String
+  outlet       Outlet      @relation(fields: [outletId, spaceId], references: [id, spaceId], onDelete: Cascade)
+  platform     String
+  periodStart  DateTime
+  periodEnd    DateTime
+  rank         Int
+  itemName     String
+  revenuePaise Int
+  fetchId      String
+  fetch        MetricFetch @relation(fields: [fetchId], references: [id], onDelete: Cascade)
+  createdAt    DateTime    @default(now())
+
+  @@index([outletId, platform, periodStart, periodEnd], map: "platform_window_items_window_idx")
+  @@index([spaceId], map: "platform_window_items_space_idx")
+  @@index([fetchId], map: "platform_window_items_fetch_idx")
+  @@map("platform_window_items")
 }
 
 model Report {

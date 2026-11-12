@@ -6,92 +6,196 @@
   },
   "components": {
     "securitySchemes": {
-      "restaurantToken": { "type": "http", "scheme": "bearer" }
+      "restaurantToken": {
+        "type": "http",
+        "scheme": "bearer"
+      }
     },
     "schemas": {
       "Error": {
         "type": "object",
         "required": ["error", "code"],
         "properties": {
-          "error": { "type": "string" },
-          "code": { "type": "string" }
+          "error": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          }
         }
       },
       "MetricValue": {
-        "description": "Null means the figure is missing. The unit is fixed by the key: paise and counts are integers, percents are 0 to 100 with at most 2 decimals, rating is 0 to 5 with at most 2 decimals, minutes have at most 1 decimal, hours and ads_roi have at most 4 decimals, and lag_banner is a boolean.",
+        "description": "Null means the figure is missing. Paise and counts are integers. pct is 0 to 100 with at most 2 decimals. rating is a decimal from 0 to 5 with at most 2 decimals. Minutes have at most 1 decimal. Hours, impressions, and ads_roi have at most 4 decimals. lag_banner is a boolean.",
         "type": ["number", "boolean", "null"]
       },
       "MetricKey": {
         "enum": [
           "gross_sales_paise",
           "net_payout_paise",
-          "aov_paise",
+          "platform_net_payout_paise",
           "commission_paise",
-          "commission_pg_gst_paise",
           "platform_fees_paise",
           "taxes_paise",
-          "discount_paise",
-          "ad_spend_paise",
-          "ad_orders",
-          "cancelled_orders",
-          "rating",
-          "menu_conversion_pct",
-          "delivered_orders",
-          "payout_orders",
-          "ops_sales_paise",
-          "bad_orders_pct",
-          "rejected_orders",
-          "delayed_orders",
-          "poor_rated_orders",
-          "bad_order_complaints",
-          "complaints",
-          "lost_sales_paise",
-          "cancelled_order_loss_paise",
-          "online_pct",
-          "kpt_minutes",
-          "food_ready_accuracy_pct",
-          "for_accuracy_pct",
-          "offline_time_hours",
-          "rated_orders",
-          "lag_banner",
-          "cv_paise",
-          "platform_net_payout_paise",
-          "paid_amount_paise",
           "tds_paise",
           "tcs_paise",
+          "cv_paise",
+          "paid_amount_paise",
+          "payout_orders",
+          "commission_pg_gst_paise",
           "gst_collected_paise",
           "complaints_cancellation_charges_paise",
-          "placed_orders",
-          "ads_sales_paise",
-          "ads_roi",
-          "ads_ctr_pct",
+          "discount_paise",
+          "ad_spend_paise",
+          "delivered_orders",
+          "ops_sales_paise",
+          "swiggy_net_sales_paise",
+          "aov_paise",
+          "cancelled_orders",
+          "restaurant_cancelled_orders",
+          "cancelled_order_loss_paise",
+          "orders_band_lt250",
+          "orders_band_250_450",
+          "orders_band_450_650",
+          "orders_band_650_850",
+          "orders_band_gt850",
+          "market_share_pct",
+          "bolt_orders",
+          "bolt_orders_pct",
+          "bolt_sales_paise",
+          "bolt_prep_wsum",
+          "bolt_prep_minutes",
+          "bolt_fast_prep_orders",
+          "bolt_fast_prep_pct",
+          "bolt_delayed_orders_gt5",
+          "rated_orders",
+          "poor_rated_orders",
+          "rating_snapshot_sum",
+          "rating_snapshot_days",
+          "rating",
+          "bad_orders",
+          "bad_orders_pct",
+          "rejected_orders",
+          "delayed_orders_kpt10",
+          "delayed_orders_gt10",
+          "delayed_orders_gt10_pct",
+          "complaints",
+          "non_refunded_complaints",
+          "refunded_complaints",
+          "complaints_missing",
+          "complaints_quality",
+          "complaints_wrong",
+          "complaints_packaging",
+          "complaints_quantity",
+          "complaint_orders",
+          "complaint_orders_pct",
+          "self_logged_ors",
+          "lost_sales_paise",
+          "online_hours",
+          "scheduled_hours",
+          "online_pct",
+          "offline_time_hours",
+          "kpt_weighted_sum",
+          "kpt_minutes",
+          "for_accurate_est",
+          "for_accuracy_pct",
+          "mfr_accurate_orders",
+          "food_ready_accuracy_pct",
           "impressions",
           "menu_opens",
           "cart_builds",
+          "placed_orders",
+          "swiggy_funnel_orders",
           "impressions_to_menu_pct",
           "menu_to_cart_pct",
           "cart_to_orders_pct",
+          "menu_conversion_pct",
           "new_user_orders",
           "repeat_user_orders",
-          "lapsed_user_orders"
+          "lapsed_user_orders",
+          "swiggy_new_customer_orders",
+          "swiggy_new_customer_pct",
+          "swiggy_repeat_customer_orders",
+          "swiggy_repeat_customer_pct",
+          "dormant_user_orders",
+          "dormant_customer_pct",
+          "swiggy_new_customers",
+          "swiggy_repeat_customers",
+          "swiggy_dormant_customers",
+          "unique_customers",
+          "breakfast_orders",
+          "lunch_orders",
+          "snacks_orders",
+          "dinner_orders",
+          "late_night_orders",
+          "ads_sales_paise",
+          "ad_orders",
+          "ads_impressions",
+          "ads_menu_opens",
+          "ads_ctr_pct",
+          "ads_roi",
+          "cpc_sales_paise",
+          "cpc_orders",
+          "cpc_spend_paise",
+          "cpc_menu_opens",
+          "cpc_roas",
+          "cpc_ads_depth_pct",
+          "cba_sales_paise",
+          "cba_orders",
+          "cba_spend_paise",
+          "cba_impressions",
+          "cba_menu_opens",
+          "cba_ads_depth_pct",
+          "cba_avg_cost_per_impression_paise",
+          "swiggy_gmv_paise",
+          "discount_gmv_pct",
+          "discounted_orders",
+          "discounted_orders_pct",
+          "rdpo_paise",
+          "offer_gross_sales_paise",
+          "offer_orders",
+          "offer_discount_pct",
+          "menu_score",
+          "menu_category_score",
+          "menu_item_score",
+          "menu_addon_score",
+          "menu_combo_score",
+          "menu_photo_pct",
+          "menu_desc_pct",
+          "top5_items_revenue_paise",
+          "lag_banner"
         ]
       },
       "JobRun": {
         "type": "object",
         "required": ["runId", "skill", "status"],
         "properties": {
-          "runId": { "type": "string" },
-          "skill": { "type": "string" },
-          "status": { "enum": ["running", "succeeded", "failed", "needs_owner"] },
+          "runId": {
+            "type": "string"
+          },
+          "skill": {
+            "type": "string"
+          },
+          "status": {
+            "enum": ["running", "succeeded", "failed", "needs_owner"]
+          },
           "startedAt": {
             "type": "string",
             "format": "date-time",
             "description": "Required on the first post for a runId. Omit it on a repeat post to keep the stored start time. A different value sent later is ignored. The stored run always includes the first startedAt. Do not send null."
           },
-          "endedAt": { "type": ["string", "null"], "format": "date-time" },
-          "outletId": { "type": ["string", "null"] },
-          "model": { "type": ["string", "null"] },
-          "error": { "type": ["string", "null"] },
+          "endedAt": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "outletId": {
+            "type": ["string", "null"]
+          },
+          "model": {
+            "type": ["string", "null"]
+          },
+          "error": {
+            "type": ["string", "null"]
+          },
           "costPaise": {
             "type": ["integer", "null"],
             "description": "Model spend only, in paise. Never computer or server time. Required together with costUsdMicros and fxRate."
@@ -105,15 +209,26 @@
             "description": "USD to INR rate used to turn costUsdMicros into costPaise."
           }
         }
+      },
+      "MetricGranularity": {
+        "enum": ["day", "week_sun_sat", "week_mon_sun", "month", "custom"]
       }
     }
   },
-  "security": [{ "restaurantToken": [] }],
+  "security": [
+    {
+      "restaurantToken": []
+    }
+  ],
   "paths": {
     "/agent/v1/restaurant": {
       "get": {
         "operationId": "getRestaurant",
-        "responses": { "200": { "description": "Restaurant and outlets" } }
+        "responses": {
+          "200": {
+            "description": "Restaurant and outlets"
+          }
+        }
       }
     },
     "/agent/v1/metrics": {
@@ -141,8 +256,12 @@
                         "value"
                       ],
                       "properties": {
-                        "key": { "$ref": "#/components/schemas/MetricKey" },
-                        "value": { "$ref": "#/components/schemas/MetricValue" }
+                        "key": {
+                          "$ref": "#/components/schemas/MetricKey"
+                        },
+                        "value": {
+                          "$ref": "#/components/schemas/MetricValue"
+                        }
                       }
                     }
                   }
@@ -156,24 +275,88 @@
             "description": "Rows upserted. Derived keys such as fees_incl_gst_paise, burn_pct, and ops_aov_paise are rejected."
           }
         }
+      },
+      "get": {
+        "operationId": "readMetrics",
+        "parameters": [
+          {
+            "name": "outletId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "platform",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": ["zomato", "swiggy", "combined"]
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "basis",
+            "in": "query",
+            "schema": {
+              "enum": ["order_date", "settlement_date"],
+              "default": "order_date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rolled-up values. Sums add. Ratios use summed parts. platform_only is not_available unless the window matches. settlement_date is not_available until payout orders are stored."
+          }
+        }
       }
     },
     "/agent/v1/reports": {
       "post": {
         "operationId": "createReport",
-        "responses": { "201": { "description": "Report and upload links" } }
+        "responses": {
+          "201": {
+            "description": "Report and upload links"
+          }
+        }
       }
     },
     "/agent/v1/actions": {
       "post": {
         "operationId": "createAction",
-        "responses": { "201": { "description": "Proposed action" } }
+        "responses": {
+          "201": {
+            "description": "Proposed action"
+          }
+        }
       }
     },
     "/agent/v1/actions/{actionId}": {
       "patch": {
         "operationId": "patchAction",
-        "responses": { "200": { "description": "Updated action" } }
+        "responses": {
+          "200": {
+            "description": "Updated action"
+          }
+        }
       }
     },
     "/agent/v1/runs": {
@@ -181,14 +364,47 @@
         "operationId": "upsertJobRun",
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/JobRun" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobRun"
+              }
+            }
+          }
         },
         "responses": {
           "200": {
             "description": "Stored run. The first startedAt is kept. A repeat post may omit startedAt.",
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/JobRun" } }
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRun"
+                }
+              }
             }
+          }
+        }
+      }
+    },
+    "/agent/v1/metric-reports": {
+      "post": {
+        "operationId": "ingestMetricReport",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "File stored, skipped as unchanged, or its platform checks recorded."
+          },
+          "422": {
+            "description": "file_identity. The file's restaurant id, name, city, or dates do not match. Nothing from the file is stored. Swiggy Daily is at most 7 days."
           }
         }
       }

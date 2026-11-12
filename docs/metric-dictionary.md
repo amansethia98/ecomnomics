@@ -1,256 +1,1719 @@
 # Metric dictionary
 
-Definitions for the keys the restaurant computer may send to `PUT /agent/v1/metrics`. The API allowlist in `packages/contracts/src/restaurant-agent.ts` (`METRIC_KEYS`) must use these names. Unknown keys are rejected and nothing is written.
+Machine-readable source: `packages/contracts/src/metric-dictionary.ts`.
 
-This is a desk draft from the Chief of Staff skills, calculators and trial outputs. It is not a signed-off contract until the open questions in the last section are confirmed.
+Money is integer paise. A missing figure is null, never zero. `crossPlatform` is true only for delivered orders and the payout keys that mean the same thing on both platforms.
 
-The dashboard should read only these canonical keys. Zomato and Swiggy use different labels for the same idea; the computer translates each platform field into one key before writing.
+Granularity is `day`, `week_sun_sat` (Swiggy, Sunday–Saturday), `week_mon_sun` (Zomato, Monday–Sunday), `month`, or `custom`.
 
-## Conventions
+Swiggy Daily accepts at most 7 days per file. Split a backfill into chunks of 7 days or fewer.
 
-| Convention        | Rule                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Money             | Integer **paise** (`₹1 = 100 paise`). Calculate in rupees to two decimals, then convert. Owner-facing display uses Indian grouping.                                                                                                                                                                                                                                                                                      |
-| Percentages       | Percentage points to two decimals (`16.53` means 16.53%). Never average percentages across platforms or weeks; recompute them from the summed money or counts.                                                                                                                                                                                                                                                           |
-| Ratings and times | Rating to two decimals. Kitchen time in minutes to one decimal.                                                                                                                                                                                                                                                                                                                                                          |
-| IDs and time      | Outlet IDs as given (Zomato restaurant ID, Swiggy RID). Timestamps ISO-8601 with an offset. Periods in `Asia/Kolkata`.                                                                                                                                                                                                                                                                                                   |
-| Counts            | Integers. A missing figure is `null` (n/a), never a guessed zero.                                                                                                                                                                                                                                                                                                                                                        |
-| Combinable        | **Yes** means the two platforms' values may be **summed**. Percentages, averages, ratings and times are not summed; show them per platform, and if a blended figure is needed, recompute it from the combined totals (or a weighted average, where this file says so).                                                                                                                                                   |
-| Platform-only     | The other platform has no confirmed equivalent on the screens and files we have used. Show it for that platform only; leave it out of the combined total.                                                                                                                                                                                                                                                                |
-| Confidence        | **Confirmed** = named in our skill files, calculators, or real trial outputs. **Assumed** = meaning is clear but the exact on-screen label or an inclusion (for example GST) is not fully verified. **Unknown – to confirm** = our files do not show that platform's field; do not invent a name. **Confirmed absent** = we have looked at the named screen and the field is not there; record n/a rather than guessing. |
+## `gross_sales_paise`
 
-### Two different "sales" worlds
+Item total plus packaging (ST+PC), before GST and before restaurant-funded discounts.
 
-Payout files and weekly ops screens do **not** appear to use the same sales number. On one live Zomato week we compared, payout ST+PC (item total + packaging) and the weekly Business reports **Sales** tile were not the same. Ops AOV × delivered orders matched the ops Sales tile, not ST+PC.
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: true
+- platforms: zomato, swiggy
+- zomato source: Subtotal (items total) + Packaging charge
+- swiggy source: Item Total + Packaging Charges
+- check: absolute 0
 
-Until that is confirmed, **store payout sales and ops sales as separate keys**: `gross_sales_paise` and `ops_sales_paise`. Do not mix them in one tile.
+## `net_payout_paise`
 
-### Periods (do not hide the difference)
+Owner Net Payout: commissionable value minus ads minus commission, other fees, and GST on fees.
 
-| Use                     | Zomato                                                                                                                           | Swiggy                                                                                                                                                                                                                                                                     |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Payout / reconciliation | Week **Monday–Sunday** by order date; paid the following **Wednesday**. Source: Finance > Payouts, settlement report.            | Cycle **Sunday–Saturday**, split at month end; annexure `Payout Settlement Date` is typically Saturday + 3 days (file code often Saturday + 4). Source: Finance > Payouts, invoice annexure, **Total** column.                                                             |
-| Weekly ops review       | Business reports, **Weekly** view (labels such as "Week 45 / 2 - 8 Nov"), Monday–Sunday IST. Page: Reporting > Business reports. | REPORTS / Business Reports (`partner.swiggy.com/food/business-metrics`). **Custom** Monday–Sunday, not the "Last Week" preset (that preset is Sunday–Saturday). The latest week may show a **48-hour lag** banner; still store the numbers on screen and set `lag_banner`. |
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: true
+- platforms: zomato, swiggy
+- zomato source: CV − Ads − Comm.+PG+GST
+- swiggy source: CV − Ads − Swiggy fees, GST on fees outside this row
+- check: absolute 0
 
-A combined payout week should place the Zomato Monday–Sunday week next to the Swiggy cycle(s) ending inside it, and **state both periods**. A combined ops week uses the same Monday–Sunday on both apps. These two views can disagree slightly because the payout cycles are not identical service dates.
+## `platform_net_payout_paise`
 
-Swiggy annexures for the restaurant we have used are **all-channel**: they include Swiggy and **Toing** orders for the same RID, not another outlet. Say so in notes until we decide whether to split Toing.
+The platform's own net payout figure, before comparing it to the bank.
 
-The upsert key is `(outletId, platform, granularity, periodStart, key)`. Use `granularity` `week` for both payout weeks/cycles and ops weeks, and always send the real `periodStart` / `periodEnd`. Do not collapse two different period shapes onto one row.
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: true
+- platforms: zomato, swiggy
+- zomato source: I Net Payout
+- swiggy source: G Net Payout
+- check: absolute 0
 
-## Value types the API should accept
+## `commission_paise`
 
-The current allowlist treats keys ending in `_paise` and a few counts as non-negative integers, and only `rating` and `menu_conversion_pct` as decimals. That is not enough for this dictionary.
+Platform commission or base service fee only, not long-distance, payment-gateway, or GST on fees.
 
-| Kind                  | Rule                                                                        | Examples                               |
-| --------------------- | --------------------------------------------------------------------------- | -------------------------------------- |
-| Money (`*_paise`)     | Non-negative integer paise, or `null` if missing.                           | `gross_sales_paise`, `ops_sales_paise` |
-| Counts                | Non-negative integer, or `null`.                                            | `delivered_orders`, `impressions`      |
-| Percentages (`*_pct`) | Non-negative number, at most 2 decimal places, usually 0 to 100, or `null`. | `online_pct`, `bad_orders_pct`         |
-| Rating                | 0 to 5, two decimals, or `null`.                                            | `rating`                               |
-| Minutes               | Non-negative, one decimal, or `null`.                                       | `kpt_minutes`                          |
-| Hours                 | Non-negative number, or `null`.                                             | `offline_time_hours`                   |
-| Ratio                 | Non-negative number, or `null`. Not a 0–100 percent.                        | `ads_roi`                              |
-| Boolean metadata      | `true` / `false`, or `null`. This does not fit a numeric `value` today.     | `lag_banner`                           |
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: true
+- platforms: zomato, swiggy
+- zomato source: Base service fee
+- swiggy source: Commission
+- check: absolute 0
 
-Please allow `value: null` for a known key (meaning n/a). Do not add the derived rows in the "Derived, do not store" section to the allowlist.
+## `platform_fees_paise`
 
-## Stored keys
+Other platform fees besides commission, excluding GST on fees.
 
-Counted here: **51** stored canonical keys, matching the API allowlist. `orders` is not a stored key.
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: true
+- platforms: zomato, swiggy
+- zomato source: Long distance and payment mechanism fee
+- swiggy source: Swiggy fees minus Commission
+- check: absolute 0
 
-### Starter keys (already in the allowlist)
+## `taxes_paise`
 
-A few of these names need a tighter meaning than the short sentences in `docs/restaurant-agent-api.md`. Recommended definitions.
+18% GST on platform fees only. Not customer GST, and not TDS or TCS.
 
-`orders` is retired and is not stored. It was ambiguous: payout "Orders" is delivered plus cancelled or rejected, and the ops card is delivered only. Use `delivered_orders` or `payout_orders` instead. The API rejects `orders`.
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: true
+- platforms: zomato, swiggy
+- zomato source: Taxes on service and payment mechanism fees
+- swiggy source: GST on Service Fee @18%
+- check: absolute 0
 
-| key                   | Unit                | Plain-English definition                                                                                                                                                                                                                                                                                                                              | Zomato source                                                                                                                                                                                                                                                              | Swiggy source                                                                                                                                                                             | Combinable?                                                                                     | Confidence                                                                                                         |
-| --------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `gross_sales_paise`   | paise               | Owner's **Total Sales (ST+PC)**: food/item value plus packaging, before GST and before restaurant-funded discounts. Denominator for discount %, ads %, payout % and burn %. Not the weekly ops Sales tile.                                                                                                                                            | Settlement report, `Payout Breakup` (or `Order Level` if the summary is blank): `1 Subtotal (items total)` + `2 Packaging charge`. Finance > Payouts.                                                                                                                      | Invoice annexure, `Payout Breakup` **Total** column: `1 Item Total` + `2 Packaging Charges`. Finance > Payouts.                                                                           | Yes, sum                                                                                        | **Confirmed** on both payout files                                                                                 |
-| `net_payout_paise`    | paise               | Owner's format Net Payout: ST+PC left after restaurant discounts, ads, and Comm.+PG+GST. Formula: `CV − Ads − Comm.+PG+GST`. The owner label is "total amount in bank account", but **this is not the amount actually paid under the UTR**. Store the actual credit as `paid_amount_paise` and the platform's own net as `platform_net_payout_paise`. | Derived from payout rows. Compare with file `I Net Payout`.                                                                                                                                                                                                                | Derived from payout rows. Compare with annexure `G Net Payout` / Summary `Total Payout`.                                                                                                  | Yes, sum, but see the GST-on-fees caveat                                                        | **Confirmed** formula on both; comparability **assumed** until GST treatment is aligned                            |
-| `aov_paise`           | paise               | Average order value as shown on the weekly ops screen, or computed as ops sales ÷ delivered orders. If the dashboard uses `gross_sales_paise` (ST+PC), do not display this AOV next to it as if they tie out.                                                                                                                                         | Business reports, Sales overview: **Average order value**.                                                                                                                                                                                                                 | Business Reports: **Net AOV**.                                                                                                                                                            | Not summable. Combined AOV = combined sales ÷ combined delivered orders, using one sales basis. | Labels **confirmed**. Whether the two definitions match: **unknown – to confirm**                                  |
-| `commission_paise`    | paise               | The platform's commission / base service fee only — not long-distance, payment-gateway or GST on fees.                                                                                                                                                                                                                                                | **Service fee** or **Base service fee** (templates vary). Part of `B Service fees & payment mechanism fees`.                                                                                                                                                               | Order Level column **`Commission`**. A component of `B Swiggy Fees`, not the whole of B. Exact Payout Breakup sub-line: **unknown – to confirm**.                                         | Yes, sum                                                                                        | Zomato **confirmed**. Swiggy Order Level **confirmed**; breakup sub-line **unknown – to confirm**                  |
-| `platform_fees_paise` | paise               | Other platform fees besides commission, excluding GST on fees.                                                                                                                                                                                                                                                                                        | From `B Service fees & payment mechanism fees`: long distance / fulfilment fee (net of its discount) + payment mechanism fee.                                                                                                                                              | `B Swiggy Fees` minus `Commission`. Do not use Order Level `Total Swiggy Fees` for this, because that figure includes GST on fees.                                                        | Yes, sum                                                                                        | Section totals **confirmed**. Exact Swiggy sub-line names **unknown – to confirm**                                 |
-| `taxes_paise`         | paise               | **Recommended meaning:** 18% GST on platform fees only. Not customer GST, and not TDS/TCS (those are separate keys).                                                                                                                                                                                                                                  | `12 Taxes on service & payment mechanism fees` (18% GST on B).                                                                                                                                                                                                             | `F Total Taxes` line **`GST on Service Fee @18%`**. **Not** inside `B Swiggy Fees`.                                                                                                       | Yes, sum, if both sides are GST-on-fees                                                         | Field names **confirmed**. Starter-key meaning **needs confirmation**                                              |
-| `discount_paise`      | paise               | **Merchant Discount Burn**: discounts **the restaurant pays for**, not platform-funded discounts.                                                                                                                                                                                                                                                     | `4 Restaurant discount [Promo]` + `5 Restaurant Discount [BOGO, Freebies, Gold, Brand pack & others]`.                                                                                                                                                                     | `3 Restaurant Discounts (Coupon based)` + `4 Restaurant Discounts (Trade Discounts, Freebies and others)` (Total column). Already the restaurant share only.                              | Yes, sum                                                                                        | **Confirmed** on both, with the Zomato relisting-discount caveat (kept out unless confirmed)                       |
-| `ad_spend_paise`      | paise               | Ads / growth investment charged to the restaurant for that period, counted once.                                                                                                                                                                                                                                                                      | `E Investment in growth services` = Total Ads + Total Dining Ads + Miscellaneous services, plus any other ads-like line not already inside E, **including 18% GST**. Count an invoice in the week **its period starts**. Ads credits/refunds are not netted into this key. | `D Growth Investment In Ads`, plus genuine ads lines in `E Other Charges and Refunds`, once each. Non-ad Other Charges stay out. **Swiggy GST-on-ads inclusion is unknown – to confirm.** | Yes, sum, with the GST-inclusion caveat                                                         | Labels **confirmed**. Swiggy GST treatment **unknown – to confirm**                                                |
-| `ad_orders`           | count               | Orders attributed to ads.                                                                                                                                                                                                                                                                                                                             | Monthly Business report export: **`Ads orders`**. Not on the weekly Business reports tile list, and not in the payout 11-row table.                                                                                                                                        | **unknown – to confirm**                                                                                                                                                                  | Only if Swiggy has a matching definition                                                        | Zomato monthly **confirmed**. Swiggy **unknown – to confirm**. Weekly ops: **confirmed absent** from the tile list |
-| `cancelled_orders`    | count               | **Do not treat Zomato and Swiggy cancelled figures as the same thing.** Store per platform and do not add them into one "cancelled" total until the definitions are confirmed to match.                                                                                                                                                               | Payout Breakup **Cancelled/Rejected** column. Weekly ops breakdown has **Rejected**. Monthly export: **`Rejected orders`**.                                                                                                                                                | Ops: **Restaurant Cancelled Orders** (restaurant-cancelled, not necessarily all cancelled). Payout Cancelled column exists on `Payout Breakup`.                                           | **No** — platform-only until definitions are aligned                                            | Fields **confirmed**; comparability **confirmed not equivalent**                                                   |
-| `rating`              | score, two decimals | Average customer star rating.                                                                                                                                                                                                                                                                                                                         | Weekly Business reports, Customer experience: **Average rating**. Monthly export: **`Average rating`**.                                                                                                                                                                    | **Confirmed absent** on Business Reports. Whether a rating exists on another Swiggy page: **unknown – to confirm**.                                                                       | **No** as a sum. A blended rating, if ever shown, must be weighted by `rated_orders`.           | Zomato **confirmed**. Swiggy on this screen **confirmed absent**                                                   |
-| `menu_conversion_pct` | %                   | **Do not map this starter key to a single field yet.** Zomato's monthly export has three funnel rates. Prefer those three keys until one meaning is chosen for this name.                                                                                                                                                                             | `Impressions to menu (%)`, `Menu to cart (%)`, `Cart to orders (%)`. Not on the weekly tile list.                                                                                                                                                                          | **unknown – to confirm**                                                                                                                                                                  | **No**, until both the meaning and a Swiggy field are known                                     | Zomato funnel labels **confirmed**. Single-key mapping **unknown – to confirm**                                    |
+## `tds_paise`
 
-### Extra keys the weekly ops review needs
+Tax deducted at source and withheld from the payout. A tax credit, not a cost.
 
-Source, unless noted, is the weekly ops screens (Zomato Reporting > Business reports, Weekly; Swiggy `/food/business-metrics`, Custom Mon–Sun).
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: true
+- platforms: zomato, swiggy
+- zomato source: TDS 194O amount
+- swiggy source: TDS
+- check: absolute 0
 
-| key                          | Unit                            | Plain-English definition                                                                                                                                                         | Zomato source                                                                                                                                               | Swiggy source                                                                                                                    | Combinable?                                                                            | Confidence                                                                                                        |
-| ---------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `delivered_orders`           | count                           | Orders delivered in the ops week. This is what the ops card means by "orders".                                                                                                   | **Delivered orders**, Sales overview. Monthly export: `Delivered orders`.                                                                                   | **Delivered Orders**.                                                                                                            | Yes, sum                                                                               | **Confirmed** both                                                                                                |
-| `payout_orders`              | count                           | Payout-file total orders: delivered + cancelled/rejected, for the payout week/cycle. Owner's 11-row "Orders".                                                                    | `Payout Breakup` `Number of Orders`, Total column.                                                                                                          | `Payout Breakup` `Orders`, Total column = Summary `Total Orders (Delivered + Cancelled)`.                                        | Yes, sum, with periods stated                                                          | **Confirmed** both                                                                                                |
-| `ops_sales_paise`            | paise                           | Sales as shown on the weekly ops dashboard, stored separately from `gross_sales_paise` until it is confirmed they match (they did not, on the one real Zomato week we compared). | **Sales**, Sales overview, Business reports Weekly.                                                                                                         | **Net Sales**, Business Reports. GST inclusion, packaging, and whether discounts are already deducted: **unknown – to confirm**. | Yes, sum, but only with other `ops_sales_paise` values, never with `gross_sales_paise` | Labels **confirmed**. Definition vs ST+PC **unknown – to confirm**                                                |
-| `bad_orders_pct`             | %                               | Share of orders that Zomato treats as bad. Flag when >8% and rising.                                                                                                             | Customer experience: **Bad orders %**.                                                                                                                      | **Confirmed absent** as a single "bad orders %" tile. Use the separate Swiggy counts instead.                                    | **No** — Zomato-only as a single %                                                     | Zomato % **confirmed**. Swiggy **confirmed absent**                                                               |
-| `rejected_orders`            | count (weekly unit unconfirmed) | Rejected orders in Zomato's bad-orders breakdown.                                                                                                                                | Weekly: expand Bad orders % → **Rejected**. Monthly: **`Rejected orders`**.                                                                                 | **Confirmed absent** on Business Reports. Not the same as Swiggy `Restaurant Cancelled Orders`.                                  | **No** — Zomato-only                                                                   | Zomato label **confirmed**. Swiggy **confirmed absent** on this screen                                            |
-| `delayed_orders`             | count                           | Orders delayed past the kitchen/prep threshold.                                                                                                                                  | Weekly breakdown: **Delayed** (unit unconfirmed). Monthly: **`KPT+10 delayed orders`**.                                                                     | **Delayed Orders (>10 min)** — a count.                                                                                          | Only if both are counts with the same delay definition — **not yet confirmed**         | Swiggy **confirmed**. Zomato monthly **confirmed**. Zomato weekly unit/definition **unknown – to confirm**        |
-| `poor_rated_orders`          | count                           | Orders with a poor customer rating.                                                                                                                                              | Weekly breakdown: **Poor rated** (unit unconfirmed). Monthly: **`Poor rated orders`**.                                                                      | **Poor Rated Orders**.                                                                                                           | Yes, if both are counts (Zomato weekly unit unconfirmed)                               | Labels **confirmed**. Zomato weekly unit **assumed** count                                                        |
-| `bad_order_complaints`       | count                           | The Complaints slice inside Zomato's bad-orders breakdown (can differ from total complaints).                                                                                    | Expand Bad orders % → **Complaints**.                                                                                                                       | **unknown – to confirm** as a breakdown slice. Swiggy has a separate **Complaints** tile (`complaints`).                         | **No** — Zomato-only unless a Swiggy equivalent is found                               | Zomato label **confirmed**. Swiggy slice **unknown – to confirm**                                                 |
-| `complaints`                 | count                           | Total complaints for the week.                                                                                                                                                   | Customer experience: **Total complaints**. Do not sum Zomato monthly category lines into the total.                                                         | **Complaints**.                                                                                                                  | Yes, sum, as headline counts only                                                      | Weekly labels **confirmed** both                                                                                  |
-| `lost_sales_paise`           | paise                           | Sales Zomato reports as lost (for example from being offline or rejecting).                                                                                                      | Customer experience: **Lost sales**. Monthly: **`Lost sales (Rs)`**.                                                                                        | **Confirmed absent** under this name. Closest money figure is **Cancelled Order Loss** — stored separately, not aliased.         | **No** — Zomato-only                                                                   | Zomato **confirmed**. Swiggy equivalent **not treated as the same**                                               |
-| `cancelled_order_loss_paise` | paise                           | Money Swiggy reports as lost to restaurant-cancelled orders.                                                                                                                     | **unknown – to confirm**                                                                                                                                    | **Cancelled Order Loss**.                                                                                                        | **No** — Swiggy-only                                                                   | Swiggy **confirmed**. Zomato **unknown – to confirm**                                                             |
-| `online_pct`                 | %                               | Share of time the outlet was online / available. Flag when below 90% and falling, **per app**.                                                                                   | **Online %**. Monthly: `Online %`.                                                                                                                          | **Online Availability %**.                                                                                                       | **No** (display side by side)                                                          | **Confirmed** both                                                                                                |
-| `kpt_minutes`                | minutes, one decimal            | Kitchen preparation time. Flag when above 16 minutes and rising, **per app**.                                                                                                    | **Kitchen preparation time**. Monthly: **`KPT (in minutes)`**.                                                                                              | **Kitchen Prep Time**.                                                                                                           | **No**. A blended KPT, if shown, must be weighted by `delivered_orders`.               | **Confirmed** both                                                                                                |
-| `food_ready_accuracy_pct`    | %                               | Swiggy food-ready accuracy (MFR).                                                                                                                                                | **Confirmed absent** on weekly Business reports. Monthly export has **`FOR accuracy (%)`** — store that as `for_accuracy_pct`, do not assume it equals MFR. | **Food Ready Accuracy (MFR)**.                                                                                                   | **No** — Swiggy-only on the weekly screens                                             | Swiggy **confirmed**. Zomato weekly **confirmed absent**                                                          |
-| `for_accuracy_pct`           | %                               | Zomato food-order-ready accuracy, from the monthly export only.                                                                                                                  | Monthly: **`FOR accuracy (%)`**. Weekly: **confirmed absent**.                                                                                              | **unknown – to confirm** (weekly has MFR instead).                                                                               | **No** until a Swiggy match is confirmed                                               | Zomato monthly **confirmed**. Weekly **confirmed absent**                                                         |
-| `offline_time_hours`         | hours                           | Time the outlet was offline.                                                                                                                                                     | Monthly: **`Offline time (in hours)`**. Weekly: **confirmed absent**.                                                                                       | **Confirmed absent** on Business Reports.                                                                                        | **No** until both weekly sources exist                                                 | Zomato monthly **confirmed**. Both weekly screens **confirmed absent**                                            |
-| `rated_orders`               | count                           | How many orders received a rating. Use this, not delivered orders, if a blended rating is ever weighted.                                                                         | Monthly: **`Rated orders`**. Not on the weekly tile list.                                                                                                   | **unknown – to confirm**                                                                                                         | **No** until Swiggy is known                                                           | Zomato monthly **confirmed**. Weekly Zomato and all Swiggy **unknown – to confirm** / not on the weekly tile list |
-| `lag_banner`                 | boolean                         | Metadata, not a dashboard metric: whether Swiggy showed the 48-hour lag banner on this week. Numbers on screen are still stored.                                                 | n/a                                                                                                                                                         | Noted on Business Reports when present.                                                                                          | n/a                                                                                    | **Confirmed**                                                                                                     |
+## `tcs_paise`
 
-### Extra keys from payouts
+Tax collected at source, including TCS IGST where it is present.
 
-Needed for the owner's 11-row table and the bank check.
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: true
+- platforms: zomato, swiggy
+- zomato source: TCS
+- swiggy source: TCS
+- check: absolute 0
 
-| key                                     | Unit  | Plain-English definition                                                                                                                                                                                                                                                          | Zomato source                                                                                                                                         | Swiggy source                                                                                                  | Combinable?                                                                       | Confidence                                                             |
-| --------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `cv_paise`                              | paise | Commissionable value: ST+PC minus merchant discount. Owner's CV row.                                                                                                                                                                                                              | Formula ST+PC − Merchant Discount Burn. Verify against `9 Commissionable value`. If they differ, keep the formula in the row and note the file value. | Formula ST+PC − Merchant Discount Burn. Verify against Order Level `Net Bill Value (before taxes)`.            | Yes, sum                                                                          | **Confirmed** both                                                     |
-| `commission_pg_gst_paise`               | paise | The payout calculator's Comm.+PG+GST row: platform commission plus payment-gateway fees plus GST, as that row is printed. Swiggy's row excludes GST on fees. Not the split `commission_paise` / `platform_fees_paise` / `taxes_paise`, and not the derived `fees_incl_gst_paise`. | Order-level deductions: base service fee + long-distance / fulfilment fee + payment mechanism fee + GST on those fees.                                | Payout Breakup `B Swiggy Fees` total. GST on the service fee is outside this row and stays in the bank bridge. | Sum only with the GST caveat: Zomato includes GST on fees, Swiggy's row does not. | **Confirmed** as the calculator row on both                            |
-| `platform_net_payout_paise`             | paise | The platform's own net payout figure, before comparing to the bank. Not the same as owner `net_payout_paise`.                                                                                                                                                                     | `I Net Payout`.                                                                                                                                       | `G Net Payout` = Summary `Total Payout`.                                                                       | Yes, sum                                                                          | **Confirmed** both                                                     |
-| `paid_amount_paise`                     | paise | Amount marked paid on the Payouts screen, tied to a UTR (store UTR as last 4 only). This is the bank-check target, not the owner's Net Payout row. One UTR can cover several outlets or weeks — compare the **sum** under that UTR.                                               | Finance > Payouts screen: paid amount, paid date, UTR, status.                                                                                        | Finance > Payouts / annexure Summary: paid amount, `Payout Settlement Date`, `Bank UTR`.                       | Yes, sum per UTR                                                                  | **Confirmed** both                                                     |
-| `tds_paise`                             | paise | Tax deducted at source, withheld from the payout. A tax credit, not a cost — bank bridge only, never an 11-row line.                                                                                                                                                              | `14 TDS 194O amount`. Additions may include `TDS 194H`.                                                                                               | `F Total Taxes` line `TDS` (also `TDS (Refund)` can appear under Other Charges).                               | Yes, sum                                                                          | **Confirmed** both                                                     |
-| `tcs_paise`                             | paise | Tax collected at source (plus TCS IGST where present). Bridge only.                                                                                                                                                                                                               | `13 TCS`.                                                                                                                                             | `F` line `TCS`.                                                                                                | Yes, sum                                                                          | **Confirmed** both                                                     |
-| `gst_collected_paise`                   | paise | GST collected from customers. Not restaurant revenue on delivery orders. Used only in the GST paise bridge.                                                                                                                                                                       | `8 Total GST collected from customers`. Compared with `15 GST paid by Zomato u/s 9(5)`.                                                               | `5 GST Collected`. Compared with `GST Deduction (paid by Swiggy on behalf of the restaurant)`.                 | Rarely useful as a combined "tax" tile                                            | **Confirmed** both                                                     |
-| `complaints_cancellation_charges_paise` | paise | Complaint refunds and cancellation charges deducted from the payout. Notes/bridge, not an 11-row line.                                                                                                                                                                            | Parts of `D Other order level deductions`. Exact sub-line mapping into one total was not boxed as a single cell.                                      | `C Customer Complaints & Cancellation Charges`.                                                                | Only the Swiggy section total is a clean single field                             | Swiggy **confirmed**. Zomato as one field **assumed** / split across D |
+## `cv_paise`
 
-### Zomato monthly export extras (mostly Zomato-only)
+Commissionable value: item total plus packaging, minus the restaurant-funded discount.
 
-From the calendar-month Business report export. Swiggy equivalents are **unknown – to confirm** unless noted. Do not use these as a substitute for Monday–Sunday weekly tiles.
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: true
+- platforms: zomato, swiggy
+- zomato source: ST+PC − merchant discount
+- swiggy source: ST+PC − merchant discount
+- check: absolute 0
 
-| key                       | Unit  | Zomato monthly export field                                               | Combinable?                  | Confidence           |
-| ------------------------- | ----- | ------------------------------------------------------------------------- | ---------------------------- | -------------------- |
-| `placed_orders`           | count | `Placed Orders`                                                           | No Swiggy field in our files | Zomato **confirmed** |
-| `ads_sales_paise`         | paise | `Sales from ads (Rs)`                                                     | Swiggy unknown               | Zomato **confirmed** |
-| `ads_roi`                 | ratio | `Ads ROI` (platform-reported; a derived ad-sales/spend figure can differ) | Swiggy unknown               | Zomato **confirmed** |
-| `ads_ctr_pct`             | %     | `Ads CTR (%)`                                                             | Swiggy unknown               | Zomato **confirmed** |
-| `impressions`             | count | `Impressions`                                                             | Swiggy unknown               | Zomato **confirmed** |
-| `menu_opens`              | count | `Menu opens`                                                              | Swiggy unknown               | Zomato **confirmed** |
-| `cart_builds`             | count | `Cart builds`                                                             | Swiggy unknown               | Zomato **confirmed** |
-| `impressions_to_menu_pct` | %     | `Impressions to menu (%)`                                                 | Swiggy unknown               | Zomato **confirmed** |
-| `menu_to_cart_pct`        | %     | `Menu to cart (%)`                                                        | Swiggy unknown               | Zomato **confirmed** |
-| `cart_to_orders_pct`      | %     | `Cart to orders (%)`                                                      | Swiggy unknown               | Zomato **confirmed** |
-| `new_user_orders`         | count | `New user orders`                                                         | Swiggy unknown               | Zomato **confirmed** |
-| `repeat_user_orders`      | count | `Repeat user orders`                                                      | Swiggy unknown               | Zomato **confirmed** |
-| `lapsed_user_orders`      | count | `Lapsed user orders`                                                      | Swiggy unknown               | Zomato **confirmed** |
+## `paid_amount_paise`
 
-The same export also labels `Orders with offers` and `Gross sales from offers (Rs)` as **ambiguous** (inconsistent labels/units in the source). Do not use them for derived rates.
+Amount marked paid on the Payouts screen, tied to a bank reference stored as the last 4 digits.
 
-## Derived, do not store
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: true
+- platforms: zomato, swiggy
+- zomato source: Payouts screen paid amount
+- swiggy source: Payouts screen paid amount
+- check: absolute 0
 
-Recompute these from canonical money and counts. Do not add them to `METRIC_KEYS`.
+## `payout_orders`
 
-| key                      | Formula                                                                      | Notes                                                                                                                                                                                                               |
-| ------------------------ | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `effective_discount_pct` | `discount_paise / gross_sales_paise`                                         | Owner's Effective Discount %. Combined = sum of discounts ÷ sum of ST+PC.                                                                                                                                           |
-| `ads_pct`                | `ad_spend_paise / gross_sales_paise`                                         | Owner's Ads %. Same combined rule.                                                                                                                                                                                  |
-| `payout_pct`             | `net_payout_paise / gross_sales_paise`                                       | Owner's Payout %. If ST+PC is 0, 0.                                                                                                                                                                                 |
-| `burn_pct`               | `1 − payout_pct`                                                             | Owner's Burn %.                                                                                                                                                                                                     |
-| `fees_incl_gst_paise`    | `commission_paise + platform_fees_paise + taxes_paise` (taxes = GST on fees) | Like-for-like total platform charges. **Not** identical to the stored `commission_pg_gst_paise` row on Swiggy, because that calculator row excludes GST on fees. Recommend the dashboard use this normalised total. |
-| `ops_aov_paise`          | `ops_sales_paise / delivered_orders`                                         | Should match the on-screen AOV if both tiles use the same sales basis.                                                                                                                                              |
-| `gross_aov_paise`        | `gross_sales_paise / delivered_orders`                                       | AOV on the payout sales basis.                                                                                                                                                                                      |
+Payout-file orders: delivered plus cancelled or rejected, for the payout period.
 
-## Owner's 11-row table
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: true
+- platforms: zomato, swiggy
+- zomato source: Number of Orders
+- swiggy source: Orders
+- check: absolute 0
 
-| Owner row              | Canonical key(s)                                                                                                                          | Combined total?                                                                                                                                      |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Orders                 | `payout_orders`                                                                                                                           | Sum                                                                                                                                                  |
-| ST+PC                  | `gross_sales_paise`                                                                                                                       | Sum                                                                                                                                                  |
-| Merchant Discount Burn | `discount_paise`                                                                                                                          | Sum                                                                                                                                                  |
-| Effective Discount %   | derived                                                                                                                                   | Recompute from totals                                                                                                                                |
-| CV                     | `cv_paise`                                                                                                                                | Sum                                                                                                                                                  |
-| Ads                    | `ad_spend_paise`                                                                                                                          | Sum (watch GST inclusion)                                                                                                                            |
-| Ads %                  | derived                                                                                                                                   | Recompute from totals                                                                                                                                |
-| Comm.+PG+GST           | `commission_pg_gst_paise` (the calculator row as printed). Zomato includes GST on fees. Swiggy's row is total fees excluding GST on fees. | Sum the stored row only with that caveat. The like-for-like total that includes GST on both apps is the derived `fees_incl_gst_paise`, not this key. |
-| Net Payout             | `net_payout_paise`                                                                                                                        | Sum, with the same GST caveat                                                                                                                        |
-| Payout %               | derived                                                                                                                                   | Recompute from totals                                                                                                                                |
-| Burn %                 | derived                                                                                                                                   | Recompute from totals                                                                                                                                |
+## `commission_pg_gst_paise`
 
-Everything else (TDS, TCS, customer GST paise, refunds, penalties, ads outstanding, ads credits, previous-week outstanding) stays in the **bank bridge / notes**, not as a new owner row.
+The payout calculator's Comm.+PG+GST row as printed. Swiggy's row excludes GST on fees.
 
-## Platform-only (do not add into a combined total)
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Service fee + payment fee + GST on those fees
+- swiggy source: B Swiggy Fees
+- check: absolute 0
 
-| Key                                                                             | Platform                    | Why                                                         |
-| ------------------------------------------------------------------------------- | --------------------------- | ----------------------------------------------------------- |
-| `rating`, `rated_orders`                                                        | Zomato (on screens we have) | Swiggy Business Reports has no star rating or ratings count |
-| `bad_orders_pct`, `rejected_orders`, `bad_order_complaints`, `lost_sales_paise` | Zomato                      | No confirmed like-for-like Swiggy tile                      |
-| `food_ready_accuracy_pct`                                                       | Swiggy weekly               | Zomato weekly FOR is n/a                                    |
-| `for_accuracy_pct`, `offline_time_hours`                                        | Zomato monthly only, so far | Both weekly ops screens: n/a                                |
-| `cancelled_order_loss_paise`                                                    | Swiggy                      | Not confirmed equal to Zomato Lost sales                    |
-| `cancelled_orders` / `rejected_orders`                                          | Each platform               | Different definitions; do not add together                  |
-| Funnel, ads orders, ads sales, ads ROI, placed/new/repeat/lapsed orders         | Zomato monthly              | Swiggy fields unknown                                       |
-| `menu_conversion_pct` as a single tile                                          | —                           | Meaning not chosen yet                                      |
-| `lag_banner`                                                                    | Swiggy                      | Metadata                                                    |
+## `gst_collected_paise`
 
-## Keys to add to the allowlist
+GST collected from customers. Not restaurant revenue on delivery orders.
 
-These 38 stored keys are in this dictionary and not yet in `METRIC_KEYS`. Please add them (with the value-type rules above) rather than adding names alone, which would break the current typings and integer checks.
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Total GST collected from customers
+- swiggy source: GST Collected
+- check: absolute 0
 
-| key                                     | Unit    | One-line definition                                                                           |
-| --------------------------------------- | ------- | --------------------------------------------------------------------------------------------- |
-| `delivered_orders`                      | count   | Orders delivered in the ops week (what the ops card means by "orders").                       |
-| `payout_orders`                         | count   | Payout-file total orders: delivered plus cancelled/rejected, for the payout week/cycle.       |
-| `ops_sales_paise`                       | paise   | Sales as shown on the weekly ops dashboard, stored separately from `gross_sales_paise`.       |
-| `bad_orders_pct`                        | %       | Share of orders Zomato treats as bad.                                                         |
-| `rejected_orders`                       | count   | Rejected orders in Zomato's bad-orders breakdown.                                             |
-| `delayed_orders`                        | count   | Orders delayed past the kitchen/prep threshold.                                               |
-| `poor_rated_orders`                     | count   | Orders with a poor customer rating.                                                           |
-| `bad_order_complaints`                  | count   | Complaints slice inside Zomato's bad-orders breakdown (can differ from total complaints).     |
-| `complaints`                            | count   | Total complaints for the week.                                                                |
-| `lost_sales_paise`                      | paise   | Sales Zomato reports as lost (for example from being offline or rejecting).                   |
-| `cancelled_order_loss_paise`            | paise   | Money Swiggy reports as lost to restaurant-cancelled orders.                                  |
-| `online_pct`                            | %       | Share of time the outlet was online / available.                                              |
-| `kpt_minutes`                           | minutes | Kitchen preparation time (one decimal).                                                       |
-| `food_ready_accuracy_pct`               | %       | Swiggy food-ready accuracy (MFR) on the weekly screen.                                        |
-| `for_accuracy_pct`                      | %       | Zomato food-order-ready accuracy, from the monthly export only.                               |
-| `offline_time_hours`                    | hours   | Time the outlet was offline.                                                                  |
-| `rated_orders`                          | count   | How many orders received a rating.                                                            |
-| `lag_banner`                            | boolean | Whether Swiggy showed the 48-hour lag banner on this week (metadata, not a dashboard metric). |
-| `cv_paise`                              | paise   | Commissionable value: ST+PC minus merchant discount.                                          |
-| `platform_net_payout_paise`             | paise   | The platform's own net payout figure, before comparing to the bank.                           |
-| `paid_amount_paise`                     | paise   | Amount marked paid on the Payouts screen, tied to a UTR.                                      |
-| `tds_paise`                             | paise   | Tax deducted at source, withheld from the payout (a tax credit, not a cost).                  |
-| `tcs_paise`                             | paise   | Tax collected at source (plus TCS IGST where present).                                        |
-| `gst_collected_paise`                   | paise   | GST collected from customers (not restaurant revenue on delivery orders).                     |
-| `complaints_cancellation_charges_paise` | paise   | Complaint refunds and cancellation charges deducted from the payout.                          |
-| `placed_orders`                         | count   | Orders placed in the calendar month (Zomato monthly export).                                  |
-| `ads_sales_paise`                       | paise   | Sales from ads (Zomato monthly export).                                                       |
-| `ads_roi`                               | ratio   | Platform-reported ads ROI (can differ from a derived ad-sales/spend figure).                  |
-| `ads_ctr_pct`                           | %       | Ads click-through rate.                                                                       |
-| `impressions`                           | count   | Menu impressions.                                                                             |
-| `menu_opens`                            | count   | Menu opens.                                                                                   |
-| `cart_builds`                           | count   | Cart builds.                                                                                  |
-| `impressions_to_menu_pct`               | %       | Share of impressions that became menu opens.                                                  |
-| `menu_to_cart_pct`                      | %       | Share of menu opens that became cart builds.                                                  |
-| `cart_to_orders_pct`                    | %       | Share of cart builds that became orders.                                                      |
-| `new_user_orders`                       | count   | Orders from new users.                                                                        |
-| `repeat_user_orders`                    | count   | Orders from repeat users.                                                                     |
-| `lapsed_user_orders`                    | count   | Orders from lapsed users.                                                                     |
+## `complaints_cancellation_charges_paise`
 
-## Open questions
+Complaint refunds and cancellation charges deducted from the payout.
 
-Please confirm or correct these before the dashboard treats the two apps as one number.
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Other order level deductions
+- swiggy source: Customer Complaints and Cancellation Charges
+- check: absolute 0
 
-1. **Which sales figure is "gross sales" on the dashboard?** On one live Zomato week, payout ST+PC and the weekly Business reports **Sales** tile were not the same. Should the dashboard use payout ST+PC (`gross_sales_paise`), the ops Sales tile (`ops_sales_paise`), or something else (for example commissionable value)?
-2. **What is Swiggy "Net Sales"?** Is it Item Total + Packaging (ST+PC), or net after restaurant discounts, or another basis? We have not yet compared a live Swiggy Net Sales tile with the same cycle's annexure.
-3. **What should the dashboard "orders" tile count?** Delivered only (ops card), or payout total including cancelled/rejected (owner's 11-row Orders)?
-4. **Is Swiggy "Net AOV" comparable to Zomato "Average order value"?** Does "Net" mean after discounts? Should on-screen AOV be stored, or always derived from the sales figure the dashboard uses?
-5. **GST on fees in Comm.+PG+GST.** Zomato's owner fee row includes 18% GST on fees; Swiggy's "Total fees" (`B Swiggy Fees`) excludes `GST on Service Fee @18%` (that GST goes in the bank bridge). The calculator row is stored as `commission_pg_gst_paise`. For a combined dashboard, may we split commission / other fees / GST on fees, and show a normalised total that includes GST on both apps (`fees_incl_gst_paise`)?
-6. **What should `taxes_paise` mean?** This draft uses 18% GST on platform fees only, and keeps customer GST, TDS and TCS as separate keys. Is that right?
-7. **Do Swiggy ads include GST?** Zomato `Total Ads (inc. 18% GST)` clearly includes 18% GST. We have not seen whether `Growth Investment In Ads` / Other Charges ads lines are inc. or ex. GST.
-8. **Should Zomato `Delivery charge discount / Relisting discount` sit inside Merchant Discount Burn?** The owner's table names only flat offs + promos; the skill currently keeps this line out and asks when it is non-zero.
-9. **Which funnel rate is `menu_conversion_pct`?** Zomato monthly export has `Impressions to menu (%)`, `Menu to cart (%)` and `Cart to orders (%)`. Is one of these the intended metric, or should the dashboard show all three? Is there a Swiggy equivalent?
-10. **Swiggy fields we have not seen:** ad orders, star rating, ratings count, menu/impressions funnel, offline time, and a rejected-orders count. Do these exist on another Swiggy page or export we should read later?
-11. **Zomato weekly bad-orders breakdown** (Rejected, Delayed, Poor rated, Complaints): are those counts or percentages?
-12. **Cancelled vs rejected.** Confirm we should keep Swiggy **Restaurant Cancelled Orders** and Zomato **Rejected** / payout Cancelled/Rejected as separate series, not one combined cancelled total.
-13. **Blended KPT, rating and online %.** Show per platform only, or also a combined figure? If combined, KPT and rating should be weighted (by delivered orders and rated orders), never averaged as two averages. Online % would need a time-weighted rule we do not have yet.
-14. **Sales-drop flag.** The ops review flags a large drop on **combined ops sales**. Should that stay on `ops_sales_paise`, or move to payout ST+PC once both are stored?
-15. **Swiggy Toing.** Annexures for the restaurant we have used include Swiggy and Toing orders together under the same RID. Include Toing in the Swiggy totals, or split it out when we can?
+## `discount_paise`
 
-When a new metric is needed, add it here with both platforms' field names first. The API should keep rejecting unknown keys until the definition is agreed.
+Discounts the restaurant pays for. Zomato's business-report Discount given is not confirmed as the same figure.
+
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Offers / Discount given (Rs)
+- swiggy source: DISCOUNTS / Discount Given by Restaurant(RDGMV)
+- check: absolute 0
+
+## `ad_spend_paise`
+
+Ads charged to the restaurant for that period, counted once. Swiggy's export spend is not this payout figure.
+
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Ads / Ads spend (Rs)
+- swiggy source: Growth Investment In Ads
+- check: absolute 0
+
+## `delivered_orders`
+
+Orders delivered. This is the ops orders figure, and the denominator of most rates.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: true
+- platforms: zomato, swiggy
+- zomato source: Sales / Delivered orders
+- swiggy source: SALES / Delivered Orders
+- check: absolute 0
+
+## `ops_sales_paise`
+
+Zomato business-report sales, stored apart from payout ST+PC and from Swiggy net sales.
+
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Sales / Sales (Rs)
+- check: absolute 0
+
+## `swiggy_net_sales_paise`
+
+Swiggy Net Sales. Not Zomato sales and not payout ST+PC.
+
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: SALES / Net Sales
+- check: absolute 0
+
+## `aov_paise`
+
+Average order value rebuilt as platform sales divided by delivered orders.
+
+- unit: paise
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Sales / Average order value
+- swiggy source: SALES / Net AOV
+- denominator: delivered_orders
+- numerator by platform: zomato ops_sales_paise, swiggy swiggy_net_sales_paise
+- check: relative 0.005
+
+## `cancelled_orders`
+
+All cancellations on a payout file. Swiggy's business export uses restaurant_cancelled_orders instead.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Cancelled/Rejected
+- swiggy source: Payout Breakup Cancelled
+- check: absolute 0
+
+## `restaurant_cancelled_orders`
+
+Orders the restaurant cancelled on Swiggy. Not every cancellation.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: SALES / Restaurant Cancelled Orders
+- check: absolute 0
+
+## `cancelled_order_loss_paise`
+
+Money Swiggy reports as lost to restaurant-cancelled orders.
+
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: SALES / Cancelled Order Loss
+- check: absolute 0
+
+## `orders_band_lt250`
+
+Delivered orders with a value below ₹250.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: SALES / Number of Orders below ₹250
+- check: absolute 0
+
+## `orders_band_250_450`
+
+Delivered orders with a value from ₹250 to ₹450.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: SALES / Number of Orders between ₹250 and ₹450
+- check: absolute 0
+
+## `orders_band_450_650`
+
+Delivered orders with a value from ₹450 to ₹650.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: SALES / Number of Orders between ₹450 and ₹650
+- check: absolute 0
+
+## `orders_band_650_850`
+
+Delivered orders with a value from ₹650 to ₹850.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: SALES / Number of Orders between ₹650 and ₹850
+- check: absolute 0
+
+## `orders_band_gt850`
+
+Delivered orders with a value above ₹850.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: SALES / Number of Orders above ₹850
+- check: absolute 0
+
+## `market_share_pct`
+
+The platform's market-share figure. There is no market total to rebuild it from.
+
+- unit: pct
+- aggregation: platform_only
+- accuracy: approx
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Sales / Market share (%)
+- swiggy source: SALES / Market Share
+- check: relative 0.005
+
+## `bolt_orders`
+
+Swiggy Bolt orders, the fast-delivery channel.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: BOLT / Orders
+- check: absolute 0
+
+## `bolt_orders_pct`
+
+Share of delivered orders that were Bolt orders.
+
+- unit: pct
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: BOLT / % of Bolt Orders
+- numerator: bolt_orders
+- denominator: delivered_orders
+- check: relative 0.005
+
+## `bolt_sales_paise`
+
+Bolt sales, Bolt AOV times Bolt orders, summed after the daily product.
+
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: BOLT / AOV
+- derivation: round(bolt_aov_paise*bolt_orders)
+- check: absolute 0
+
+## `bolt_prep_wsum`
+
+Bolt prep minutes times Bolt orders. The weight for Bolt prep time.
+
+- unit: decimal
+- aggregation: sum
+- accuracy: approx
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: BOLT / Avg Prep Time
+- derivation: bolt_prep_minutes*bolt_orders
+- check: absolute 0
+
+## `bolt_prep_minutes`
+
+Swiggy Bolt average prep time, weighted by Bolt orders.
+
+- unit: minutes
+- aggregation: weighted_avg
+- accuracy: approx
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: BOLT / Avg Prep Time
+- weight: bolt_orders
+- value key: bolt_prep_wsum
+- check: minutes 0.05
+
+## `bolt_fast_prep_orders`
+
+Bolt orders with prep under 6 minutes.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: BOLT / Orders with <6 min Prep time
+- derivation: round(bolt_fast_prep_pct*bolt_orders/100)
+- check: absolute 0
+
+## `bolt_fast_prep_pct`
+
+Share of Bolt orders prepared in under 6 minutes.
+
+- unit: pct
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: BOLT / Orders with <6 min Prep time
+- numerator: bolt_fast_prep_orders
+- denominator: bolt_orders
+- check: relative 0.005
+
+## `bolt_delayed_orders_gt5`
+
+Bolt orders delayed by more than 5 minutes.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: BOLT / Delayed Orders (>5 mins)
+- check: absolute 0
+
+## `rated_orders`
+
+Orders that received a rating. The same label is not confirmed to mean the same thing.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Customer experience / Rated orders
+- swiggy source: RATINGS / total rated orders
+- check: absolute 0
+
+## `poor_rated_orders`
+
+Orders with a poor customer rating.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Customer experience / Poor rated orders
+- swiggy source: RATINGS / Poor Rated Orders
+- check: absolute 0
+
+## `rating_snapshot_sum`
+
+Zomato's daily platform rating. A range is the sum of these snapshots.
+
+- unit: decimal
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer experience / Average rating
+- check: absolute 0
+
+## `rating_snapshot_days`
+
+One for each day that has a Zomato platform rating snapshot.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer experience / Average rating
+- check: absolute 0
+
+## `rating`
+
+Zomato platform rating: the sum of daily snapshots divided by days with a snapshot.
+
+- unit: decimal
+- aggregation: snapshot_mean
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer experience / Average rating
+- weight: rating_snapshot_days
+- value key: rating_snapshot_sum
+- check: relative 0.005
+
+## `bad_orders`
+
+Zomato's bad-order count. It is the platform's own count, not the sum of its slices.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer experience / Bad orders
+- check: absolute 0
+
+## `bad_orders_pct`
+
+Share of delivered orders Zomato treats as bad.
+
+- unit: pct
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer experience / Bad orders %
+- numerator: bad_orders
+- denominator: delivered_orders
+- check: relative 0.005
+
+## `rejected_orders`
+
+Rejected orders in Zomato's bad-orders breakdown.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer experience / Rejected orders
+- check: absolute 0
+
+## `delayed_orders_kpt10`
+
+Zomato orders delayed by KPT plus 10 minutes.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer experience / KPT+10 delayed orders
+- check: absolute 0
+
+## `delayed_orders_gt10`
+
+Swiggy orders delayed by more than 10 minutes.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: OPERATIONS / Delayed Orders (> 10 mins)
+- derivation: round(delayed_gt10_pct*delivered_orders/100)
+- check: absolute 0
+
+## `delayed_orders_gt10_pct`
+
+Share of delivered Swiggy orders delayed by more than 10 minutes.
+
+- unit: pct
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: OPERATIONS / Delayed Orders (> 10 mins)
+- numerator: delayed_orders_gt10
+- denominator: delivered_orders
+- check: relative 0.005
+
+## `complaints`
+
+Complaints. Zomato's total, or Swiggy's non-refunded plus refunded. Not added across platforms.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Customer experience / Total complaints
+- swiggy source: COMPLAINTS / Non-refunded Complaints
+- check: absolute 0
+
+## `non_refunded_complaints`
+
+Complaints that were not refunded. This is not the slice inside Zomato bad orders.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Customer experience / Non-refunded complaints
+- swiggy source: COMPLAINTS / Non-refunded Complaints
+- check: absolute 0
+
+## `refunded_complaints`
+
+Swiggy complaints the customer was refunded for.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: COMPLAINTS / Customer Refunded Complaints
+- check: absolute 0
+
+## `complaints_missing`
+
+Complaints about missing items.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Customer experience / Total complaints - Missing items
+- swiggy source: COMPLAINTS / Missing Items
+- check: absolute 0
+
+## `complaints_quality`
+
+Complaints about food quality.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Customer experience / Total complaints - Poor quality
+- swiggy source: COMPLAINTS / Quality Issues
+- check: absolute 0
+
+## `complaints_wrong`
+
+Complaints about a wrong item.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Customer experience / Total complaints - Wrong order
+- swiggy source: COMPLAINTS / Wrong Items
+- check: absolute 0
+
+## `complaints_packaging`
+
+Complaints about packaging. Swiggy's label also includes spillage.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Customer experience / Total complaints - Poor packaging
+- swiggy source: COMPLAINTS / Packaging & Spillage
+- check: absolute 0
+
+## `complaints_quantity`
+
+Swiggy complaints about quantity.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: COMPLAINTS / Quantity Issues
+- check: absolute 0
+
+## `complaint_orders`
+
+Swiggy orders that had a complaint. One order can carry more than one complaint.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: COMPLAINTS / % Orders with Complaints
+- derivation: round(complaint_orders_pct*delivered_orders/100)
+- check: absolute 0
+
+## `complaint_orders_pct`
+
+Share of delivered Swiggy orders that had a complaint.
+
+- unit: pct
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: COMPLAINTS / % Orders with Complaints
+- numerator: complaint_orders
+- denominator: delivered_orders
+- check: relative 0.005
+
+## `self_logged_ors`
+
+Zomato self-logged other order issues. Not part of the bad-order count.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer experience / Self logs other ors
+- check: absolute 0
+
+## `lost_sales_paise`
+
+Sales Zomato reports as lost, for example from being offline or rejecting.
+
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer experience / Lost sales (Rs)
+- check: absolute 0
+
+## `online_hours`
+
+Hours the outlet was online. Empty until scheduled hours are stored.
+
+- unit: hours
+- aggregation: sum
+- accuracy: approx
+- crossPlatform: false
+- platforms: zomato, swiggy
+- check: absolute 0
+
+## `scheduled_hours`
+
+Hours the outlet was scheduled to be open. The weight for online percentage.
+
+- unit: hours
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- check: absolute 0
+
+## `online_pct`
+
+Share of scheduled hours the outlet was online. Not an average of daily percentages.
+
+- unit: pct
+- aggregation: weighted_avg
+- accuracy: approx
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Customer experience / Online %
+- swiggy source: OPERATIONS / Online Availability %
+- weight: scheduled_hours
+- value key: online_hours
+- check: relative 0.005
+
+## `offline_time_hours`
+
+Zomato's offline time for one platform window. The rounded daily hours do not add up.
+
+- unit: hours
+- aggregation: platform_only
+- accuracy: approx
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer experience / Offline time (in hours)
+- check: excluded: Zomato rounds offline hours to whole hours a day, so the days do not add up.
+
+## `kpt_weighted_sum`
+
+Kitchen prep minutes times delivered orders.
+
+- unit: decimal
+- aggregation: sum
+- accuracy: approx
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Customer experience / KPT (in minutes)
+- swiggy source: OPERATIONS / Kitchen Prep Time
+- derivation: kpt_minutes*delivered_orders
+- check: absolute 0
+
+## `kpt_minutes`
+
+Kitchen preparation time, weighted by delivered orders. An approximation.
+
+- unit: minutes
+- aggregation: weighted_avg
+- accuracy: approx
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Customer experience / KPT (in minutes)
+- swiggy source: OPERATIONS / Kitchen Prep Time
+- weight: delivered_orders
+- value key: kpt_weighted_sum
+- check: minutes 0.05
+
+## `for_accurate_est`
+
+Zomato FOR accuracy times delivered orders. The daily percentage is rounded.
+
+- unit: decimal
+- aggregation: sum
+- accuracy: approx
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer experience / FOR accuracy (%)
+- derivation: for_pct/100*delivered_orders
+- check: absolute 0
+
+## `for_accuracy_pct`
+
+Zomato food-order-ready accuracy, weighted by delivered orders.
+
+- unit: pct
+- aggregation: weighted_avg
+- accuracy: approx
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer experience / FOR accuracy (%)
+- weight: delivered_orders
+- value key: for_accurate_est
+- check: points 0.05
+
+## `mfr_accurate_orders`
+
+Swiggy orders marked food-ready on time. The denominator is delivered orders.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: OPERATIONS / Food Ready Accuracy (MFR)
+- derivation: round(mfr_pct*delivered_orders/100)
+- check: absolute 0
+
+## `food_ready_accuracy_pct`
+
+Swiggy food-ready accuracy: accurate orders divided by delivered orders.
+
+- unit: pct
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: OPERATIONS / Food Ready Accuracy (MFR)
+- numerator: mfr_accurate_orders
+- denominator: delivered_orders
+- check: relative 0.005
+
+## `impressions`
+
+Menu impressions. Swiggy's figures keep their decimals.
+
+- unit: decimal
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Customer funnel / Impressions
+- swiggy source: CONVERSION_FUNNEL / Impressions
+- check: absolute 0
+
+## `menu_opens`
+
+Menu opens.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Customer funnel / Menu opens
+- swiggy source: CONVERSION_FUNNEL / Menu Opens
+- check: absolute 0
+
+## `cart_builds`
+
+Cart builds.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Customer funnel / Cart builds
+- swiggy source: CONVERSION_FUNNEL / Carts Builds
+- check: absolute 0
+
+## `placed_orders`
+
+Zomato placed orders. This is above delivered, and it is not Swiggy's funnel count.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer funnel / Placed Orders
+- check: absolute 0
+
+## `swiggy_funnel_orders`
+
+Swiggy Orders Placed. It stays below delivered orders, so it is a funnel count only.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: CONVERSION_FUNNEL / Orders Placed
+- check: absolute 0
+
+## `impressions_to_menu_pct`
+
+Share of impressions that became menu opens.
+
+- unit: pct
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Customer funnel / Impressions to menu (%)
+- swiggy source: CONVERSION_FUNNEL / Impressions to Menu
+- numerator: menu_opens
+- denominator: impressions
+- check: points 0.05
+
+## `menu_to_cart_pct`
+
+Share of menu opens that became cart builds.
+
+- unit: pct
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Customer funnel / Menu to cart (%)
+- swiggy source: CONVERSION_FUNNEL / Menu to Cart
+- numerator: cart_builds
+- denominator: menu_opens
+- check: points 0.05
+
+## `cart_to_orders_pct`
+
+Share of cart builds that became funnel orders. The numerator differs by platform.
+
+- unit: pct
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- zomato source: Customer funnel / Cart to orders (%)
+- swiggy source: CONVERSION_FUNNEL / Cart to Order
+- denominator: cart_builds
+- numerator by platform: zomato placed_orders, swiggy swiggy_funnel_orders
+- check: points 0.05
+
+## `menu_conversion_pct`
+
+Legacy single funnel rate. It is not rolled up. Use the three funnel rates instead.
+
+- unit: pct
+- aggregation: platform_only
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato, swiggy
+- check: points 0.05
+
+## `new_user_orders`
+
+Zomato orders from new users. Together with repeat and lapsed, these match placed orders.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer segmentation / New user orders
+- check: absolute 0
+
+## `repeat_user_orders`
+
+Zomato orders from repeat users.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer segmentation / Repeat user orders
+- check: absolute 0
+
+## `lapsed_user_orders`
+
+Zomato orders from lapsed users. Not Swiggy's dormant orders.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer segmentation / Lapsed user orders
+- check: absolute 0
+
+## `swiggy_new_customer_orders`
+
+Swiggy delivered orders from new customers.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: CUSTOMERS / New Customer Order %
+- derivation: round(new_customer_pct*delivered_orders/100)
+- check: absolute 0
+
+## `swiggy_new_customer_pct`
+
+Share of delivered Swiggy orders from new customers.
+
+- unit: pct
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: CUSTOMERS / New Customer Order %
+- numerator: swiggy_new_customer_orders
+- denominator: delivered_orders
+- check: relative 0.005
+
+## `swiggy_repeat_customer_orders`
+
+Swiggy delivered orders from repeat customers.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: CUSTOMERS / Repeat Customer Order %
+- derivation: round(repeat_customer_pct*delivered_orders/100)
+- check: absolute 0
+
+## `swiggy_repeat_customer_pct`
+
+Share of delivered Swiggy orders from repeat customers.
+
+- unit: pct
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: CUSTOMERS / Repeat Customer Order %
+- numerator: swiggy_repeat_customer_orders
+- denominator: delivered_orders
+- check: relative 0.005
+
+## `dormant_user_orders`
+
+Swiggy delivered orders from dormant customers. Not Zomato lapsed orders.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: CUSTOMERS / Dormant Customer Order %
+- derivation: round(dormant_customer_pct*delivered_orders/100)
+- check: absolute 0
+
+## `dormant_customer_pct`
+
+Share of delivered Swiggy orders from dormant customers.
+
+- unit: pct
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: CUSTOMERS / Dormant Customer Order %
+- numerator: dormant_user_orders
+- denominator: delivered_orders
+- check: relative 0.005
+
+## `swiggy_new_customers`
+
+Distinct new customers in one Swiggy window.
+
+- unit: count
+- aggregation: platform_only
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: CUSTOMERS / New Customers
+- check: absolute 0
+
+## `swiggy_repeat_customers`
+
+Distinct repeat customers in one Swiggy window.
+
+- unit: count
+- aggregation: platform_only
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: CUSTOMERS / Repeat Customers
+- check: absolute 0
+
+## `swiggy_dormant_customers`
+
+Distinct dormant customers in one Swiggy window.
+
+- unit: count
+- aggregation: platform_only
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: CUSTOMERS / Dormant Customers
+- check: absolute 0
+
+## `unique_customers`
+
+Distinct Zomato customers in the range, from salted payout hashes.
+
+- unit: count
+- aggregation: distinct
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: salted customer id
+- check: absolute 0
+
+## `breakfast_orders`
+
+Zomato breakfast orders.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer segmentation / Breakfast orders
+- check: absolute 0
+
+## `lunch_orders`
+
+Zomato lunch orders.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer segmentation / Lunch orders
+- check: absolute 0
+
+## `snacks_orders`
+
+Zomato snacks orders.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer segmentation / Snacks orders
+- check: absolute 0
+
+## `dinner_orders`
+
+Zomato dinner orders.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer segmentation / Dinner orders
+- check: absolute 0
+
+## `late_night_orders`
+
+Zomato late night orders.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Customer segmentation / Late night orders
+- check: absolute 0
+
+## `ads_sales_paise`
+
+Zomato sales from ads.
+
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Ads / Sales from ads (Rs)
+- check: absolute 0
+
+## `ad_orders`
+
+Zomato orders attributed to ads. Swiggy CPC orders are cpc_orders.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Ads / Ads orders
+- check: absolute 0
+
+## `ads_impressions`
+
+Zomato ads impressions.
+
+- unit: decimal
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Ads / Ads impressions
+- check: absolute 0
+
+## `ads_menu_opens`
+
+Zomato menu opens from ads.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Ads / Ads menu opens
+- check: absolute 0
+
+## `ads_ctr_pct`
+
+Zomato ads click-through rate: ads menu opens divided by ads impressions.
+
+- unit: pct
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Ads / Ads CTR (%)
+- numerator: ads_menu_opens
+- denominator: ads_impressions
+- check: points 0.05
+
+## `ads_roi`
+
+Zomato ads ROI from sales before the discount, divided by ads spend. Not a 0 to 100 percent.
+
+- unit: decimal
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Ads / Ads ROI
+- formula: zomato_ads_roi
+- check: relative 0.005
+
+## `cpc_sales_paise`
+
+Swiggy CPC ad sales.
+
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: ADS_CPC / CPC Driven Sales
+- check: absolute 0
+
+## `cpc_orders`
+
+Swiggy orders attributed to CPC ads.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: ADS_CPC / CPC Orders
+- check: absolute 0
+
+## `cpc_spend_paise`
+
+Swiggy CPC spend in the business export.
+
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: ADS_CPC / Total CPC Spends
+- check: absolute 0
+
+## `cpc_menu_opens`
+
+Swiggy menu visits from CPC ads.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: ADS_CPC / CPC Menu Visits
+- check: absolute 0
+
+## `cpc_roas`
+
+Swiggy CPC return: CPC sales divided by CPC spend.
+
+- unit: pct
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: ADS_CPC / ROAS
+- numerator: cpc_sales_paise
+- denominator: cpc_spend_paise
+- check: relative 0.005
+
+## `cpc_ads_depth_pct`
+
+Swiggy CPC sales divided by Swiggy GMV. The monthly platform figure is excluded.
+
+- unit: pct
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: ADS_CPC / CPC Ads Depth
+- numerator: cpc_sales_paise
+- denominator: swiggy_gmv_paise
+- check: excluded (swiggy month): Swiggy's monthly CPC Ads Depth does not match its own parts.
+
+## `cba_sales_paise`
+
+Swiggy CBA ad sales.
+
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: ADS_CBA / CBA Driven Sales
+- check: absolute 0
+
+## `cba_orders`
+
+Swiggy orders attributed to CBA ads.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: ADS_CBA / CBA Orders
+- check: absolute 0
+
+## `cba_spend_paise`
+
+Swiggy CBA spend.
+
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: ADS_CBA / Total CBA Spends
+- check: absolute 0
+
+## `cba_impressions`
+
+Swiggy CBA ad impressions.
+
+- unit: decimal
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: ADS_CBA / Ad Impressions
+- check: absolute 0
+
+## `cba_menu_opens`
+
+Swiggy menu visits from CBA ads.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: ADS_CBA / CBA Menu Visits
+- check: absolute 0
+
+## `cba_ads_depth_pct`
+
+Swiggy CBA sales divided by Swiggy GMV.
+
+- unit: pct
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: ADS_CBA / CBA Ads Depth
+- numerator: cba_sales_paise
+- denominator: swiggy_gmv_paise
+- check: relative 0.005
+
+## `cba_avg_cost_per_impression_paise`
+
+Swiggy CBA spend divided by CBA impressions.
+
+- unit: paise
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: ADS_CBA / Avg Cost Per Impressions
+- numerator: cba_spend_paise
+- denominator: cba_impressions
+- check: relative 0.005
+
+## `swiggy_gmv_paise`
+
+Swiggy gross value, restaurant discount divided by the discount GMV rate. Null when the discount is ₹0.
+
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: DISCOUNTS / Discount GMV %
+- derivation: discount_paise/(discount_gmv_pct/100)
+- check: absolute 0
+
+## `discount_gmv_pct`
+
+Restaurant discount as a share of Swiggy GMV.
+
+- unit: pct
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: DISCOUNTS / Discount GMV %
+- numerator: discount_paise
+- denominator: swiggy_gmv_paise
+- check: relative 0.005
+
+## `discounted_orders`
+
+Swiggy delivered orders that had a restaurant discount.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: DISCOUNTS / Discounted Orders %
+- derivation: round(discounted_orders_pct*delivered_orders/100)
+- check: absolute 0
+
+## `discounted_orders_pct`
+
+Share of delivered Swiggy orders that had a restaurant discount.
+
+- unit: pct
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: DISCOUNTS / Discounted Orders %
+- numerator: discounted_orders
+- denominator: delivered_orders
+- check: relative 0.005
+
+## `rdpo_paise`
+
+Restaurant discount per delivered Swiggy order, not per discounted order.
+
+- unit: paise
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: DISCOUNTS / Restaurant Discount Per Order(RDPO)
+- numerator: discount_paise
+- denominator: delivered_orders
+- check: relative 0.005
+
+## `offer_gross_sales_paise`
+
+Zomato gross sales from offers. The file label is swapped with the orders column; the value decides.
+
+- unit: paise
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Offers / Orders with offers
+- check: absolute 0
+
+## `offer_orders`
+
+Zomato orders with offers. The file label is swapped with the sales column.
+
+- unit: count
+- aggregation: sum
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Offers / Gross sales from offers (Rs)
+- check: absolute 0
+
+## `offer_discount_pct`
+
+Zomato discount divided by gross sales from offers.
+
+- unit: pct
+- aggregation: ratio
+- accuracy: exact
+- crossPlatform: false
+- platforms: zomato
+- zomato source: Offers / Effective discount (%)
+- numerator: discount_paise
+- denominator: offer_gross_sales_paise
+- check: relative 0.005
+
+## `menu_score`
+
+Swiggy menu score out of 100. A 0 is not computed.
+
+- unit: decimal
+- aggregation: snapshot_latest
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: MENU / Menu Score(Out of 100)
+- check: absolute 0
+
+## `menu_category_score`
+
+Swiggy menu category score. A 0 is not computed.
+
+- unit: decimal
+- aggregation: snapshot_latest
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: MENU / Category Score(Out of 100)
+- check: absolute 0
+
+## `menu_item_score`
+
+Swiggy menu item score. A 0 is not computed.
+
+- unit: decimal
+- aggregation: snapshot_latest
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: MENU / Item Score(Out of 100)
+- check: absolute 0
+
+## `menu_addon_score`
+
+Swiggy menu add-on score. A 0 is not computed.
+
+- unit: decimal
+- aggregation: snapshot_latest
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: MENU / Addon Score(Out of 100)
+- check: absolute 0
+
+## `menu_combo_score`
+
+Swiggy menu combo score. A 0 is not computed.
+
+- unit: decimal
+- aggregation: snapshot_latest
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: MENU / Combo Score(Out of 100)
+- check: absolute 0
+
+## `menu_photo_pct`
+
+Share of Swiggy items that have a photo.
+
+- unit: pct
+- aggregation: snapshot_latest
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: MENU / Items with Photos
+- check: points 0.05
+
+## `menu_desc_pct`
+
+Share of Swiggy items that have a description.
+
+- unit: pct
+- aggregation: snapshot_latest
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: MENU / Items with Descriptions
+- check: points 0.05
+
+## `top5_items_revenue_paise`
+
+Gross revenue of the top 5 items in the requested window. It is not added across windows.
+
+- unit: paise
+- aggregation: platform_only
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: MENU / Top Selling Items (Gross Revenue)
+- check: absolute 0
+
+## `lag_banner`
+
+Whether Swiggy showed the 48-hour lag banner. The numbers on screen are still stored.
+
+- unit: boolean
+- aggregation: snapshot_latest
+- accuracy: exact
+- crossPlatform: false
+- platforms: swiggy
+- swiggy source: 48-hour lag banner
+- check: absolute 0
+
+## Exclusions
+
+- `offline_time_hours`: Zomato rounds offline hours to whole hours a day, so the days do not add up.
+- `cpc_ads_depth_pct`: Swiggy's monthly CPC Ads Depth does not match its own parts.
+
+## Retired keys
+
+- `orders`: Use delivered_orders or payout_orders.
+- `delayed_orders`: Use delayed_orders_kpt10 on Zomato and delayed_orders_gt10 on Swiggy.
+- `bad_order_complaints`: Not mapped. Store bad_orders, complaints, and non_refunded_complaints.
+- `mfr_eligible_orders`: Dropped. Food-ready accuracy uses delivered_orders as the denominator.

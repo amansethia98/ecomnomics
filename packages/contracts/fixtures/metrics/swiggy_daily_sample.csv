@@ -1,0 +1,75 @@
+Restaurant ID,Restaurant name,Area,City,Overview,Metric,2nd Nov 2026,3rd Nov 2026,4th Nov 2026,5th Nov 2026,6th Nov 2026,7th Nov 2026,8th Nov 2026
+900001.0,Test Kitchen,Testarea,Testcity,SALES,Net Sales,₹11021.77,₹11006.85,₹12991.54,₹14015.46,₹23962.82,₹34933.32,₹23790.90
+900001.0,Test Kitchen,Testarea,Testcity,SALES,Delivered Orders,36,22,24,27,25,66,67
+900001.0,Test Kitchen,Testarea,Testcity,SALES,Net AOV,₹249.13,₹339.75,₹510.94,₹705.64,₹668.40,₹512.91,₹959.02
+900001.0,Test Kitchen,Testarea,Testcity,SALES,Restaurant Cancelled Orders,0,0,0,0,0,0,0
+900001.0,Test Kitchen,Testarea,Testcity,SALES,Cancelled Order Loss,₹0,₹0,₹0,₹0,₹0,₹0,₹0
+900001.0,Test Kitchen,Testarea,Testcity,SALES,Number of Orders below ₹250,2,1,2,2,1,2,1
+900001.0,Test Kitchen,Testarea,Testcity,SALES,Number of Orders between ₹250 and ₹450,12,18,9,10,16,12,8
+900001.0,Test Kitchen,Testarea,Testcity,SALES,Number of Orders between ₹450 and ₹650,8,9,8,8,6,15,12
+900001.0,Test Kitchen,Testarea,Testcity,SALES,Number of Orders between ₹650 and ₹850,0,4,0,9,1,15,5
+900001.0,Test Kitchen,Testarea,Testcity,SALES,Number of Orders above ₹850,8,7,5,14,10,18,24
+900001.0,Test Kitchen,Testarea,Testcity,SALES,Market Share,0.82%,1.43%,0.55%,1.78%,1.74%,2.28%,2.33%
+900001.0,Test Kitchen,Testarea,Testcity,BOLT,Orders,1,5,2,1,1,8,0
+900001.0,Test Kitchen,Testarea,Testcity,BOLT,% of Bolt Orders,3.77%,11.19%,9%,1.58%,3.14%,9.58%,0%
+900001.0,Test Kitchen,Testarea,Testcity,BOLT,AOV,₹636,₹740.06,₹377,₹711,₹1035,₹418.93,₹0
+900001.0,Test Kitchen,Testarea,Testcity,BOLT,Avg Prep Time,1.97 min,9.57 min,8.67 min,3.22 min,1.68 min,8.51 min,0 min
+900001.0,Test Kitchen,Testarea,Testcity,BOLT,Orders with <6 min Prep time,80%,0%,0%,91%,100%,0%,0%
+900001.0,Test Kitchen,Testarea,Testcity,BOLT,Delayed Orders (>5 mins),0,3,2,0,0,6,0
+900001.0,Test Kitchen,Testarea,Testcity,RATINGS,total rated orders,1,3,1,2,0,5,2
+900001.0,Test Kitchen,Testarea,Testcity,RATINGS,Poor Rated Orders,1,3,0,1,0,2,1
+900001.0,Test Kitchen,Testarea,Testcity,CONVERSION_FUNNEL,Impressions,2676.06,3270.63,3104.87,2217.14,1628.67,2495.52,2547.10
+900001.0,Test Kitchen,Testarea,Testcity,CONVERSION_FUNNEL,Menu Opens,431,544,317,298,316,364,190
+900001.0,Test Kitchen,Testarea,Testcity,CONVERSION_FUNNEL,Carts Builds,146,111,79,111,65,97,61
+900001.0,Test Kitchen,Testarea,Testcity,CONVERSION_FUNNEL,Orders Placed,34,19,16,28,22,50,30
+900001.0,Test Kitchen,Testarea,Testcity,CONVERSION_FUNNEL,Impressions to Menu,7.21%,8.69%,6.46%,9.57%,6.64%,15.53%,11.32%
+900001.0,Test Kitchen,Testarea,Testcity,CONVERSION_FUNNEL,Menu to Cart,19.51%,18.29%,19.47%,27.28%,17.16%,42.11%,42.07%
+900001.0,Test Kitchen,Testarea,Testcity,CONVERSION_FUNNEL,Cart to Order,27.17%,32.54%,26.31%,28.03%,36.93%,44.07%,65.29%
+900001.0,Test Kitchen,Testarea,Testcity,CUSTOMERS,New Customers,9,12,14,12,9,26,13
+900001.0,Test Kitchen,Testarea,Testcity,CUSTOMERS,Repeat Customers,21,19,18,32,15,30,20
+900001.0,Test Kitchen,Testarea,Testcity,CUSTOMERS,Dormant Customers,0,0,0,0,0,0,0
+900001.0,Test Kitchen,Testarea,Testcity,CUSTOMERS,New Customer Order %,43.97%,55.71%,49%,25.28%,27.35%,44.61%,54.99%
+900001.0,Test Kitchen,Testarea,Testcity,CUSTOMERS,Repeat Customer Order %,74.79%,50%,70%,81.39%,38.01%,55.06%,48.40%
+900001.0,Test Kitchen,Testarea,Testcity,CUSTOMERS,Dormant Customer Order %,0%,0%,0%,0%,0%,0%,0%
+900001.0,Test Kitchen,Testarea,Testcity,ADS_CPC,CPC Driven Sales,₹3746,₹5350,₹1981,₹10405,₹9426,₹12856,₹11490
+900001.0,Test Kitchen,Testarea,Testcity,ADS_CPC,CPC Orders,19,21,7,15,9,11,11
+900001.0,Test Kitchen,Testarea,Testcity,ADS_CPC,Total CPC Spends,₹0,₹0,₹0,₹0,₹0,₹0,₹0
+900001.0,Test Kitchen,Testarea,Testcity,ADS_CPC,CPC Menu Visits,236,319,226,257,154,182,200
+900001.0,Test Kitchen,Testarea,Testcity,ADS_CPC,ROAS,0%,0%,0%,0%,0%,0%,0%
+900001.0,Test Kitchen,Testarea,Testcity,ADS_CPC,CPC Ads Depth,23.85%,48.17%,19.86%,56.94%,30.78%,17.70%,19.14%
+900001.0,Test Kitchen,Testarea,Testcity,ADS_CBA,CBA Driven Sales,₹0,₹0,₹0,₹0,₹0,₹0,₹0
+900001.0,Test Kitchen,Testarea,Testcity,ADS_CBA,CBA Orders,0,0,0,0,0,0,0
+900001.0,Test Kitchen,Testarea,Testcity,ADS_CBA,Total CBA Spends,₹0,₹0,₹0,₹0,₹0,₹0,₹0
+900001.0,Test Kitchen,Testarea,Testcity,ADS_CBA,Ad Impressions,0,0,0,0,0,0,0
+900001.0,Test Kitchen,Testarea,Testcity,ADS_CBA,CBA Menu Visits,0,0,0,0,0,0,0
+900001.0,Test Kitchen,Testarea,Testcity,ADS_CBA,Avg Cost Per Impressions,₹0,₹0,₹0,₹0,₹0,₹0,₹0
+900001.0,Test Kitchen,Testarea,Testcity,ADS_CBA,CBA Ads Depth,0%,0%,0%,0%,0%,0%,0%
+900001.0,Test Kitchen,Testarea,Testcity,DISCOUNTS,Discounted Orders %,95.77%,71.76%,100%,100.00%,66.89%,69.74%,99.88%
+900001.0,Test Kitchen,Testarea,Testcity,DISCOUNTS,Discount Given by Restaurant(RDGMV),₹5382.50,₹3683.05,₹2841.71,₹4606.87,₹11953.13,₹16601.36,₹7230.13
+900001.0,Test Kitchen,Testarea,Testcity,DISCOUNTS,Discount GMV %,34.19%,34.40%,28.36%,20.27%,29.45%,17.98%,13.24%
+900001.0,Test Kitchen,Testarea,Testcity,DISCOUNTS,Restaurant Discount Per Order(RDPO),₹174.46,₹160.09,₹165.46,₹209.93,₹231.10,₹247.10,₹239.93
+900001.0,Test Kitchen,Testarea,Testcity,OPERATIONS,Online Availability %,77%,80%,83%,79%,100%,81%,94%
+900001.0,Test Kitchen,Testarea,Testcity,OPERATIONS,Kitchen Prep Time,6.04 min,12.43 min,10.96 min,11.53 min,9.81 min,14.95 min,12.71 min
+900001.0,Test Kitchen,Testarea,Testcity,OPERATIONS,Food Ready Accuracy (MFR),100.00%,74.39%,78%,82.00%,41.55%,70.73%,59.16%
+900001.0,Test Kitchen,Testarea,Testcity,OPERATIONS,Delayed Orders (> 10 mins),0%,5.17%,20%,14.40%,10.58%,10.11%,9.86%
+900001.0,Test Kitchen,Testarea,Testcity,MENU,Menu Score(Out of 100),0,0,0,0,0,0,0
+900001.0,Test Kitchen,Testarea,Testcity,MENU,Items with Photos,83.65%,98.61%,100.00%,100.00%,66.56%,100.00%,77.63%
+900001.0,Test Kitchen,Testarea,Testcity,MENU,Items with Descriptions,82%,100%,100%,100%,100%,100%,95%
+900001.0,Test Kitchen,Testarea,Testcity,MENU,Category Score(Out of 100),0,0,0,0,0,0,0
+900001.0,Test Kitchen,Testarea,Testcity,MENU,Item Score(Out of 100),0,0,0,0,0,0,0
+900001.0,Test Kitchen,Testarea,Testcity,MENU,Addon Score(Out of 100),0,0,0,0,0,0,0
+900001.0,Test Kitchen,Testarea,Testcity,MENU,Combo Score(Out of 100),0,0,0,0,0,0,0
+900001.0,Test Kitchen,Testarea,Testcity,MENU,Top Selling Items (Gross Revenue),₹9456,₹7473,₹6053,₹11907,₹16019,₹17779,₹14682
+900001.0,Test Kitchen,Testarea,Testcity,MENU,Indian Thali Straight From Home Revenue %,40.12%,32%,35.29%,43.24%,36.77%,30.92%,28.93%
+900001.0,Test Kitchen,Testarea,Testcity,MENU,Basanti Pulao Revenue %,35.11%,17.16%,14.73%,21.31%,11.75%,17.70%,13.84%
+900001.0,Test Kitchen,Testarea,Testcity,MENU,Paneer Butter Masala Revenue %,21.28%,20.57%,26.31%,11.40%,18.46%,23.40%,14.79%
+900001.0,Test Kitchen,Testarea,Testcity,MENU,Butter Naan Revenue %,22.96%,22.07%,12.51%,20.66%,11.11%,13.68%,27.71%
+900001.0,Test Kitchen,Testarea,Testcity,MENU,Gulab Jamun [2 Pieces] Revenue %,8.14%,11%,14.79%,14.96%,7.66%,10.28%,14.55%
+900001.0,Test Kitchen,Testarea,Testcity,COMPLAINTS,Non-refunded Complaints,0,0,0,1,0,1,0
+900001.0,Test Kitchen,Testarea,Testcity,COMPLAINTS,Customer Refunded Complaints,0,0,0,0,0,2,0
+900001.0,Test Kitchen,Testarea,Testcity,COMPLAINTS,Missing Items,0,0,0,0,0,1,0
+900001.0,Test Kitchen,Testarea,Testcity,COMPLAINTS,% Orders with Complaints,0%,0%,0%,1.50%,0%,4.94%,0%
+900001.0,Test Kitchen,Testarea,Testcity,COMPLAINTS,Quality Issues,0,0,0,0,0,1,0
+900001.0,Test Kitchen,Testarea,Testcity,COMPLAINTS,Quantity Issues,0,0,0,1,0,0,0
+900001.0,Test Kitchen,Testarea,Testcity,COMPLAINTS,Wrong Items,0,0,0,0,0,1,0
+900001.0,Test Kitchen,Testarea,Testcity,COMPLAINTS,Packaging & Spillage,0,0,0,0,0,0,0

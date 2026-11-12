@@ -150,13 +150,22 @@ def metric_values(result, screen):
     return values
 
 
+def payout_granularity(platform):
+    """Zomato payout weeks are Monday-Sunday. Swiggy payout weeks are Sunday-Saturday."""
+    if platform == "zomato":
+        return "week_mon_sun"
+    if platform == "swiggy":
+        return "week_sun_sat"
+    raise ValueError(f"Unknown platform {platform}")
+
+
 def metrics_body(run_id, platform, outlet_id, result, screen, captured_at):
     start, end = period_bounds(result["period"])
     rows = [
         {
             "outletId": outlet_id,
             "platform": platform,
-            "granularity": "week",
+            "granularity": payout_granularity(platform),
             "periodStart": start,
             "periodEnd": end,
             "key": key,

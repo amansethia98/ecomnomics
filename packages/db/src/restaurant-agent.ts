@@ -443,21 +443,33 @@ export async function upsertMetrics(
     throw new RestaurantAgentError("unknown_outlet", 422, "Outlet is not part of this restaurant.");
   }
   const capturedAt = new Date(input.capturedAt);
-  await db.$transaction(async (tx) => {
+  const upserted = await db.$transaction(async (tx) => {
+    let written = 0;
     for (const row of input.rows) {
       const periodStart = new Date(row.periodStart);
       const periodEnd = new Date(row.periodEnd);
-      await tx.metricValue.upsert({
+      const stored = storedMetricValue(row.value);
+      const current = await tx.metricValue.findFirst({
         where: {
-          metricUpsert: {
-            outletId: row.outletId,
-            platform: row.platform,
-            granularity: row.granularity,
-            periodStart,
-            key: row.key,
-          },
+          outletId: row.outletId,
+          platform: row.platform,
+          granularity: row.granularity,
+          periodStart,
+          periodEnd,
+          key: row.key,
+          rowRole: "fact",
+          supersededAt: null,
         },
-        create: {
+      });
+      if (current && sameMetricValue(current, stored)) continue;
+      if (current) {
+        await tx.metricValue.update({
+          where: { id: current.id },
+          data: { supersededAt: capturedAt },
+        });
+      }
+      await tx.metricValue.create({
+        data: {
           restaurantId: scope.restaurantId,
           spaceId: scope.spaceId,
           outletId: row.outletId,
@@ -466,22 +478,28 @@ export async function upsertMetrics(
           periodStart,
           periodEnd,
           key: row.key,
-          ...storedMetricValue(row.value),
-          runId: input.runId,
-          source: input.source,
-          capturedAt,
-        },
-        update: {
-          periodEnd,
-          ...storedMetricValue(row.value),
+          rowRole: "fact",
+          ...stored,
           runId: input.runId,
           source: input.source,
           capturedAt,
         },
       });
+      written += 1;
     }
+    return written;
   });
-  return { upserted: input.rows.length };
+  return { upserted };
+}
+
+function sameMetricValue(
+  current: { value: { toString(): string } | null; valueBoolean: boolean | null },
+  next: { value: number | null; valueBoolean: boolean | null },
+): boolean {
+  if (current.valueBoolean !== next.valueBoolean) return false;
+  if (current.value == null || next.value == null)
+    return current.value == null && next.value == null;
+  return Math.abs(Number(current.value.toString()) - next.value) < 0.00005;
 }
 
 function uniqueFileNames(files: ReadonlyArray<{ name: string }>) {
