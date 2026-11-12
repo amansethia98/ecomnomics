@@ -28,6 +28,8 @@ supervisor at startup naming the variable, rather than surfacing later as a fail
 
 The computer image includes `payout-owner-reconcile`, `payout-swiggy-reconcile`, and
 `payout-combined`. They turn a downloaded settlement or annexure into the owner's table.
+`agent-v1-post` records that job on the restaurant agent API when the computer's
+environment is configured for it. It does not print the token.
 The table image uses DejaVu Sans, which the image already installs. The commands do not
 log in and do not click.
 

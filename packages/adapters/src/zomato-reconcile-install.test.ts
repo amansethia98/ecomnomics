@@ -13,6 +13,7 @@ const scripts = [
   "payout-owner-reconcile",
   "payout-swiggy-reconcile",
   "payout-combined",
+  "agent-v1-post",
 ].map((name) => path.join(computer, name));
 const libraries = [
   "payout/reconcile_base.py",

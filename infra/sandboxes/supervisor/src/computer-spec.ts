@@ -47,6 +47,7 @@ export const COMPUTER_IMAGE_CONTEXT_FILES = [
   "payout-owner-reconcile",
   "payout-swiggy-reconcile",
   "payout-combined",
+  "agent-v1-post",
   "payout/reconcile_base.py",
   "payout/owner_reconcile.py",
   "payout/swiggy_reconcile.py",

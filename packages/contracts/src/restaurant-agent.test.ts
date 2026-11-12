@@ -29,7 +29,9 @@ const openapi = readFileSync(
 describe("restaurant agent contract", () => {
   it("names every metric key once, with a meaning", () => {
     expect(new Set(METRIC_KEYS).size).toBe(METRIC_KEYS.length);
-    expect(METRIC_KEYS).toHaveLength(50);
+    expect(METRIC_KEYS).toHaveLength(51);
+    expect(METRIC_KEYS).toContain("commission_pg_gst_paise");
+    expect(METRIC_DEFINITIONS.commission_pg_gst_paise.unit).toBe("paise");
     expect(METRIC_KEYS).not.toContain("orders");
     expect(METRIC_KEYS).toContain("aov_paise");
     for (const key of DERIVED_METRIC_KEYS) {
@@ -54,6 +56,25 @@ describe("restaurant agent contract", () => {
     expect(openapi).toContain("costUsdMicros");
     expect(openapi).toContain("fxRate");
     expect(openapi).toContain("/agent/v1/runs");
+  });
+
+  it("requires startedAt on a body that names one, and allows a repeat to omit it", () => {
+    const repeat = {
+      runId: "run-1",
+      skill: "payout",
+      status: "succeeded" as const,
+      endedAt: "2026-01-07T04:10:00.000Z",
+    };
+    expect(CreateJobRunSchema.safeParse(repeat).success).toBe(true);
+    expect(
+      CreateJobRunSchema.safeParse({
+        ...repeat,
+        startedAt: "2026-01-07T04:20:00.000Z",
+      }).success,
+    ).toBe(false);
+    expect(spec).toContain("`startedAt` is required the first time a run is posted");
+    expect(spec).toContain("On a repeat post, leave `startedAt` out");
+    expect(openapi).toContain("Required on the first post for a runId");
   });
 
   it("requires the dollar source and the rate whenever paise is sent", () => {
@@ -179,6 +200,12 @@ describe("restaurant agent contract", () => {
     expect(PutMetricsSchema.safeParse(body({ key: "fees_incl_gst_paise", value: 1 })).success).toBe(
       false,
     );
+    expect(
+      PutMetricsSchema.safeParse(body({ key: "commission_pg_gst_paise", value: 8050 })).success,
+    ).toBe(true);
+    expect(
+      PutMetricsSchema.safeParse(body({ key: "commission_pg_gst_paise", value: 80.5 })).success,
+    ).toBe(false);
     expect(PutMetricsSchema.safeParse(body({ key: "ops_aov_paise", value: 1 })).success).toBe(
       false,
     );

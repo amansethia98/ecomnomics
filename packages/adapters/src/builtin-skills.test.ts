@@ -78,6 +78,9 @@ describe("Payout reconciliation", () => {
     expect(skill?.content).toContain("payout-owner-reconcile");
     expect(skill?.content).toContain("payout-swiggy-reconcile");
     expect(skill?.content).toContain("payout-combined");
+    expect(skill?.content).toContain("agent-v1-post start");
+    expect(skill?.content).toContain("agent-v1-post result");
+    expect(skill?.content).toContain("agent-v1-post fail");
     expect(skill?.content).toContain("send report to mail");
     expect(skill?.content).toContain("absolute gap strictly below");
     expect(skill?.content).toContain("assumed rate X% (onboarding rate not yet provided)");

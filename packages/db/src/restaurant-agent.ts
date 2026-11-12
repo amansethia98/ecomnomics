@@ -855,6 +855,13 @@ export async function upsertJobRun(
       : {}),
   };
   if (!existing) {
+    if (!input.startedAt) {
+      throw new RestaurantAgentError(
+        "invalid_body",
+        400,
+        "startedAt is required the first time a run is posted.",
+      );
+    }
     const created = await db.jobRun.create({
       data: {
         restaurantId: scope.restaurantId,
@@ -871,6 +878,9 @@ export async function upsertJobRun(
       },
     });
     return jobRunJson(created);
+  }
+  if (input.endedAt && Date.parse(input.endedAt) < existing.startedAt.getTime()) {
+    throw new RestaurantAgentError("invalid_body", 400, "endedAt must be at or after startedAt");
   }
   const updated = await db.jobRun.update({
     where: { id: existing.id },
