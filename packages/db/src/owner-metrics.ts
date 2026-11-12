@@ -2,6 +2,7 @@ import type { OwnerMetricsQuery, OwnerMetricsResponse } from "@rakazo/contracts"
 import { civilRangeBounds, indiaCivilDate } from "@rakazo/contracts";
 import { getLogger } from "@rakazo/logging";
 import type { PrismaClient } from "./client.js";
+import { Prisma } from "./generated/prisma/client.js";
 import type { OwnerCycleFact, OwnerOrderFact } from "./owner-metrics-assemble.js";
 import { assembleOwnerMetrics, ownerMetricLoadKeys } from "./owner-metrics-assemble.js";
 import type { RestaurantScope } from "./restaurant-agent.js";
@@ -70,30 +71,14 @@ export async function readOwnerMetrics(
     supersededAt: null,
   };
   const [facts, history, fetches, orders, adjustments, cycles] = await Promise.all([
-    db.metricValue.findMany({
-      where: {
-        ...where,
-        key: { in: keys },
-        periodStart: { gte: range.start, lt: range.end },
-      },
-      select: {
-        outletId: true,
-        platform: true,
-        key: true,
-        granularity: true,
-        periodStart: true,
-        periodEnd: true,
-        value: true,
-        valueBoolean: true,
-      },
-    }),
+    loadMetricFacts(db, scope, outletIds, platforms, keys, range.start, range.end),
     db.metricValue.findMany({
       where: {
         restaurantId: scope.restaurantId,
         spaceId: scope.spaceId,
         outletId: { in: outletIds },
         platform: { in: platforms },
-        key: { in: ownerMetricLoadKeys(query.keys) },
+        key: { in: keys },
         supersededAt: { not: null },
         periodStart: { lt: range.end },
         periodEnd: { gt: range.start },
@@ -195,7 +180,7 @@ export async function readOwnerMetrics(
           platform: row.platform,
           key: row.key,
           date: indiaCivilDate(row.periodStart),
-          value: row.value == null ? null : Number(row.value.toString()),
+          value: row.value == null ? null : Number(row.value),
           valueBoolean: row.valueBoolean,
           granularity: row.granularity,
           periodEnd: indiaCivilDate(row.periodEnd),
@@ -263,6 +248,48 @@ export async function readOwnerMetrics(
     keys: query.keys.length,
   });
   return response;
+}
+
+interface MetricFactRow {
+  outletId: string;
+  platform: string;
+  key: string;
+  granularity: string;
+  periodStart: Date;
+  periodEnd: Date;
+  value: number | null;
+  valueBoolean: boolean | null;
+}
+
+function loadMetricFacts(
+  db: PrismaClient,
+  scope: Pick<RestaurantScope, "restaurantId" | "spaceId">,
+  outletIds: readonly string[],
+  platforms: readonly string[],
+  keys: readonly string[],
+  start: Date,
+  end: Date,
+): Promise<MetricFactRow[]> {
+  if (outletIds.length === 0 || keys.length === 0) return Promise.resolve([]);
+  return db.$queryRaw<MetricFactRow[]>`
+    SELECT "outletId",
+      platform,
+      key,
+      granularity,
+      "periodStart",
+      "periodEnd",
+      "value"::float8 AS value,
+      "valueBoolean"
+    FROM "restaurant_metric_values"
+    WHERE "restaurantId" = ${scope.restaurantId}
+      AND "spaceId" = ${scope.spaceId}
+      AND "outletId" IN (${Prisma.join(outletIds)})
+      AND platform IN (${Prisma.join(platforms)})
+      AND "supersededAt" IS NULL
+      AND key IN (${Prisma.join(keys)})
+      AND "periodStart" >= ${start}
+      AND "periodStart" < ${end}
+  `;
 }
 
 function orderFact(row: {
