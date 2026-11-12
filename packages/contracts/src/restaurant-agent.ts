@@ -72,6 +72,29 @@ export type {
 export { comparePlatformValue, rollupMetrics } from "./metric-rollup.js";
 export type { ReplacePlan, StoredWindowRow, WindowWrite } from "./metric-window.js";
 export { planReplaceWindow } from "./metric-window.js";
+export type {
+  OwnerAdjustmentLine,
+  OwnerCycleFact,
+  OwnerGrain,
+  OwnerMetricsGap,
+  OwnerMetricsQuery,
+  OwnerMetricsResponse,
+  OwnerMetricsSeriesPoint,
+  OwnerMetricValue,
+  OwnerOrderFact,
+  OwnerPlatform,
+} from "./owner-metrics.js";
+export {
+  assembleOwnerMetrics,
+  MAX_OWNER_KEYS,
+  MAX_OWNER_RANGE_DAYS,
+  OWNER_GRAINS,
+  OWNER_PLATFORMS,
+  OwnerMetricsQuerySchema,
+  ownerMetricLoadKeys,
+  ownerMetricsErrorMessage,
+  spreadShares,
+} from "./owner-metrics.js";
 
 export const METRIC_KEY_MEANINGS = Object.fromEntries(
   METRIC_KEYS.map((key) => [key, METRIC_DEFINITIONS[key].definition]),

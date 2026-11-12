@@ -5,6 +5,8 @@ import {
   CreateReportSchema,
   IngestMetricReportSchema,
   IngestPayoutReportSchema,
+  OwnerMetricsQuerySchema,
+  ownerMetricsErrorMessage,
   PatchActionSchema,
   PutMetricsSchema,
   ReadMetricsQuerySchema,
@@ -23,6 +25,7 @@ import {
   markReportFileUploaded,
   RestaurantAgentError,
   readMetrics,
+  readOwnerMetrics,
   readRestaurant,
   reportFileForUpload,
   runAsTenant,
@@ -106,6 +109,28 @@ export function restaurantAgentRoutes(options: RestaurantAgentRouteOptions) {
 
   app.get("/agent/v1/metrics", async (c) => {
     try {
+      const keys = c.req.queries("keys");
+      if (keys && keys.length > 0) {
+        const platform = c.req.query("platform");
+        const grain = c.req.query("grain");
+        const outletIds = c.req.queries("outletIds") ?? [];
+        const single = c.req.query("outletId");
+        const likeForLike = c.req.query("likeForLike");
+        if (likeForLike !== undefined && likeForLike !== "true" && likeForLike !== "false") {
+          return agentError(c, 400, "invalid_body", "likeForLike must be true or false.");
+        }
+        const input = OwnerMetricsQuerySchema.parse({
+          platform: platform === "combined" ? "all" : platform,
+          from: c.req.query("from"),
+          to: c.req.query("to"),
+          keys,
+          basis: c.req.query("basis") ?? "order_date",
+          likeForLike: likeForLike === "true",
+          ...(outletIds.length > 0 ? { outletIds } : single ? { outletIds: [single] } : {}),
+          ...(grain ? { grain } : {}),
+        });
+        return c.json(await readOwnerMetrics(options.prisma, scopeOf(c), input));
+      }
       const basis = c.req.query("basis");
       const input = ReadMetricsQuerySchema.parse({
         outletId: c.req.query("outletId"),
@@ -116,6 +141,8 @@ export function restaurantAgentRoutes(options: RestaurantAgentRouteOptions) {
       });
       return c.json(await readMetrics(options.prisma, scopeOf(c), input));
     } catch (error) {
+      const message = ownerMetricsErrorMessage(error);
+      if (message) return agentError(c, 400, "invalid_body", message);
       return agentFailure(c, error);
     }
   });

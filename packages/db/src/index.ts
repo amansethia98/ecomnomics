@@ -46,6 +46,7 @@ export * from "./model-credit-cap.js";
 export * from "./model-credits.js";
 export * from "./model-roles.js";
 export * from "./organizations.js";
+export * from "./owner-metrics.js";
 export * from "./page-shares.js";
 export * from "./payout-reports.js";
 export * from "./platform-admin.js";

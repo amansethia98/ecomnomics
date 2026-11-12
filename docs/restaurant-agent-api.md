@@ -87,6 +87,8 @@ Dates in `from`, `to`, and a business-report window are civil dates in Asia/Kolk
 
 `GET /agent/v1/metrics?outletId&platform&from&to&basis`
 
+Sending `keys` uses the same read as the owner dashboard. That request is described in [owner-metrics.md](owner-metrics.md). `platform=all` is accepted there (`combined` means the same thing). A range longer than 400 days is rejected with `A date range can be at most 400 days.` More than 100 keys is rejected with `Send at most 100 metric keys.`
+
 `platform` is `zomato`, `swiggy`, or `combined`. `basis` is `order_date` (the default) or `settlement_date`.
 
 Sums add the daily parts. A ratio or weighted average is computed from those summed parts, never by averaging daily percentages. `snapshot_mean` is the sum of daily snapshots divided by days with a snapshot. `snapshot_latest` includes `asOf`, the day the figure comes from. A `platform_only` value is returned only when `from` and `to` are exactly a stored day, week, or month. Otherwise the value is null, `status` is `not_available`, and `reason` is `Not available for this date range. The platform only publishes this figure for a matching day, week, or month.`
