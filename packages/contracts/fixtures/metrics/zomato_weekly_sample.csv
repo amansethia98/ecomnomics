@@ -1,0 +1,48 @@
+Restaurant ID,Restaurant name,Subzone,City,Overview,Metric,"Week 40, 2026","Week 41, 2026","Week 42, 2026","Week 43, 2026","Week 44, 2026"
+900002,Test Kitchen,Testarea,Testcity,Sales,Delivered orders,158,240,278,407,135
+900002,Test Kitchen,Testarea,Testcity,Sales,Sales (Rs),67231.915319372,151924.4240689075,135243.2222792853,124911.1916695067,73758.04126162
+900002,Test Kitchen,Testarea,Testcity,Sales,Market share (%),0,0,0,0,0
+900002,Test Kitchen,Testarea,Testcity,Customer experience,Average rating,4.140792073529468,3.4332550683400687,5.91261027788700,5.642674807226557,6.011122709169841
+900002,Test Kitchen,Testarea,Testcity,Customer experience,Rated orders,19,22,34,65,32
+900002,Test Kitchen,Testarea,Testcity,Customer experience,Bad orders,12,11,24,24,10
+900002,Test Kitchen,Testarea,Testcity,Customer experience,Rejected orders,1,0,0,0,0
+900002,Test Kitchen,Testarea,Testcity,Customer experience,KPT+10 delayed orders,6,8,2,5,3
+900002,Test Kitchen,Testarea,Testcity,Customer experience,Poor rated orders,4,6,19,10,3
+900002,Test Kitchen,Testarea,Testcity,Customer experience,Total complaints,3,1,16,11,3
+900002,Test Kitchen,Testarea,Testcity,Customer experience,Non-refunded complaints,3,3,8,3,2
+900002,Test Kitchen,Testarea,Testcity,Customer experience,Total complaints - Poor packaging,1,0,3,1,0
+900002,Test Kitchen,Testarea,Testcity,Customer experience,Total complaints - Poor quality,1,3,10,7,1
+900002,Test Kitchen,Testarea,Testcity,Customer experience,Total complaints - Wrong order,2,0,2,3,0
+900002,Test Kitchen,Testarea,Testcity,Customer experience,Total complaints - Missing items,1,0,1,3,1
+900002,Test Kitchen,Testarea,Testcity,Customer experience,Self logs other ors,8,2,3,7,4
+900002,Test Kitchen,Testarea,Testcity,Customer experience,Lost sales (Rs),577.77,0,0,0,0
+900002,Test Kitchen,Testarea,Testcity,Customer experience,Online %,107.08,110,72.71,87.21,71
+900002,Test Kitchen,Testarea,Testcity,Customer experience,Offline time (in hours),0,0,2,1,0
+900002,Test Kitchen,Testarea,Testcity,Customer experience,KPT (in minutes),10.6472,10.491,6.3518,5.0696,7.361
+900002,Test Kitchen,Testarea,Testcity,Customer experience,FOR accuracy (%),90.8,64.3,77.2,68.6,106.9
+900002,Test Kitchen,Testarea,Testcity,Customer funnel,Impressions,42194,30600,44437,76205,58314
+900002,Test Kitchen,Testarea,Testcity,Customer funnel,Impressions to menu (%),8.0,5,5,7.9,5.8
+900002,Test Kitchen,Testarea,Testcity,Customer funnel,Menu opens,2429,3196,6190,4781,3699
+900002,Test Kitchen,Testarea,Testcity,Customer funnel,Menu to cart (%),19.2,20.6,27,26.0,17.9
+900002,Test Kitchen,Testarea,Testcity,Customer funnel,Cart builds,484,989,727,632,932
+900002,Test Kitchen,Testarea,Testcity,Customer funnel,Cart to orders (%),27,43,30.7,42.1,28.5
+900002,Test Kitchen,Testarea,Testcity,Customer funnel,Placed Orders,135,174,329,375,275
+900002,Test Kitchen,Testarea,Testcity,Customer segmentation,New user orders,48,144,164,207,77
+900002,Test Kitchen,Testarea,Testcity,Customer segmentation,Repeat user orders,64,101,109,54,60
+900002,Test Kitchen,Testarea,Testcity,Customer segmentation,Lapsed user orders,45,74,39,36,53
+900002,Test Kitchen,Testarea,Testcity,Customer segmentation,Breakfast orders,0,0,0,0,0
+900002,Test Kitchen,Testarea,Testcity,Customer segmentation,Lunch orders,76,84,58,127,70
+900002,Test Kitchen,Testarea,Testcity,Customer segmentation,Snacks orders,5,3,5,1,0
+900002,Test Kitchen,Testarea,Testcity,Customer segmentation,Dinner orders,155,152,175,240,164
+900002,Test Kitchen,Testarea,Testcity,Customer segmentation,Late night orders,0,0,24,40,0
+900002,Test Kitchen,Testarea,Testcity,Ads,Sales from ads (Rs),65035.48,122147.18,131236.823,129899.13,79951.72
+900002,Test Kitchen,Testarea,Testcity,Ads,Ads CTR (%),8.4,10.7,4.4,7.0,7.4
+900002,Test Kitchen,Testarea,Testcity,Ads,Ads impressions,23858,60737,42781,85476,55687
+900002,Test Kitchen,Testarea,Testcity,Ads,Ads menu opens,2979,3287,3972,5689,3092
+900002,Test Kitchen,Testarea,Testcity,Ads,Ads orders,189,248,265,198,200
+900002,Test Kitchen,Testarea,Testcity,Ads,Ads spend (Rs),12619.924734958335,13554.314978279270,27077.804606781498,33771.962658784068,16745.207629344055
+900002,Test Kitchen,Testarea,Testcity,Ads,Ads ROI,5.558125593383656,8.442426958578263,5.370313609581755,5.790667394795681,6.84422147253938
+900002,Test Kitchen,Testarea,Testcity,Offers,Orders with offers,47764.70,86816.64,123145.41,103917.74,112697.76
+900002,Test Kitchen,Testarea,Testcity,Offers,Gross sales from offers (Rs),108,242,291,281,113
+900002,Test Kitchen,Testarea,Testcity,Offers,Discount given (Rs),27087.006821698345,27513.43288376520,47287.65398745381,30885.98256464987,37033.272215829224
+900002,Test Kitchen,Testarea,Testcity,Offers,Effective discount (%),53.175543759050207,39.711179454662094,35.619389157778542,20.022703571863669,39.274602703526639

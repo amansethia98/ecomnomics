@@ -29,7 +29,13 @@ const openapi = readFileSync(
 describe("restaurant agent contract", () => {
   it("names every metric key once, with a meaning", () => {
     expect(new Set(METRIC_KEYS).size).toBe(METRIC_KEYS.length);
-    expect(METRIC_KEYS).toHaveLength(51);
+    expect(METRIC_KEYS.length).toBeGreaterThan(51);
+    expect(METRIC_KEYS).not.toContain("delayed_orders");
+    expect(METRIC_KEYS).not.toContain("bad_order_complaints");
+    expect(METRIC_KEYS).not.toContain("mfr_eligible_orders");
+    expect(METRIC_KEYS).toContain("non_refunded_complaints");
+    expect(METRIC_KEYS).toContain("delayed_orders_kpt10");
+    expect(METRIC_KEYS).toContain("delayed_orders_gt10");
     expect(METRIC_KEYS).toContain("commission_pg_gst_paise");
     expect(METRIC_DEFINITIONS.commission_pg_gst_paise.unit).toBe("paise");
     expect(METRIC_KEYS).not.toContain("orders");
@@ -162,7 +168,7 @@ describe("restaurant agent contract", () => {
     const base = {
       outletId: "outlet",
       platform: "zomato" as const,
-      granularity: "week" as const,
+      granularity: "week_mon_sun" as const,
       periodStart: "2026-01-06T00:00:00.000+05:30",
       periodEnd: "2026-01-13T00:00:00.000+05:30",
     };
@@ -230,6 +236,9 @@ describe("restaurant agent contract", () => {
   it("names the unknown key and the allowed list", () => {
     const message = unknownMetricKeyMessage(["tips"]);
     expect(message).toContain('"tips"');
+    expect(unknownMetricKeyMessage(["delayed_orders"])).toContain("delayed_orders_gt10");
+    expect(unknownMetricKeyMessage(["bad_order_complaints"])).toContain("non_refunded_complaints");
+    expect(unknownMetricKeyMessage(["mfr_eligible_orders"])).toContain("delivered_orders");
     expect(message).toContain("gross_sales_paise");
   });
 

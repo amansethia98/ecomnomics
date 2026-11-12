@@ -3,8 +3,10 @@ import {
   CreateActionSchema,
   CreateJobRunSchema,
   CreateReportSchema,
+  IngestMetricReportSchema,
   PatchActionSchema,
   PutMetricsSchema,
+  ReadMetricsQuerySchema,
   unknownMetricKeyMessage,
   unknownMetricKeys,
 } from "@rakazo/contracts";
@@ -14,9 +16,11 @@ import {
   authenticateAgentToken,
   createAction,
   createReport,
+  ingestBusinessReport,
   markActionFileUploaded,
   markReportFileUploaded,
   RestaurantAgentError,
+  readMetrics,
   readRestaurant,
   reportFileForUpload,
   runAsTenant,
@@ -35,6 +39,7 @@ import {
 } from "./restaurant-upload.js";
 
 const MAX_AGENT_JSON_BYTES = 1024 * 1024;
+const MAX_METRIC_REPORT_BYTES = 4 * 1024 * 1024;
 
 type AgentEnv = { Variables: { restaurantId: string; spaceId: string; userId: string } };
 
@@ -62,6 +67,10 @@ export function restaurantAgentRoutes(options: RestaurantAgentRouteOptions) {
   app.use("/agent/v1/reports/:reportId/files/:name", fileLimit);
   app.use("/agent/v1/actions/:actionId/files/:name", fileLimit);
   app.use("/agent/v1/metrics", jsonLimit);
+  app.use(
+    "/agent/v1/metric-reports",
+    requestBodyLimit(MAX_METRIC_REPORT_BYTES, "Request body is too large.", "invalid_body"),
+  );
   app.use("/agent/v1/reports", jsonLimit);
   app.use("/agent/v1/actions", jsonLimit);
   app.use("/agent/v1/actions/:actionId", jsonLimit);
@@ -83,6 +92,43 @@ export function restaurantAgentRoutes(options: RestaurantAgentRouteOptions) {
   app.get("/agent/v1/restaurant", async (c) => {
     try {
       return c.json(await readRestaurant(options.prisma, scopeOf(c)));
+    } catch (error) {
+      return agentFailure(c, error);
+    }
+  });
+
+  app.get("/agent/v1/metrics", async (c) => {
+    try {
+      const basis = c.req.query("basis");
+      const input = ReadMetricsQuerySchema.parse({
+        outletId: c.req.query("outletId"),
+        platform: c.req.query("platform"),
+        from: c.req.query("from"),
+        to: c.req.query("to"),
+        ...(basis ? { basis } : {}),
+      });
+      return c.json(await readMetrics(options.prisma, scopeOf(c), input));
+    } catch (error) {
+      return agentFailure(c, error);
+    }
+  });
+
+  app.post("/agent/v1/metric-reports", async (c) => {
+    try {
+      const input = IngestMetricReportSchema.parse(await readJson(c));
+      const result = await ingestBusinessReport(options.prisma, scopeOf(c), input);
+      if (result.status === "rejected_mismatch" || result.status === "needs_owner") {
+        return c.json(
+          {
+            error: result.reason ?? "The file does not match the requested outlet.",
+            code: "file_identity",
+            fetchId: result.fetchId,
+            status: result.status,
+          },
+          422,
+        );
+      }
+      return c.json(result);
     } catch (error) {
       return agentFailure(c, error);
     }
