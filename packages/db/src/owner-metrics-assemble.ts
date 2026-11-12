@@ -201,10 +201,30 @@ export function assembleOwnerMetrics(input: OwnerMetricsInput): OwnerMetricsResp
   const selected = resolveOutlets(input, days, platforms);
   const included = new Set(selected.filter((outlet) => outlet.included).map((outlet) => outlet.id));
   const window = readWindow(input, query.from, query.to, included, platforms, days);
+  const dayFacts = new Map<string, OwnerMetricFact[]>();
+  const otherFacts: OwnerMetricFact[] = [];
+  if (query.grain === "day") {
+    for (const fact of input.facts) {
+      if (fact.granularity !== "day") {
+        otherFacts.push(fact);
+        continue;
+      }
+      const list = dayFacts.get(fact.date);
+      if (list) list.push(fact);
+      else dayFacts.set(fact.date, [fact]);
+    }
+  }
   const series = query.grain
     ? bucketRanges(query.from, query.to, query.grain).map((bucket) => {
         const bucketDays = daysBetween(bucket.from, bucket.to);
-        const point = readWindow(input, bucket.from, bucket.to, included, platforms, bucketDays);
+        const scoped =
+          query.grain === "day"
+            ? {
+                ...input,
+                facts: [...(dayFacts.get(bucket.from) ?? []), ...otherFacts],
+              }
+            : input;
+        const point = readWindow(scoped, bucket.from, bucket.to, included, platforms, bucketDays);
         return {
           from: bucket.from,
           to: bucket.to,
@@ -337,6 +357,7 @@ function orderValues(
           to,
           today: input.today,
           basis: "order_date",
+          keys: input.query.keys,
         }),
       ),
     );
@@ -352,6 +373,7 @@ function orderValues(
               to,
               today: input.today,
               basis: "order_date",
+              keys: input.query.keys,
             },
           ),
         )
@@ -400,6 +422,7 @@ function settlementValues(
           to,
           today: input.today,
           basis: "order_date",
+          keys: input.query.keys,
         }),
       ),
     );
@@ -415,6 +438,7 @@ function settlementValues(
               to,
               today: input.today,
               basis: "order_date",
+              keys: input.query.keys,
             },
           ),
         )
@@ -590,9 +614,16 @@ function prepareOrderFacts(
   included: ReadonlySet<string>,
   platforms: readonly MetricPlatform[],
 ): { byPlatform: Map<MetricPlatform, RollupFact[]> } {
-  const totals = new Map<string, number>();
+  const perOutlet = new Map<string, Map<string, number>>();
   const single = included.size === 1 ? [...included][0] : undefined;
   const windows: RollupFact[] = [];
+  const outletFacts = (outletId: string) => {
+    const found = perOutlet.get(outletId);
+    if (found) return found;
+    const created = new Map<string, number>();
+    perOutlet.set(outletId, created);
+    return created;
+  };
   for (const fact of input.facts) {
     if (!included.has(fact.outletId) || !platforms.includes(fact.platform)) continue;
     if (fact.granularity !== "day") {
@@ -612,22 +643,45 @@ function prepareOrderFacts(
     }
     if (fact.date < from || fact.date >= to || fact.value == null) continue;
     const slot = slotOf(fact.platform, fact.date, fact.key);
-    totals.set(slot, (totals.get(slot) ?? 0) + fact.value);
+    const rows = outletFacts(fact.outletId);
+    if (averagedKey(fact.key)) rows.set(slot, fact.value);
+    else rows.set(slot, (rows.get(slot) ?? 0) + fact.value);
   }
   const grouped = new Map<string, OwnerOrderFact[]>();
   for (const order of input.orders) {
     if (!included.has(order.outletId) || !platforms.includes(order.platform)) continue;
     if (order.orderDate < from || order.orderDate >= to) continue;
-    const slot = `${order.platform}|${order.orderDate}`;
+    const slot = `${order.outletId}|${order.platform}|${order.orderDate}`;
     const list = grouped.get(slot) ?? [];
     list.push(order);
     grouped.set(slot, list);
   }
   for (const [slot, orders] of grouped) {
-    const [platform, date] = slot.split("|") as [MetricPlatform, string];
+    const splitAt = slot.indexOf("|");
+    const outletId = slot.slice(0, splitAt);
+    const [platform, date] = slot.slice(splitAt + 1).split("|") as [MetricPlatform, string];
+    const rows = outletFacts(outletId);
     for (const key of ORDER_SUM_KEYS) {
-      totals.set(slotOf(platform, date, key), sumOrderKey(orders, key));
+      rows.set(slotOf(platform, date, key), sumOrderKey(orders, key));
     }
+  }
+  const totals = new Map<string, number>();
+  const averages = new Map<string, { sum: number; count: number }>();
+  for (const rows of perOutlet.values()) {
+    for (const [slot, value] of rows) {
+      const key = slot.slice(slot.lastIndexOf("|") + 1);
+      if (averagedKey(key)) {
+        const current = averages.get(slot) ?? { sum: 0, count: 0 };
+        current.sum += value;
+        current.count += 1;
+        averages.set(slot, current);
+      } else {
+        totals.set(slot, (totals.get(slot) ?? 0) + value);
+      }
+    }
+  }
+  for (const [slot, average] of averages) {
+    totals.set(slot, average.sum / average.count);
   }
   const byPlatform = new Map<MetricPlatform, RollupFact[]>();
   for (const platform of platforms) byPlatform.set(platform, []);
@@ -639,6 +693,10 @@ function prepareOrderFacts(
   }
   for (const fact of windows) byPlatform.get(fact.platform)?.push(fact);
   return { byPlatform };
+}
+
+function averagedKey(key: string): boolean {
+  return metricDefinition(key)?.kind === "weighted_avg";
 }
 
 function prepareSettlementFacts(
@@ -938,14 +996,29 @@ function restated(
   to: string,
   included: ReadonlySet<string>,
 ): boolean {
+  const keys = keysBehind(key);
   return input.history.some(
     (mark) =>
       included.has(mark.outletId) &&
-      mark.key === key &&
+      keys.has(mark.key) &&
       (platform === "all" || mark.platform === platform) &&
       mark.from < to &&
       mark.to > from,
   );
+}
+
+function keysBehind(key: string): Set<string> {
+  const keys = new Set<string>([key, ...(DERIVED_DEPENDENCIES[key] ?? [])]);
+  const definition = metricDefinition(key);
+  if (!definition) return keys;
+  if (definition.numeratorKey) keys.add(definition.numeratorKey);
+  if (definition.denominatorKey) keys.add(definition.denominatorKey);
+  if (definition.valueKey) keys.add(definition.valueKey);
+  if (definition.weightKey) keys.add(definition.weightKey);
+  for (const extra of Object.values(definition.numeratorByPlatform ?? {})) {
+    if (extra) keys.add(extra);
+  }
+  return keys;
 }
 
 function lagBanner(

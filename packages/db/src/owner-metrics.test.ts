@@ -496,4 +496,100 @@ describe("owner metrics read", () => {
       expect(ownerMetricsErrorMessage(unknown.error)).toBe('Unknown metric key "orders".');
     }
   });
+
+  it("keeps another outlet's sales when only one outlet has a payout file", () => {
+    const result = read({
+      outlets: [north, south],
+      query: query({
+        keys: ["gross_sales_paise"],
+        from: "2026-01-01",
+        to: "2026-01-02",
+      }),
+      facts: [
+        {
+          outletId: north.id,
+          platform: "zomato",
+          key: "gross_sales_paise",
+          date: "2026-01-01",
+          value: 5000,
+          valueBoolean: null,
+          granularity: "day",
+          periodEnd: "2026-01-02",
+        },
+        {
+          outletId: south.id,
+          platform: "zomato",
+          key: "gross_sales_paise",
+          date: "2026-01-01",
+          value: 2000,
+          valueBoolean: null,
+          granularity: "day",
+          periodEnd: "2026-01-02",
+        },
+      ],
+      orders: [order({ outletId: north.id, grossSalesPaise: 1000, orderDate: "2026-01-01" })],
+    });
+    expect(result.values.find((value) => value.key === "gross_sales_paise")?.value).toBe(3000);
+  });
+
+  it("marks a ratio restated when one of its parts was replaced", () => {
+    const result = read({
+      query: query({
+        keys: ["effective_discount_pct"],
+        from: "2026-01-01",
+        to: "2026-01-02",
+      }),
+      facts: [
+        {
+          outletId: north.id,
+          platform: "zomato",
+          key: "discount_paise",
+          date: "2026-01-01",
+          value: 10,
+          valueBoolean: null,
+          granularity: "day",
+          periodEnd: "2026-01-02",
+        },
+        {
+          outletId: north.id,
+          platform: "zomato",
+          key: "gross_sales_paise",
+          date: "2026-01-01",
+          value: 100,
+          valueBoolean: null,
+          granularity: "day",
+          periodEnd: "2026-01-02",
+        },
+      ],
+      history: [
+        {
+          outletId: north.id,
+          platform: "zomato",
+          key: "discount_paise",
+          from: "2026-01-01",
+          to: "2026-01-02",
+        },
+      ],
+    });
+    expect(result.values[0]?.restated).toBe(true);
+  });
+
+  it("averages online percentage across outlets instead of adding the percentages", () => {
+    const day = (outletId: string, value: number) => ({
+      outletId,
+      platform: "zomato" as const,
+      key: "online_pct",
+      date: "2026-01-01",
+      value,
+      valueBoolean: null,
+      granularity: "day",
+      periodEnd: "2026-01-02",
+    });
+    const result = read({
+      outlets: [north, south],
+      query: query({ keys: ["online_pct"], from: "2026-01-01", to: "2026-01-02" }),
+      facts: [day(north.id, 80), day(south.id, 90)],
+    });
+    expect(result.values.find((value) => value.key === "online_pct")?.value).toBe(85);
+  });
 });

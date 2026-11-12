@@ -41,6 +41,8 @@ export interface RollupQuery {
   /** ISO date used to mark the 7-day re-fetch window as provisional. */
   today: string;
   basis: "order_date" | "settlement_date";
+  /** When set, only these keys are rolled. Omitted rolls the whole dictionary. */
+  keys?: readonly string[];
 }
 
 export interface RollupValue {
@@ -119,14 +121,19 @@ export function rollupMetrics(
   const index = indexFacts(rows, query.from, query.to, days);
   if (payout) writePayoutOrderDays(index, query, payout);
   const platform = query.platform;
+  const wanted = query.keys ? new Set(query.keys) : undefined;
+  const keep = (key: string) => wanted == null || wanted.has(key);
   const values =
     platform === "combined"
-      ? CROSS_PLATFORM_KEYS.map((key) => combinedSum(key, index))
-      : METRIC_KEYS.filter((key) => requireMetric(key).platforms.includes(platform)).map((key) =>
-          rollOne(key, platform, index),
-        );
-  if (platform !== "combined") {
-    values.push(...derivedPayouts(platform, index));
+      ? CROSS_PLATFORM_KEYS.filter((key) => keep(key)).map((key) => combinedSum(key, index))
+      : METRIC_KEYS.filter(
+          (key) => keep(key) && requireMetric(key).platforms.includes(platform),
+        ).map((key) => rollOne(key, platform, index));
+  if (
+    platform !== "combined" &&
+    DERIVED_RATIOS.some((item) => keep(item.key) || keep("burn_pct") || keep("fees_incl_gst_paise"))
+  ) {
+    values.push(...derivedPayouts(platform, index).filter((value) => keep(value.key)));
   }
   return applyPayout(
     { basis: query.basis, from: query.from, to: query.to, provisional, values },

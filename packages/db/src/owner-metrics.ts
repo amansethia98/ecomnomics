@@ -93,7 +93,7 @@ export async function readOwnerMetrics(
         spaceId: scope.spaceId,
         outletId: { in: outletIds },
         platform: { in: platforms },
-        key: { in: query.keys },
+        key: { in: ownerMetricLoadKeys(query.keys) },
         supersededAt: { not: null },
         periodStart: { lt: range.end },
         periodEnd: { gt: range.start },
