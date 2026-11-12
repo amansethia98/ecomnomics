@@ -41,7 +41,7 @@ AGENT_BROWSER = os.environ.get("RAKAZO_AGENT_BROWSER") or "/usr/local/bin/agent-
 
 NO_ANSWER = "The page did not answer in time."
 DOWNLOAD_STARTED = ("The click started a download. The page was left as it was rather than waited for; do not click "
-                    "again. Wait for the file with rakazo-wait-download, then take a snapshot.")
+                    "again. Wait for the file with rakazo-wait-download. The page may stay busy for about 20 seconds.")
 # A click is given this long to answer on its own before a download it started stops the wait.
 DOWNLOAD_CLICK_GRACE_SECONDS = 1.5
 STALE_REF = "Stale element ref: the page has changed since that snapshot. Use a ref from the page below."
@@ -1806,6 +1806,14 @@ class PageBrowser:
         if done_result.get("kept") is False:
             raise KeysNotKept(CODE_PARTIAL if done_result.get("boxes") else NOT_KEPT)
 
+    def tab_place(self) -> dict[str, str]:
+        """This tab's address and title from Chromium itself, while agent-browser may still be busy with it."""
+        with contextlib.suppress(Exception):
+            for tab in page_tabs(self.port):
+                if tab.get("id") == self.target:
+                    return {"url": str(tab.get("url") or ""), "title": str(tab.get("title") or "")[:200]}
+        return {"url": "", "title": ""}
+
     def download_began_watch(self) -> Callable[[], bool]:
         """Whether a download began since this was made, once a click has had a moment to answer by itself."""
         client = self.downloads.client  # type: ignore[union-attr]
@@ -1866,8 +1874,8 @@ class PageBrowser:
                         # The click's own work is done: the file is Chromium's to finish, and the page that
                         # began it may never settle. Answer now, so the call is not cut off mid-download.
                         completed += 1
-                        return self.with_notes({"ok": True, "completed": completed, "uncertain": False,
-                                                "note": DOWNLOAD_STARTED})
+                        return self.with_notes({"ok": True, **self.tab_place(), "completed": completed,
+                                                "uncertain": False, "note": DOWNLOAD_STARTED})
                     except Settled as exc:
                         # A control drawn as text inside a frame has no accessible click. Hit that text.
                         if node.frame and node.name and self.click_point(text=node.name):

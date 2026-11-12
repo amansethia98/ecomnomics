@@ -2814,10 +2814,14 @@ class DownloadTest(unittest.TestCase):
             self.client.downloads["9a8b"] = {"name": "export.xlsx", "state": "inProgress", "received": 0, "total": 0}
 
         self.client.listen = Mock(side_effect=listen)
+        tabs = [{"id": current.target, "type": "page", "url": "https://partner.example/payouts", "title": "Payouts"}]
         with patch.object(helper.time, "monotonic", side_effect=lambda: clock[0]), \
+                patch.object(helper, "page_tabs", return_value=tabs), \
                 patch.object(current, "settle") as settle, patch.object(current, "snapshot") as snapshot:
             result = current.act([{"kind": "click", "ref": "e8"}])
         self.assertEqual(result["ok"], True)
+        # The app requires both for a successful answer.
+        self.assertEqual((result["url"], result["title"]), ("https://partner.example/payouts", "Payouts"))
         self.assertEqual(result["completed"], 1)
         self.assertIn("rakazo-wait-download", result["note"])
         self.assertIn(["click", "@e8"], browser.sent)
