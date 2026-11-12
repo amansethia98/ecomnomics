@@ -40,6 +40,10 @@ discover_ws_url = page_secrets.discover_ws_url
 AGENT_BROWSER = os.environ.get("RAKAZO_AGENT_BROWSER") or "/usr/local/bin/agent-browser"
 
 NO_ANSWER = "The page did not answer in time."
+DOWNLOAD_STARTED = ("The click started a download. The page was left as it was rather than waited for; do not click "
+                    "again. Wait for the file with rakazo-wait-download, then take a snapshot.")
+# A click is given this long to answer on its own before a download it started stops the wait.
+DOWNLOAD_CLICK_GRACE_SECONDS = 1.5
 STALE_REF = "Stale element ref: the page has changed since that snapshot. Use a ref from the page below."
 NOT_KEPT = "The page did not keep every character typed. Check the field in this snapshot before trying again."
 CODE_PARTIAL = ("The code was not typed into every box. Check the boxes before asking for a new code; "
@@ -114,6 +118,10 @@ class PageLeft(TypingStopped):
 
 class KeysNotKept(RuntimeError):
     """Every key was pressed, but the field did not keep them all: the step ran, its result is wrong."""
+
+
+class DownloadStarted(RuntimeError):
+    """A click started a download; its page was left loading rather than waited for."""
 
 
 class AbError(RuntimeError):
@@ -389,15 +397,22 @@ class AgentBrowser:
             "AGENT_BROWSER_NO_WEBMCP": "1",
         })
 
-    def batch(self, commands: list[list[str]], *, timeout: float = 20.0, bail: bool = True) -> list[Any]:
-        """Each command's result, in one agent-browser call. Commands and their text go over stdin, not argv."""
-        try:
-            proc = subprocess.run(
-                [AGENT_BROWSER, "batch", "--json", "--omit-command", *(["--bail"] if bail else [])],
-                input=json.dumps(commands), capture_output=True, text=True, env=self.env, cwd=self.home,
-                timeout=left(self.deadline, timeout))
-        except subprocess.TimeoutExpired:
-            raise RuntimeError(NO_ANSWER) from None
+    def batch(self, commands: list[list[str]], *, timeout: float = 20.0, bail: bool = True,
+              stop_when: Callable[[], bool] | None = None) -> list[Any]:
+        """Each command's result, in one agent-browser call. Commands and their text go over stdin, not argv.
+
+        `stop_when` is asked about every quarter second while agent-browser works (it may wait on its own);
+        once it says yes, agent-browser is stopped and DownloadStarted raised: a click that started a download
+        leaves a page that never finishes loading, and waiting for it is what hung the call."""
+        argv = [AGENT_BROWSER, "batch", "--json", "--omit-command", *(["--bail"] if bail else [])]
+        if stop_when is None:
+            try:
+                proc = subprocess.run(argv, input=json.dumps(commands), capture_output=True, text=True,
+                                      env=self.env, cwd=self.home, timeout=left(self.deadline, timeout))
+            except subprocess.TimeoutExpired:
+                raise RuntimeError(NO_ANSWER) from None
+        else:
+            proc = self._batch_watched(argv, commands, left(self.deadline, timeout), stop_when)
         try:
             items = json.loads(proc.stdout)
         except json.JSONDecodeError:
@@ -421,6 +436,33 @@ class AgentBrowser:
         if len(results) < len(commands):
             raise AbError("agent-browser stopped early", len(results))
         return results
+
+    def _batch_watched(self, argv: list[str], commands: list[list[str]], timeout: float,
+                       stop_when: Callable[[], bool]) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryFile("w+", encoding="utf-8") as out, tempfile.TemporaryFile("w+", encoding="utf-8") as err:
+            child = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=out, stderr=err, text=True,
+                                     env=self.env, cwd=self.home)
+            try:
+                assert child.stdin is not None
+                child.stdin.write(json.dumps(commands))
+                child.stdin.close()
+                end = time.monotonic() + timeout
+                while child.poll() is None:
+                    if time.monotonic() >= end:
+                        raise RuntimeError(NO_ANSWER)
+                    if stop_when():
+                        raise DownloadStarted(DOWNLOAD_STARTED)
+                    if child.poll() is None:
+                        time.sleep(0.05)
+            except BaseException:
+                with contextlib.suppress(OSError):
+                    child.kill()
+                with contextlib.suppress(Exception):
+                    child.wait(timeout=2.0)
+                raise
+            out.seek(0)
+            err.seek(0)
+            return subprocess.CompletedProcess(argv, child.returncode, out.read(), err.read())
 
     def session_tab(self) -> str | None:
         """The tab the session reads now; it also follows tabs opened while it was attached."""
@@ -1650,9 +1692,9 @@ class PageBrowser:
             return self.with_notes({**snap, **progress, "ok": False, "error": f"{note}{unsure}{after}"})
         return self.with_notes({**snap, **progress, "note": note})
 
-    def step(self, commands: list[list[str]]) -> list[Any]:
+    def step(self, commands: list[list[str]], stop_when: Callable[[], bool] | None = None) -> list[Any]:
         try:
-            results = self.ab.batch(commands)
+            results = self.ab.batch(commands, stop_when=stop_when) if stop_when else self.ab.batch(commands)
         except AbError as error:
             if re.search(r"Element\b.*\bis disabled", str(error)):
                 raise Settled(DISABLED) from None
@@ -1764,6 +1806,19 @@ class PageBrowser:
         if done_result.get("kept") is False:
             raise KeysNotKept(CODE_PARTIAL if done_result.get("boxes") else NOT_KEPT)
 
+    def download_began_watch(self) -> Callable[[], bool]:
+        """Whether a download began since this was made, once a click has had a moment to answer by itself."""
+        client = self.downloads.client  # type: ignore[union-attr]
+        before = set(client.downloads)
+        since = time.monotonic()
+
+        def began() -> bool:
+            with contextlib.suppress(Exception):
+                client.listen(0.2)
+            return time.monotonic() - since >= DOWNLOAD_CLICK_GRACE_SECONDS and bool(set(client.downloads) - before)
+
+        return began
+
     def act(self, actions: list[dict[str, Any]]) -> dict[str, Any]:
         validate_actions(actions)
         completed = 0
@@ -1805,7 +1860,14 @@ class PageBrowser:
                                 self.downloads.client.download_links.append(time.monotonic())
                     try:
                         self.step([*([["scrollintoview", f"@{frame.ref}"]] if frame else []),
-                                   ["focus" if native_options(node) else "click", f"@{ref}"]])  # type: ignore[arg-type]
+                                   ["focus" if native_options(node) else "click", f"@{ref}"]],  # type: ignore[arg-type]
+                                  stop_when=self.download_began_watch() if self.downloads else None)
+                    except DownloadStarted:
+                        # The click's own work is done: the file is Chromium's to finish, and the page that
+                        # began it may never settle. Answer now, so the call is not cut off mid-download.
+                        completed += 1
+                        return self.with_notes({"ok": True, "completed": completed, "uncertain": False,
+                                                "note": DOWNLOAD_STARTED})
                     except Settled as exc:
                         # A control drawn as text inside a frame has no accessible click. Hit that text.
                         if node.frame and node.name and self.click_point(text=node.name):
@@ -3618,8 +3680,8 @@ def hold_downloads(folder: Any) -> None:
         client.close()
 
 
-class CallBudgetSpent(RuntimeError):
-    pass
+class CallBudgetSpent(BaseException):
+    """Not an Exception: the page work's own error handling must not swallow it and keep waiting."""
 
 
 def _budget_spent(_signum: int, _frame: Any) -> None:
@@ -3825,7 +3887,7 @@ def run(argv: list[str]) -> int:
             result["note"] = " ".join(filter(None, [result.get("note"), note]))
         print(json.dumps({**result, **({"downloads": saved} if saved else {})}))
         return 0  # Structured failures preserve partial action progress.
-    except Exception as exc:  # noqa: BLE001
+    except (Exception, CallBudgetSpent) as exc:  # noqa: BLE001
         stop_call_budget()
         if downloads:
             try:

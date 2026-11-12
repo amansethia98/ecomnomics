@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import sys
@@ -89,8 +90,13 @@ class FakeAgentBrowser:
         # A JavaScript dialog the next click opens, then the one open on the page.
         self.opens = None
         self.dialog = None
+        # A click that starts a download and then never answers, as a settlement-file button does.
+        self.download_starts = False
 
-    def batch(self, commands, *, timeout=20.0, bail=True):
+    def batch(self, commands, *, timeout=20.0, bail=True, stop_when=None):
+        if stop_when is not None and self.download_starts and stop_when():
+            self.sent.extend(commands)
+            raise helper.DownloadStarted(helper.DOWNLOAD_STARTED)
         results = []
         for index, command in enumerate(commands):
             self.sent.append(command)
@@ -2796,6 +2802,37 @@ class DownloadTest(unittest.TestCase):
         self.assertEqual(self.client.download_links, [1.0])
         self.assertIn(["click", "@e8"], browser.sent)
 
+    def test_a_click_that_starts_a_download_answers_without_waiting_for_the_page(self):
+        browser = FakeAgentBrowser()
+        browser.download_starts = True
+        current = page(browser)
+        current.downloads = self.downloads()
+        clock = [10.0]
+
+        def listen(_seconds):
+            clock[0] += 2.0
+            self.client.downloads["9a8b"] = {"name": "export.xlsx", "state": "inProgress", "received": 0, "total": 0}
+
+        self.client.listen = Mock(side_effect=listen)
+        with patch.object(helper.time, "monotonic", side_effect=lambda: clock[0]), \
+                patch.object(current, "settle") as settle, patch.object(current, "snapshot") as snapshot:
+            result = current.act([{"kind": "click", "ref": "e8"}])
+        self.assertEqual(result["ok"], True)
+        self.assertEqual(result["completed"], 1)
+        self.assertIn("rakazo-wait-download", result["note"])
+        self.assertIn(["click", "@e8"], browser.sent)
+        settle.assert_not_called()
+        snapshot.assert_not_called()
+
+    def test_a_slow_click_without_a_download_is_still_waited_for(self):
+        browser = FakeAgentBrowser()
+        current = page(browser)
+        current.downloads = self.downloads()
+        with patch.object(current, "settle", return_value=True), patch.object(current, "snapshot", return_value={}):
+            result = current.act([{"kind": "click", "ref": "e8"}])
+        self.assertEqual(result["completed"], 1)
+        self.assertNotIn("note", result)
+
     def test_a_normal_new_tab_is_not_waited_out(self):
         downloads = self.downloads()
         self.client._handle_event({"method": "Target.targetCreated", "params": {"targetInfo": {
@@ -2994,6 +3031,42 @@ class DownloadTest(unittest.TestCase):
         self.assertEqual(result["downloads"][0]["name"], "invoice_Annexure_123_04112026_99.xlsx")
         self.assertEqual(result["downloads"][0]["state"], "downloading")
         self.assertEqual(helper.recorded_names(self.folder)[JOURNAL_GUID], "invoice_Annexure_123_04112026_99.xlsx")
+
+
+class WatchedBatchTest(unittest.TestCase):
+    """agent-browser itself, stopped once a download began, or after its time."""
+
+    def setUp(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, ignore_errors=True)
+        self.slow = os.path.join(folder, "agent-browser")
+        with open(self.slow, "w", encoding="utf-8") as script:
+            script.write("#!/bin/sh\ncat >/dev/null\nsleep 30\n")
+        os.chmod(self.slow, 0o755)
+        self.fast = os.path.join(folder, "agent-browser-fast")
+        with open(self.fast, "w", encoding="utf-8") as script:
+            script.write('#!/bin/sh\ncat >/dev/null\necho \'[{"success": true, "result": {"ok": 1}}]\'\n')
+        os.chmod(self.fast, 0o755)
+        self.browser = helper.AgentBrowser.__new__(helper.AgentBrowser)
+        self.browser.env, self.browser.home, self.browser.deadline = dict(os.environ), folder, None
+
+    def test_a_download_stops_a_click_that_would_hang(self):
+        with patch.object(helper, "AGENT_BROWSER", self.slow):
+            started = time.monotonic()
+            with self.assertRaises(helper.DownloadStarted):
+                self.browser.batch([["click", "@e1"]], stop_when=lambda: time.monotonic() - started > 0.3)
+        self.assertLess(time.monotonic() - started, 5.0)
+
+    def test_without_a_download_it_gives_up_at_its_time(self):
+        with patch.object(helper, "AGENT_BROWSER", self.slow):
+            started = time.monotonic()
+            with self.assertRaisesRegex(RuntimeError, "did not answer"):
+                self.browser.batch([["click", "@e1"]], timeout=0.5, stop_when=lambda: False)
+        self.assertLess(time.monotonic() - started, 5.0)
+
+    def test_an_answer_is_read_as_usual(self):
+        with patch.object(helper, "AGENT_BROWSER", self.fast):
+            self.assertEqual(self.browser.batch([["click", "@e1"]], stop_when=lambda: False), [{"ok": 1}])
 
 
 class WaitForDownloadTest(unittest.TestCase):

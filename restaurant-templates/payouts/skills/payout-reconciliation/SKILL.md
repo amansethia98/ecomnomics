@@ -41,19 +41,19 @@ Before reading any figure, the outlet selected on the page must match the config
 
 Save a fresh screen file for this task only. Zomato `payout-screen.json` and Swiggy `swiggy-payout-screen.json` hold the period as two ISO dates, `status` of `paid`, `paid_amount` as a decimal string, `paid_date` as an ISO date, and `utr_last4` as exactly four characters. Swiggy also stores `outlet_id`, `outlet_name`, and `job_label`. Never store a full payment reference, a customer field, a password, or a one-time code.
 
-Downloads. Click only the control for the payout export itself (Zomato settlement report, Swiggy invoice annexure), once. Never click tax invoice, credit note or other PDF controls next to it. Note the time in epoch seconds just before that click. If the click's result lists the file with `state: downloading`, or says the page was still busy, do not click again: wait for it in the shell, matched by the platform's own file name:
+Downloads. Click only the control for the payout export itself (Zomato settlement report, Swiggy invoice annexure), once. Never click tax invoice, credit note or other PDF controls next to it. Note the time in epoch seconds just before that click (for Swiggy, write job.json then). If the click's result says it started a download, lists the file with `state: downloading`, or says the page was still busy or did not answer, do not click again: wait for it in the shell, matched by the platform's own file name. `Downloads` is the folder relative to the shell's working folder:
 
-`/usr/local/bin/rakazo-wait-download --dir <the Downloads folder from the click result> --pattern '<export name pattern>' --since <epoch before the click> --timeout 120`
+`/usr/local/bin/rakazo-wait-download --dir Downloads --pattern '<export name pattern>' --since <epoch before the click> --timeout 120`
 
 Use `'Zomato_Settlement_Report_*'` for Zomato and `'invoice_Annexure_*'` for Swiggy. Never rename, copy or move a downloaded file, and never type or change a date code in its name: the calculators prove the period and outlet from the platform's own name. If no file arrives in time, stop and report it rather than downloading again.
 
 Zomato, after the fresh settlement workbook is on disk. The calculator takes the newest settlement report for the configured outlet from the download folder:
 
-`/usr/local/bin/payout-owner-reconcile --find-in <Downloads folder> --since <epoch before the click> --config ~/.local/share/payout-reconciliation/zomato-settings.json --screen <payout-screen.json>`
+`/usr/local/bin/payout-owner-reconcile --find-in Downloads --since <epoch before the click> --config ~/.local/share/payout-reconciliation/zomato-settings.json --screen <payout-screen.json>`
 
 Swiggy, after the fresh annexure is on disk. Write `~/.local/share/payout-reconciliation/job.json` first, before the download click, as `{"label":"<this task id>","issued_epoch":<seconds>}`. The screen file's `job_label` is that same label. The calculator takes the newest annexure for the configured outlet saved after `issued_epoch`:
 
-`/usr/local/bin/payout-swiggy-reconcile --find-in <Downloads folder> --settings ~/.local/share/payout-reconciliation/swiggy-settings.json --screen <swiggy-payout-screen.json>`
+`/usr/local/bin/payout-swiggy-reconcile --find-in Downloads --settings ~/.local/share/payout-reconciliation/swiggy-settings.json --screen <swiggy-payout-screen.json>`
 
 Both calculators still accept one explicit file path instead of `--find-in`; use that only for the file the platform named.
 
@@ -740,7 +740,7 @@ Read configured restaurant scope; verify selected outlet name/ID before figures.
 
 Save `payout-screen.json` with only period [ISO start,end], status paid, paid_amount decimal string, paid_date ISO and utr_last4 exactly four characters. Never record full UTR/customer fields. Read these from the same-period payout screen, not previous files. Match configured source outlet and requested/selected period.
 
-Download only the settlement report, once; if it is still downloading, run `rakazo-wait-download --pattern 'Zomato_Settlement_Report_*' --since <epoch before click>` instead of clicking again; never rename the file. Run `payout-owner-reconcile --find-in <Downloads folder> --since <epoch before click> --config <private-runtime-settings> --screen <fresh-screen-json>`. Then `agent-v1-post result` for zomato with that json and the fresh screen file. On any error, `agent-v1-post fail` for zomato and stop. Payout Breakup primary; blank formula summary permits Order Level + Addition Deductions Details fallback. Exactly eleven rows, with ads allocated once by invoice period; include outstanding ads correctly in bridge. Fees include service/long-distance/payment fees and GST on fees. TDS/TCS, GST differences, cancellations/rejections, additions/refunds, outstanding ads and non-ad deductions are bridge-only.
+Download only the settlement report, once; if it is still downloading, run `rakazo-wait-download --pattern 'Zomato_Settlement_Report_*' --since <epoch before click>` instead of clicking again; never rename the file. Run `payout-owner-reconcile --find-in Downloads --since <epoch before click> --config <private-runtime-settings> --screen <fresh-screen-json>`. Then `agent-v1-post result` for zomato with that json and the fresh screen file. On any error, `agent-v1-post fail` for zomato and stop. Payout Breakup primary; blank formula summary permits Order Level + Addition Deductions Details fallback. Exactly eleven rows, with ads allocated once by invoice period; include outstanding ads correctly in bridge. Fees include service/long-distance/payment fees and GST on fees. TDS/TCS, GST differences, cancellations/rejections, additions/refunds, outstanding ads and non-ad deductions are bridge-only.
 
 Commission contract is a per-outlet setting. When absent, assume the modal charged service-fee percentage, label the assumption and flag every different charged percentage. Do not claim contractual correctness. Keep actual fee money unchanged.
 
@@ -754,7 +754,7 @@ Use retained session at https://partner.swiggy.com/food/finance and navigate by 
 
 Direct download: the actual annexure/report file, never a mail-generation control. Read the same-cycle paid amount/date/UTR last four and source service period. If UI navigation boundary differs from annexure period, preserve the actual annexure service period and put the discrepancy in Excel technical notes.
 
-Save `swiggy-payout-screen.json`: outlet_id, outlet_name, period ISO pair, status paid, paid_amount string, paid_date ISO, utr_last4 exactly four, job_label copied from current job.json. Verify source freshness/logical job. Download only the annexure, once (no tax invoice PDFs); if it is still downloading, run `rakazo-wait-download --pattern 'invoice_Annexure_*' --since <issued_epoch>` instead of clicking again; never rename the file. Run `payout-swiggy-reconcile --find-in <Downloads folder> --settings <private-runtime-settings> --screen <fresh-screen-json>` once. Then `agent-v1-post result` for swiggy with that json and the fresh screen file. On any error, `agent-v1-post fail` for swiggy and stop.
+Save `swiggy-payout-screen.json`: outlet_id, outlet_name, period ISO pair, status paid, paid_amount string, paid_date ISO, utr_last4 exactly four, job_label copied from current job.json. Verify source freshness/logical job. Download only the annexure, once (no tax invoice PDFs); if it is still downloading, run `rakazo-wait-download --pattern 'invoice_Annexure_*' --since <issued_epoch>` instead of clicking again; never rename the file. Run `payout-swiggy-reconcile --find-in Downloads --settings <private-runtime-settings> --screen <fresh-screen-json>` once. Then `agent-v1-post result` for swiggy with that json and the fresh screen file. On any error, `agent-v1-post fail` for swiggy and stop.
 
 Payout Breakup TOTAL column is primary. Comm.+PG+GST = B Total fees EXCLUDING GST-on-service-fees; the separate GST moves to the bridge. Ads = all genuine advertising E Other Charges lines plus D Growth Investment In Ads, each once. Non-ad E lines/refunds are bridge-only. Keep source-derived residuals distinct; never plug the paid amount into an unexplained adjustment.
 
