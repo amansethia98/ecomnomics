@@ -40,6 +40,7 @@ export {
 } from "./metric-dictionary.js";
 export type {
   ExpectedReportIdentity,
+  IdentityAssessment,
   ObservedReportIdentity,
   ParsedMetricRow,
   ParsedWindowItem,
@@ -52,6 +53,7 @@ export {
   checkObservedIdentity,
   evaluateBusinessReport,
   expectedPeriods,
+  missingPlatformIdReason,
   reportGranularity,
 } from "./metric-parse.js";
 export type { MetricRollup, RollupFact, RollupQuery, RollupValue } from "./metric-rollup.js";

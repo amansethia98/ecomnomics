@@ -50,11 +50,15 @@ export interface ActiveCheck {
   readonly mode: CheckMode;
   /** Absolute gap, a relative fraction (0.005 = 0.5%), percentage points, or minutes. */
   readonly amount: number;
+  /** Added to the absolute gap as a fraction of the platform value. 0 means no relative slack. */
+  readonly relative?: number;
 }
 
 export interface CheckRule {
   readonly mode: CheckMode | "excluded";
   readonly amount?: number;
+  /** Fraction of the platform value added to an absolute tolerance. */
+  readonly relative?: number;
   readonly reason?: string;
   /** When both are omitted, the exclusion always applies. */
   readonly when?: { readonly platform?: MetricPlatform; readonly granularity?: MetricGranularity };
@@ -97,7 +101,11 @@ const both = ["zomato", "swiggy"] as const;
 const zOnly = ["zomato"] as const;
 const sOnly = ["swiggy"] as const;
 
+/** Count sums must match exactly. Paise sums allow ₹1 of 2-dp rounding and no relative slack. */
+export const PAISE_SUM_TOLERANCE = 100;
+
 const sumCheck: CheckRule = { mode: "absolute", amount: 0 };
+const paiseSumCheck: CheckRule = { mode: "absolute", amount: PAISE_SUM_TOLERANCE, relative: 0 };
 const ratioCheck: CheckRule = { mode: "relative", amount: 0.005 };
 const pointsCheck: CheckRule = { mode: "points", amount: 0.05 };
 const minuteCheck: CheckRule = { mode: "minutes", amount: 0.05 };
@@ -138,7 +146,7 @@ function payout(
       zomato: { label: zomato },
       swiggy: { label: swiggy },
     },
-    check: sumCheck,
+    check: unit === "paise" ? paiseSumCheck : sumCheck,
   };
 }
 
@@ -695,7 +703,7 @@ export const METRIC_DEFINITIONS = {
   online_pct: {
     unit: "pct",
     definition:
-      "Share of scheduled hours the outlet was online. Not an average of daily percentages.",
+      "Share of time the outlet was online. Days with scheduled hours are weighted by those hours. A day without scheduled hours counts as one day, and that result stays approximate.",
     kind: "weighted_avg",
     accuracy: "approx",
     crossPlatform: false,
@@ -1407,7 +1415,7 @@ function cpc(unit: MetricUnit, swiggyLabel: string, definition: string): Draft {
     crossPlatform: false,
     platforms: sOnly,
     sourceLabel: { swiggy: label("ADS_CPC", swiggyLabel) },
-    check: sumCheck,
+    check: unit === "paise" ? paiseSumCheck : sumCheck,
   };
 }
 
@@ -1420,7 +1428,7 @@ function cba(unit: MetricUnit, swiggyLabel: string, definition: string): Draft {
     crossPlatform: false,
     platforms: sOnly,
     sourceLabel: { swiggy: label("ADS_CBA", swiggyLabel) },
-    check: sumCheck,
+    check: unit === "paise" ? paiseSumCheck : sumCheck,
   };
 }
 
@@ -1520,7 +1528,13 @@ export function resolveCheck(
   platform: MetricPlatform,
   granularity: MetricGranularity,
 ): ActiveCheck | { mode: "excluded"; reason: string } {
-  return walkCheck(METRIC_DEFINITIONS[key].check, platform, granularity);
+  const definition = requireMetric(key);
+  const walked = walkCheck(definition.check, platform, granularity);
+  if (walked.mode === "excluded") return walked;
+  if (definition.unit === "paise" && definition.kind === "sum" && walked.mode === "absolute") {
+    return { mode: "absolute", amount: PAISE_SUM_TOLERANCE, relative: 0 };
+  }
+  return walked;
 }
 
 function walkCheck(
@@ -1595,7 +1609,7 @@ export function metricDictionaryMarkdown(): string {
     if (item.valueKey) lines.push(`- value key: ${item.valueKey}`);
     if (item.derivation) lines.push(`- derivation: ${item.derivation}`);
     if (item.formula) lines.push(`- formula: ${item.formula}`);
-    lines.push(`- check: ${checkText(item.check)}`);
+    lines.push(`- check: ${checkText(item)}`);
     lines.push("");
   }
   lines.push("## Exclusions");
@@ -1613,12 +1627,16 @@ export function metricDictionaryMarkdown(): string {
   return lines.join("\n");
 }
 
-function checkText(rule: CheckRule): string {
+function checkText(item: MetricDefinition): string {
+  const rule = item.check;
   if (rule.mode === "excluded") {
     const where = rule.when
       ? ` (${[rule.when.platform, rule.when.granularity].filter(Boolean).join(" ")})`
       : "";
     return `excluded${where}: ${rule.reason ?? ""}`;
+  }
+  if (item.unit === "paise" && item.kind === "sum" && rule.mode === "absolute") {
+    return "absolute 100 paise plus relative 0";
   }
   return `${rule.mode} ${rule.amount ?? 0}`;
 }

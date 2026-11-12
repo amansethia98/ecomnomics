@@ -19,7 +19,7 @@ Item total plus packaging (ST+PC), before GST and before restaurant-funded disco
 - platforms: zomato, swiggy
 - zomato source: Subtotal (items total) + Packaging charge
 - swiggy source: Item Total + Packaging Charges
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `net_payout_paise`
 
@@ -32,7 +32,7 @@ Owner Net Payout: commissionable value minus ads minus commission, other fees, a
 - platforms: zomato, swiggy
 - zomato source: CV − Ads − Comm.+PG+GST
 - swiggy source: CV − Ads − Swiggy fees, GST on fees outside this row
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `platform_net_payout_paise`
 
@@ -45,7 +45,7 @@ The platform's own net payout figure, before comparing it to the bank.
 - platforms: zomato, swiggy
 - zomato source: I Net Payout
 - swiggy source: G Net Payout
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `commission_paise`
 
@@ -58,7 +58,7 @@ Platform commission or base service fee only, not long-distance, payment-gateway
 - platforms: zomato, swiggy
 - zomato source: Base service fee
 - swiggy source: Commission
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `platform_fees_paise`
 
@@ -71,7 +71,7 @@ Other platform fees besides commission, excluding GST on fees.
 - platforms: zomato, swiggy
 - zomato source: Long distance and payment mechanism fee
 - swiggy source: Swiggy fees minus Commission
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `taxes_paise`
 
@@ -84,7 +84,7 @@ Other platform fees besides commission, excluding GST on fees.
 - platforms: zomato, swiggy
 - zomato source: Taxes on service and payment mechanism fees
 - swiggy source: GST on Service Fee @18%
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `tds_paise`
 
@@ -97,7 +97,7 @@ Tax deducted at source and withheld from the payout. A tax credit, not a cost.
 - platforms: zomato, swiggy
 - zomato source: TDS 194O amount
 - swiggy source: TDS
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `tcs_paise`
 
@@ -110,7 +110,7 @@ Tax collected at source, including TCS IGST where it is present.
 - platforms: zomato, swiggy
 - zomato source: TCS
 - swiggy source: TCS
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `cv_paise`
 
@@ -123,7 +123,7 @@ Commissionable value: item total plus packaging, minus the restaurant-funded dis
 - platforms: zomato, swiggy
 - zomato source: ST+PC − merchant discount
 - swiggy source: ST+PC − merchant discount
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `paid_amount_paise`
 
@@ -136,7 +136,7 @@ Amount marked paid on the Payouts screen, tied to a bank reference stored as the
 - platforms: zomato, swiggy
 - zomato source: Payouts screen paid amount
 - swiggy source: Payouts screen paid amount
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `payout_orders`
 
@@ -162,7 +162,7 @@ The payout calculator's Comm.+PG+GST row as printed. Swiggy's row excludes GST o
 - platforms: zomato, swiggy
 - zomato source: Service fee + payment fee + GST on those fees
 - swiggy source: B Swiggy Fees
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `gst_collected_paise`
 
@@ -175,7 +175,7 @@ GST collected from customers. Not restaurant revenue on delivery orders.
 - platforms: zomato, swiggy
 - zomato source: Total GST collected from customers
 - swiggy source: GST Collected
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `complaints_cancellation_charges_paise`
 
@@ -188,7 +188,7 @@ Complaint refunds and cancellation charges deducted from the payout.
 - platforms: zomato, swiggy
 - zomato source: Other order level deductions
 - swiggy source: Customer Complaints and Cancellation Charges
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `discount_paise`
 
@@ -201,7 +201,7 @@ Discounts the restaurant pays for. Zomato's business-report Discount given is no
 - platforms: zomato, swiggy
 - zomato source: Offers / Discount given (Rs)
 - swiggy source: DISCOUNTS / Discount Given by Restaurant(RDGMV)
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `ad_spend_paise`
 
@@ -214,7 +214,7 @@ Ads charged to the restaurant for that period, counted once. Swiggy's export spe
 - platforms: zomato, swiggy
 - zomato source: Ads / Ads spend (Rs)
 - swiggy source: Growth Investment In Ads
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `delivered_orders`
 
@@ -239,7 +239,7 @@ Zomato business-report sales, stored apart from payout ST+PC and from Swiggy net
 - crossPlatform: false
 - platforms: zomato
 - zomato source: Sales / Sales (Rs)
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `swiggy_net_sales_paise`
 
@@ -251,7 +251,7 @@ Swiggy Net Sales. Not Zomato sales and not payout ST+PC.
 - crossPlatform: false
 - platforms: swiggy
 - swiggy source: SALES / Net Sales
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `aov_paise`
 
@@ -303,7 +303,7 @@ Money Swiggy reports as lost to restaurant-cancelled orders.
 - crossPlatform: false
 - platforms: swiggy
 - swiggy source: SALES / Cancelled Order Loss
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `orders_band_lt250`
 
@@ -415,7 +415,7 @@ Bolt sales, Bolt AOV times Bolt orders, summed after the daily product.
 - platforms: swiggy
 - swiggy source: BOLT / AOV
 - derivation: round(bolt_aov_paise*bolt_orders)
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `bolt_prep_wsum`
 
@@ -775,7 +775,7 @@ Sales Zomato reports as lost, for example from being offline or rejecting.
 - crossPlatform: false
 - platforms: zomato
 - zomato source: Customer experience / Lost sales (Rs)
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `online_hours`
 
@@ -801,7 +801,7 @@ Hours the outlet was scheduled to be open. The weight for online percentage.
 
 ## `online_pct`
 
-Share of scheduled hours the outlet was online. Not an average of daily percentages.
+Share of time the outlet was online. Days with scheduled hours are weighted by those hours. A day without scheduled hours counts as one day, and that result stays approximate.
 
 - unit: pct
 - aggregation: weighted_avg
@@ -1263,7 +1263,7 @@ Zomato sales from ads.
 - crossPlatform: false
 - platforms: zomato
 - zomato source: Ads / Sales from ads (Rs)
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `ad_orders`
 
@@ -1338,7 +1338,7 @@ Swiggy CPC ad sales.
 - crossPlatform: false
 - platforms: swiggy
 - swiggy source: ADS_CPC / CPC Driven Sales
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `cpc_orders`
 
@@ -1362,7 +1362,7 @@ Swiggy CPC spend in the business export.
 - crossPlatform: false
 - platforms: swiggy
 - swiggy source: ADS_CPC / Total CPC Spends
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `cpc_menu_opens`
 
@@ -1414,7 +1414,7 @@ Swiggy CBA ad sales.
 - crossPlatform: false
 - platforms: swiggy
 - swiggy source: ADS_CBA / CBA Driven Sales
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `cba_orders`
 
@@ -1438,7 +1438,7 @@ Swiggy CBA spend.
 - crossPlatform: false
 - platforms: swiggy
 - swiggy source: ADS_CBA / Total CBA Spends
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `cba_impressions`
 
@@ -1503,7 +1503,7 @@ Swiggy gross value, restaurant discount divided by the discount GMV rate. Null w
 - platforms: swiggy
 - swiggy source: DISCOUNTS / Discount GMV %
 - derivation: discount_paise/(discount_gmv_pct/100)
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `discount_gmv_pct`
 
@@ -1570,7 +1570,7 @@ Zomato gross sales from offers. The file label is swapped with the orders column
 - crossPlatform: false
 - platforms: zomato
 - zomato source: Offers / Orders with offers
-- check: absolute 0
+- check: absolute 100 paise plus relative 0
 
 ## `offer_orders`
 

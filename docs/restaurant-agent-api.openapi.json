@@ -404,7 +404,7 @@
             "description": "File stored, skipped as unchanged, or its platform checks recorded."
           },
           "422": {
-            "description": "file_identity. The file's restaurant id, name, city, or dates do not match. Nothing from the file is stored. Swiggy Daily is at most 7 days."
+            "description": "file_identity. The platform outlet id or the date columns do not match, or the outlet has no platform id. Nothing from the file is stored. A different name or city is stored with a warning. Swiggy Daily is at most 7 days."
           }
         }
       }

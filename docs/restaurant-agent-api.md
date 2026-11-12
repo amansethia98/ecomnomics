@@ -93,7 +93,7 @@ Sums add the daily parts. A ratio or weighted average is computed from those sum
 
 Every value includes `accuracy` (`exact` or `approx`) and, for a ratio, `coverageDays` and `expectedDays`. `combined` adds only keys marked cross-platform in the dictionary. Any other key is `not_available` with `This figure is not combined across platforms.`
 
-`basis=settlement_date` is reserved for payout-order totals. Those rows are not stored yet, so every value is `not_available` with `Settlement-date totals need payout orders, which are not stored yet.` Distinct customers use the same reason family: `Distinct customers are counted from payout orders, which are not stored yet.` Online percentage without scheduled hours, and without a figure stored for this exact window, uses `Online percentage needs each day's scheduled hours. No platform figure is stored for this exact window.`
+`basis=settlement_date` is reserved for payout-order totals. Those rows are not stored yet, so every value is `not_available` with `Settlement-date totals need payout orders, which are not stored yet.` Distinct customers use the same reason family: `Distinct customers are counted from payout orders, which are not stored yet.` Online percentage weights each day by its scheduled hours. A day without scheduled hours counts as one day, and that result is approximate. If a day has neither hours nor a daily percentage, and no platform figure is stored for this exact window, the reason is `Online percentage needs each day's scheduled hours. No platform figure is stored for this exact window.`
 
 `PUT /agent/v1/metrics`
 
@@ -101,7 +101,7 @@ Writes payout and other caller-supplied facts. A row whose value changed is kept
 
 `POST /agent/v1/metric-reports`
 
-Sends one Swiggy or Zomato business-report CSV. The server checks that the file's restaurant id, name, and city, and its date or week columns, are exactly the requested outlet and window. The outlet name and city on the restaurant are what the file must match. On a mismatch the file is rejected, nothing is stored, and the attempt is logged with status `rejected_mismatch`. After 3 mismatches for the same request the status is `needs_owner`. The response is 422 with code `file_identity`.
+Sends one Swiggy or Zomato business-report CSV. The server rejects the file when its platform outlet id does not match the id stored for that outlet, or when its date or week columns are not the requested window. Nothing from a rejected file is stored, and the attempt is logged with status `rejected_mismatch`. After 3 mismatches for the same request the status is `needs_owner`. The response is 422 with code `file_identity`. A different restaurant name, city, or area is stored with the file and written as a warning on that fetch. An outlet with no platform id is rejected with `This outlet has no Swiggy restaurant id. The file was not stored.` or the Zomato sentence. The name is not used as a fallback.
 
 A daily file replaces each day in its window for that platform. A key missing from the new file is superseded to null. A weekly or monthly file stores the platform's own figures for that window and does not overwrite daily facts. When those figures disagree with the rebuilt days, the disagreement is logged and the stored days stay as they are.
 
@@ -218,7 +218,7 @@ Paise and counts are non-negative integers. A `pct` value on this call is from 0
 - `lost_sales_paise` (paise, sum, exact, crossPlatform false): Sales Zomato reports as lost, for example from being offline or rejecting.
 - `online_hours` (hours, sum, approx, crossPlatform false): Hours the outlet was online. Empty until scheduled hours are stored.
 - `scheduled_hours` (hours, sum, exact, crossPlatform false): Hours the outlet was scheduled to be open. The weight for online percentage.
-- `online_pct` (pct, weighted_avg, approx, crossPlatform false): Share of scheduled hours the outlet was online. Not an average of daily percentages.
+- `online_pct` (pct, weighted_avg, approx, crossPlatform false): Share of time the outlet was online. Days with scheduled hours are weighted by those hours. A day without scheduled hours counts as one day, and that result stays approximate.
 - `offline_time_hours` (hours, platform_only, approx, crossPlatform false): Zomato's offline time for one platform window. The rounded daily hours do not add up.
 - `kpt_weighted_sum` (decimal, sum, approx, crossPlatform false): Kitchen prep minutes times delivered orders.
 - `kpt_minutes` (minutes, weighted_avg, approx, crossPlatform false): Kitchen preparation time, weighted by delivered orders. An approximation.

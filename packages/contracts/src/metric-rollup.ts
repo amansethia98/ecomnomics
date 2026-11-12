@@ -74,6 +74,8 @@ interface DayIndex {
   days: string[];
   /** platform, date, key → fact value. Missing means no row. */
   facts: Map<string, number | null>;
+  /** Day-grain platform checks, such as a daily online percentage. */
+  dayChecks: Map<string, number | null>;
   /** Exact [from, to) rows, facts and platform checks. */
   window: RollupFact[];
 }
@@ -112,15 +114,17 @@ function indexFacts(
   days: string[],
 ): DayIndex {
   const facts = new Map<string, number | null>();
+  const dayChecks = new Map<string, number | null>();
   const window: RollupFact[] = [];
   const daySet = new Set(days);
   for (const row of rows) {
     if (row.periodStart === from && row.periodEnd === to) window.push(row);
-    if (row.rowRole !== "fact" || row.granularity !== "day") continue;
-    if (!daySet.has(row.periodStart)) continue;
-    facts.set(`${row.platform}\t${row.periodStart}\t${row.key}`, row.value);
+    if (row.granularity !== "day" || !daySet.has(row.periodStart)) continue;
+    const slot = `${row.platform}\t${row.periodStart}\t${row.key}`;
+    if (row.rowRole === "fact") facts.set(slot, row.value);
+    else if (row.rowRole === "platform_check") dayChecks.set(slot, row.value);
   }
-  return { days, facts, window };
+  return { days, facts, dayChecks, window };
 }
 
 function fact(
@@ -279,6 +283,7 @@ function weighted(
   const definition = requireMetric(key);
   const valueKey = definition.valueKey;
   const weightKey = definition.weightKey;
+  if (key === "online_pct") return onlinePercent(base, index, platform);
   if (!valueKey || !weightKey) return exactOnly(base, index, platform, key, NOT_WINDOW);
   const divided = divideParts(
     base,
@@ -288,9 +293,56 @@ function weighted(
     weightKey,
     definition.presentAs === "pct",
   );
-  if (divided.value != null || key !== "online_pct") return divided;
-  const fallback = exactOnly(divided, index, platform, key, NOT_HOURS, true);
-  return fallback.windowMatch ? fallback : { ...fallback, reason: NOT_HOURS };
+  return divided.value != null ? divided : exactOnly(divided, index, platform, key, NOT_WINDOW);
+}
+
+function dailyCheck(
+  index: DayIndex,
+  platform: MetricPlatform,
+  day: string,
+  key: string,
+): number | null | undefined {
+  const slot = `${platform}\t${day}\t${key}`;
+  return index.dayChecks.has(slot) ? index.dayChecks.get(slot) : undefined;
+}
+
+/** Hours when every covered day has them. A day without hours counts as weight 1. */
+function onlinePercent(base: RollupValue, index: DayIndex, platform: MetricPlatform): RollupValue {
+  let weighted = 0;
+  let weight = 0;
+  let covered = 0;
+  const missing: string[] = [];
+  for (const day of index.days) {
+    const hours = fact(index, platform, day, "scheduled_hours");
+    const online = fact(index, platform, day, "online_hours");
+    if (hours != null && hours > 0 && online != null) {
+      weighted += online * 100;
+      weight += hours;
+      covered += 1;
+      continue;
+    }
+    const pct =
+      fact(index, platform, day, "online_pct") ?? dailyCheck(index, platform, day, "online_pct");
+    if (pct != null) {
+      weighted += pct;
+      weight += 1;
+      covered += 1;
+      continue;
+    }
+    missing.push(day);
+  }
+  if (covered === 0 || weight === 0) {
+    const fallback = exactOnly(base, index, platform, "online_pct", NOT_HOURS, true);
+    return fallback.windowMatch ? fallback : { ...fallback, reason: NOT_HOURS };
+  }
+  return {
+    ...base,
+    value: round4(weighted / weight),
+    accuracy: "approx",
+    coverageDays: covered,
+    missingDays: missing,
+    status: "ok",
+  };
 }
 
 function latest(
@@ -572,7 +624,9 @@ export function comparePlatformValue(
   const rule = resolveCheck(key as MetricKey, platform, granularity);
   if (rule.mode === "excluded") return { action: "excluded", reason: rule.reason };
   const gap = Math.abs(rebuilt - platformValue);
-  const tolerance = rule.mode === "relative" ? Math.abs(platformValue) * rule.amount : rule.amount;
+  const relative = rule.relative ?? (rule.mode === "relative" ? rule.amount : 0);
+  const absolute = rule.mode === "relative" ? 0 : rule.amount;
+  const tolerance = absolute + Math.abs(platformValue) * relative;
   return {
     action: "check",
     gap: round4(gap),

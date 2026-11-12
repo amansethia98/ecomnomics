@@ -21,8 +21,16 @@ export interface ReportPeriod {
 export interface ObservedReportIdentity {
   restaurantId: string;
   name: string;
+  /** Swiggy area or Zomato subzone. A mismatch is a warning, not a rejection. */
+  area?: string;
   city: string;
   periods: ReportPeriod[];
+}
+
+export interface IdentityAssessment {
+  /** Set only for a wrong platform id, a wrong window, or a request that cannot be read. */
+  reject: string | null;
+  warnings: string[];
 }
 
 export interface ExpectedReportIdentity {
@@ -61,6 +69,8 @@ export type ReportEvaluation =
       granularity: MetricGranularity;
       rows: ParsedMetricRow[];
       items: ParsedWindowItem[];
+      /** Name, city, or area differed. The file is still stored. */
+      warnings: string[];
     }
   | { ok: false; reason: string; observed: ObservedReportIdentity | null };
 
@@ -124,38 +134,65 @@ export function expectedPeriods(expected: ExpectedReportIdentity): ReportPeriod[
   return periods;
 }
 
+/** This outlet cannot be matched by name. The file is rejected until a platform id is saved. */
+export function missingPlatformIdReason(platform: MetricPlatform): string {
+  const which = platform === "swiggy" ? "Swiggy restaurant id" : "Zomato restaurant id";
+  return `This outlet has no ${which}. The file was not stored.`;
+}
+
 /**
  * Shared by the business-report parser and by payout files, once the payout
- * header has been extracted. Returns the mismatch reason, or null when it matches.
+ * header has been extracted. A wrong platform id or a wrong window rejects the
+ * file. A different name, city, or area is a warning and the file can be stored.
  */
 export function checkObservedIdentity(
   observed: ObservedReportIdentity,
   expected: ExpectedReportIdentity,
-): string | null {
+): IdentityAssessment {
+  const warnings: string[] = [];
   const wanted = expectedPeriods(expected);
-  if (typeof wanted === "string") return wanted;
+  if (typeof wanted === "string") return { reject: wanted, warnings };
+  if (!expected.restaurantId.trim()) {
+    return { reject: missingPlatformIdReason(expected.platform), warnings };
+  }
   if (
     canonicalRestaurantId(observed.restaurantId) !== canonicalRestaurantId(expected.restaurantId)
   ) {
-    return `The file is for restaurant ${observed.restaurantId.trim()}, not ${expected.restaurantId.trim()}.`;
-  }
-  if (observed.name.trim() !== expected.name.trim()) {
-    return `The file names ${observed.name.trim()}, not ${expected.name.trim()}.`;
-  }
-  if (observed.city.trim() !== expected.city.trim()) {
-    return `The file is for ${observed.city.trim()}, not ${expected.city.trim()}.`;
+    return {
+      reject: `The file is for restaurant ${observed.restaurantId.trim()}, not ${expected.restaurantId.trim()}.`,
+      warnings,
+    };
   }
   if (observed.periods.length !== wanted.length) {
-    return `The file has ${observed.periods.length} periods and the request has ${wanted.length}.`;
+    return {
+      reject: `The file has ${observed.periods.length} periods and the request has ${wanted.length}.`,
+      warnings,
+    };
   }
   for (let index = 0; index < wanted.length; index += 1) {
     const got = observed.periods[index];
     const need = wanted[index];
     if (!got || !need || got.start !== need.start || got.end !== need.end) {
-      return `Column ${got?.label ?? index + 1} is ${got?.start ?? "unreadable"} to ${got?.end ?? "unreadable"}, not ${need?.start} to ${need?.end}.`;
+      return {
+        reject: `Column ${got?.label ?? index + 1} is ${got?.start ?? "unreadable"} to ${got?.end ?? "unreadable"}, not ${need?.start} to ${need?.end}.`,
+        warnings,
+      };
     }
   }
-  return null;
+  if (observed.name.trim() !== expected.name.trim()) {
+    warnings.push(`The file names ${observed.name.trim()}, not ${expected.name.trim()}.`);
+  }
+  const area = observed.area?.trim() ?? "";
+  const city = observed.city.trim();
+  const stored = expected.city.trim();
+  if (city !== stored) {
+    warnings.push(
+      area && area !== stored
+        ? `The file is for ${city} (area ${area}), not ${stored}.`
+        : `The file is for ${city || area}, not ${stored}.`,
+    );
+  }
+  return { reject: null, warnings };
 }
 
 export function evaluateBusinessReport(
@@ -198,8 +235,11 @@ export function evaluateBusinessReport(
     if (row.every((cell) => cell.trim() === "")) continue;
     const restaurantId = row[0] ?? "";
     const name = row[1] ?? "";
+    const area = row[2] ?? "";
     const city = row[3] ?? "";
-    identities.add(`${canonicalRestaurantId(restaurantId)}\t${name.trim()}\t${city.trim()}`);
+    identities.add(
+      `${canonicalRestaurantId(restaurantId)}\t${name.trim()}\t${area.trim()}\t${city.trim()}`,
+    );
     grid.push({
       section: (row[4] ?? "").trim(),
       metric: (row[5] ?? "").trim(),
@@ -210,6 +250,7 @@ export function evaluateBusinessReport(
   const observed: ObservedReportIdentity = {
     restaurantId: (first?.[0] ?? "").trim(),
     name: (first?.[1] ?? "").trim(),
+    area: (first?.[2] ?? "").trim(),
     city: (first?.[3] ?? "").trim(),
     periods,
   };
@@ -217,8 +258,8 @@ export function evaluateBusinessReport(
   if (identities.size !== 1) {
     return { ok: false, reason: "The file contains more than one restaurant.", observed };
   }
-  const mismatch = checkObservedIdentity(observed, expected);
-  if (mismatch) return { ok: false, reason: mismatch, observed };
+  const identity = checkObservedIdentity(observed, expected);
+  if (identity.reject) return { ok: false, reason: identity.reject, observed };
 
   const rows: ParsedMetricRow[] = [];
   const items: ParsedWindowItem[] = [];
@@ -248,6 +289,7 @@ export function evaluateBusinessReport(
     granularity: reportGranularity(expected.platform, expected.report),
     rows,
     items,
+    warnings: identity.warnings,
   };
 }
 

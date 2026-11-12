@@ -8,7 +8,12 @@ import {
   metricDictionaryMarkdown,
   resolveCheck,
 } from "./metric-dictionary.js";
-import { checkObservedIdentity, evaluateBusinessReport, expectedPeriods } from "./metric-parse.js";
+import {
+  checkObservedIdentity,
+  evaluateBusinessReport,
+  expectedPeriods,
+  missingPlatformIdReason,
+} from "./metric-parse.js";
 import type { RollupFact } from "./metric-rollup.js";
 import { comparePlatformValue, rollupMetrics } from "./metric-rollup.js";
 import { planReplaceWindow } from "./metric-window.js";
@@ -131,7 +136,7 @@ describe("business report parser", () => {
     expect(rowValue(parsed.rows, "swiggy_gmv_paise", "2026-11-03")?.value).toBe(100_000);
   });
 
-  it("rejects a file for the wrong outlet or the wrong dates", () => {
+  it("rejects a wrong id or shifted dates, and stores a different name or city", () => {
     const csv = fixture("swiggy_daily_sample.csv");
     const wrongId = evaluateBusinessReport(csv, { ...swiggyDaily, restaurantId: "900009" });
     expect(wrongId.ok).toBe(false);
@@ -140,6 +145,26 @@ describe("business report parser", () => {
     const wrongDates = evaluateBusinessReport(shifted, swiggyDaily);
     expect(wrongDates.ok).toBe(false);
     if (!wrongDates.ok) expect(wrongDates.reason).toContain("2026-11-01");
+
+    const wrongName = evaluateBusinessReport(csv, { ...swiggyDaily, name: "Other Kitchen" });
+    expect(wrongName.ok).toBe(true);
+    if (wrongName.ok) {
+      expect(wrongName.rows.length).toBeGreaterThan(0);
+      expect(wrongName.warnings.join(" ")).toContain("Other Kitchen");
+      expect(wrongName.warnings.join(" ")).toContain("Test Kitchen");
+    }
+    const wrongCity = evaluateBusinessReport(csv, { ...swiggyDaily, city: "Othercity" });
+    expect(wrongCity.ok).toBe(true);
+    if (wrongCity.ok) {
+      expect(wrongCity.rows.length).toBeGreaterThan(0);
+      expect(wrongCity.warnings.join(" ")).toContain("Testcity");
+      expect(wrongCity.warnings.join(" ")).toContain("Testarea");
+      expect(wrongCity.warnings.join(" ")).toContain("Othercity");
+    }
+    expect(missingPlatformIdReason("swiggy")).toBe(
+      "This outlet has no Swiggy restaurant id. The file was not stored.",
+    );
+    expect(missingPlatformIdReason("zomato")).toContain("Zomato restaurant id");
   });
 
   it("caps a Swiggy daily request at 7 days and still checks a payout header", () => {
@@ -179,7 +204,7 @@ describe("business report parser", () => {
           periodStart: "2026-10-05",
           periodEnd: "2026-10-12",
         },
-      ),
+      ).reject,
     ).toContain("900009");
   });
 });
@@ -275,6 +300,78 @@ describe("rollup", () => {
     expect(zomato.values.find((value) => value.key === "rating")?.value).toBe(3);
   });
 
+  it("weights online percentage by scheduled hours and otherwise by day", () => {
+    const query = {
+      platform: "swiggy" as const,
+      from: "2026-11-02",
+      to: "2026-11-04",
+      today: "2026-12-01",
+      basis: "order_date" as const,
+    };
+    const hours = rollupMetrics(
+      [
+        fact("online_hours", "2026-11-02", 8),
+        fact("scheduled_hours", "2026-11-02", 10),
+        fact("online_hours", "2026-11-03", 1),
+        fact("scheduled_hours", "2026-11-03", 2),
+      ],
+      query,
+    );
+    const weighted = hours.values.find((value) => value.key === "online_pct");
+    expect(weighted?.status).toBe("ok");
+    expect(weighted?.value).toBe(75);
+    expect(weighted?.accuracy).toBe("approx");
+
+    const equal = rollupMetrics(
+      [
+        {
+          key: "online_pct",
+          platform: "swiggy",
+          granularity: "day",
+          periodStart: "2026-11-02",
+          periodEnd: "2026-11-03",
+          value: 80,
+          rowRole: "platform_check",
+        },
+        {
+          key: "online_pct",
+          platform: "swiggy",
+          granularity: "day",
+          periodStart: "2026-11-03",
+          periodEnd: "2026-11-04",
+          value: 50,
+          rowRole: "platform_check",
+        },
+      ],
+      query,
+    );
+    const mean = equal.values.find((value) => value.key === "online_pct");
+    expect(mean?.status).toBe("ok");
+    expect(mean?.value).toBe(65);
+    expect(mean?.accuracy).toBe("approx");
+
+    const mixed = rollupMetrics(
+      [
+        fact("online_hours", "2026-11-02", 8),
+        fact("scheduled_hours", "2026-11-02", 10),
+        {
+          key: "online_pct",
+          platform: "swiggy" as const,
+          granularity: "day",
+          periodStart: "2026-11-03",
+          periodEnd: "2026-11-04",
+          value: 50,
+          rowRole: "platform_check" as const,
+        },
+      ],
+      query,
+    );
+    const blend = mixed.values.find((value) => value.key === "online_pct");
+    expect(blend?.status).toBe("ok");
+    expect(blend?.value).toBe(77.2727);
+    expect(blend?.accuracy).toBe("approx");
+  });
+
   it("returns platform-only figures only for an exact stored window", () => {
     const stored: RollupFact = {
       key: "offline_time_hours",
@@ -344,6 +441,18 @@ describe("platform checks", () => {
     expect(comparePlatformValue("delivered_orders", "swiggy", "week_sun_sat", 10, 10).action).toBe(
       "check",
     );
+    const oneOrder = comparePlatformValue("delivered_orders", "swiggy", "week_sun_sat", 10, 11);
+    expect(oneOrder.action).toBe("check");
+    if (oneOrder.action === "check") expect(oneOrder.pass).toBe(false);
+    const rupee = comparePlatformValue("gross_sales_paise", "swiggy", "week_sun_sat", 100, 200);
+    expect(rupee.action).toBe("check");
+    if (rupee.action === "check") {
+      expect(rupee.tolerance).toBe(100);
+      expect(rupee.pass).toBe(true);
+    }
+    const overRupee = comparePlatformValue("gross_sales_paise", "zomato", "day", 100, 201);
+    expect(overRupee.action).toBe("check");
+    if (overRupee.action === "check") expect(overRupee.pass).toBe(false);
     const gap = comparePlatformValue("delivered_orders", "swiggy", "week_sun_sat", 10, 12);
     expect(gap.action).toBe("check");
     if (gap.action === "check") expect(gap.pass).toBe(false);
@@ -367,7 +476,14 @@ describe("dictionary", () => {
         (CROSS_PLATFORM_KEYS as readonly string[]).includes(key),
       );
     }
-    expect(metricDictionaryMarkdown()).toContain("delivered_orders");
-    expect(metricDictionaryMarkdown()).toContain("non_refunded_complaints");
+    const dictionary = metricDictionaryMarkdown();
+    expect(dictionary).toContain("delivered_orders");
+    expect(dictionary).toContain("non_refunded_complaints");
+    expect(dictionary).toContain("- check: absolute 100 paise plus relative 0");
+    expect(dictionary).toMatch(/## `delivered_orders`[\s\S]*- check: absolute 0/);
+    const money = resolveCheck("gross_sales_paise", "swiggy", "day");
+    expect(money).toEqual({ mode: "absolute", amount: 100, relative: 0 });
+    const orders = resolveCheck("delivered_orders", "swiggy", "day");
+    expect(orders).toEqual({ mode: "absolute", amount: 0 });
   });
 });

@@ -5,6 +5,7 @@ import {
   evaluateBusinessReport,
   FILE_IDENTITY_ATTEMPT_LIMIT,
   METRIC_PARSER_VERSION,
+  missingPlatformIdReason,
   planReplaceWindow,
   reportGranularity,
   rollupMetrics,
@@ -52,14 +53,36 @@ export async function ingestBusinessReport(
     throw new RestaurantAgentError("unknown_outlet", 422, "Outlet is not part of this restaurant.");
   }
   const restaurantId = input.platform === "zomato" ? outlet.zomatoResId : outlet.swiggyRid;
-  if (!restaurantId) {
-    throw new RestaurantAgentError(
-      "unknown_outlet",
-      422,
-      "This outlet has no id for that platform.",
-    );
-  }
   const digest = sha256(input.csv);
+  const requestedStart = utcDate(input.periodStart);
+  const requestedEnd = utcDate(input.periodEnd);
+  const capturedAt = new Date(input.capturedAt);
+  if (!restaurantId) {
+    const reason = missingPlatformIdReason(input.platform);
+    const fetch = await db.metricFetch.create({
+      data: fetchData(scope, input, {
+        status: "rejected_mismatch",
+        digest,
+        attempt: input.attempt ?? 1,
+        reason,
+        requestedRestaurantId: null,
+        requestedName: outlet.name,
+        requestedCity: outlet.city,
+        requestedStart,
+        requestedEnd,
+        observed: null,
+        capturedAt,
+      }),
+    });
+    return {
+      fetchId: fetch.id,
+      status: "rejected_mismatch",
+      reason,
+      written: 0,
+      superseded: 0,
+      checks: 0,
+    };
+  }
   const evaluation = evaluateBusinessReport(input.csv, {
     platform: input.platform,
     report: input.report,
@@ -69,10 +92,9 @@ export async function ingestBusinessReport(
     periodStart: input.periodStart,
     periodEnd: input.periodEnd,
   });
-  const observed = evaluation.ok ? evaluation.observed : evaluation.observed;
-  const requestedStart = utcDate(input.periodStart);
-  const requestedEnd = utcDate(input.periodEnd);
-  const capturedAt = new Date(input.capturedAt);
+  const observed = evaluation.observed;
+  const warning =
+    evaluation.ok && evaluation.warnings.length > 0 ? evaluation.warnings.join(" ") : null;
 
   if (!evaluation.ok) {
     const prior = await db.metricFetch.count({
@@ -160,7 +182,7 @@ export async function ingestBusinessReport(
         status: "stored",
         digest,
         attempt: input.attempt ?? 1,
-        reason: null,
+        reason: warning,
         requestedRestaurantId: restaurantId,
         requestedName: outlet.name,
         requestedCity: outlet.city,
@@ -252,7 +274,7 @@ export async function ingestBusinessReport(
       checks,
     };
   });
-  return { ...result, status: "stored", reason: null };
+  return { ...result, status: "stored", reason: warning };
 }
 
 async function writeChecks(
@@ -345,7 +367,7 @@ function fetchData(
     digest: string;
     attempt: number;
     reason: string | null;
-    requestedRestaurantId: string;
+    requestedRestaurantId: string | null;
     requestedName: string;
     requestedCity: string;
     requestedStart: Date;
