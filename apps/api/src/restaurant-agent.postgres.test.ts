@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import type { ObjectStorage } from "@rakazo/adapter-kit";
 import type { PrismaClient } from "@rakazo/db";
 import {
@@ -698,5 +699,168 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
       endedAt: "2026-01-07T04:10:00.000Z",
     });
     expect(await still.json()).toMatchObject({ status: "succeeded", error: null });
+  });
+
+  it("stores payout orders, rejects a wrong outlet, and keeps the last four of the UTR", async () => {
+    const previousSalt = process.env.CUSTOMER_HASH_SALT;
+    process.env.CUSTOMER_HASH_SALT = "fixture-salt";
+    try {
+      const parent = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+        db.outlet.findFirst({ where: { id: outletA }, select: { restaurantId: true } }),
+      );
+      const outlet = await createOutlet(ownerDb, parent?.restaurantId ?? "", {
+        name: "Test Kitchen",
+        city: "Testcity",
+        zomatoResId: "900002",
+        swiggyRid: "900001",
+      });
+      const file = async (name: string) =>
+        Buffer.from(
+          await readFile(
+            new URL(`../../../packages/contracts/fixtures/payouts/${name}`, import.meta.url),
+          ),
+        ).toString("base64");
+      const post = (platform: string, periodStart: string, periodEnd: string, fileBase64: string) =>
+        call("POST", "/agent/v1/payout-reports", tokenA, {
+          outletId: outlet.id,
+          platform,
+          periodStart,
+          periodEnd,
+          fileBase64,
+          runId: `payout-${suffix}`,
+          source: "payout-file",
+          capturedAt: "2026-11-12T05:00:00.000Z",
+        });
+
+      const posted = await post(
+        "zomato",
+        "2026-11-02",
+        "2026-11-09",
+        await file("zomato-900002.xlsx"),
+      );
+      expect(posted.status).toBe(200);
+      const stored = (await posted.json()) as {
+        orders: number;
+        adjustments: number;
+        checks: Array<{ pass: boolean }>;
+        warnings: string[];
+      };
+      expect(stored.orders).toBe(3);
+      expect(stored.adjustments).toBe(2);
+      expect(stored.checks.every((check) => check.pass)).toBe(true);
+
+      const rejected = await post(
+        "zomato",
+        "2026-11-02",
+        "2026-11-09",
+        await file("zomato-999002-wrong-outlet.xlsx"),
+      );
+      expect(rejected.status).toBe(422);
+      const rejection = (await rejected.json()) as { code: string; fetchId: string };
+      expect(rejection.code).toBe("file_identity");
+
+      const named = await post(
+        "zomato",
+        "2026-11-02",
+        "2026-11-09",
+        await file("zomato-900002-other-name.xlsx"),
+      );
+      expect(named.status).toBe(200);
+      const namedBody = (await named.json()) as { warnings: string[] };
+      expect(namedBody.warnings).toContain("The file names Other Kitchen, not Test Kitchen.");
+
+      const current = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+        db.payoutOrder.findMany({
+          where: { outletId: outlet.id, platform: "zomato", supersededAt: null },
+        }),
+      );
+      expect(current).toHaveLength(3);
+      expect(current.some((order) => order.utrLast4 === "ABCD")).toBe(true);
+      expect(current.some((order) => order.customerHash === "CUSTA")).toBe(false);
+      const dumped = JSON.stringify({
+        orders: current,
+        fetches: await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+          db.metricFetch.findMany({ where: { outletId: outlet.id } }),
+        ),
+      });
+      expect(dumped).not.toContain("UTRX900002ABCD");
+      expect(dumped).not.toContain("9876543210");
+      const linked = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+        db.payoutOrder.count({ where: { fetchId: rejection.fetchId } }),
+      );
+      expect(linked).toBe(0);
+      const prior = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+        db.payoutAdjustment.count({
+          where: { outletId: outlet.id, invoiceId: "INV-PRIOR", supersededAt: null },
+        }),
+      );
+      expect(prior).toBe(1);
+
+      const hidden = await runAsTenant(
+        { spaceId: `m0-b-${suffix}`, userId: `m0-user-b-${suffix}` },
+        () => db.payoutOrder.count({ where: { outletId: outlet.id } }),
+      );
+      expect(hidden).toBe(0);
+
+      const settlement = await call(
+        "GET",
+        `/agent/v1/metrics?outletId=${outlet.id}&platform=zomato&from=2026-11-11&to=2026-11-12&basis=settlement_date`,
+        tokenA,
+      );
+      expect(settlement.status).toBe(200);
+      const settlementBody = (await settlement.json()) as {
+        gap: { adjustmentsPaise: number; settledFromEarlierPaise: number };
+        values: Array<{ key: string; value: number | null }>;
+        provisional: boolean;
+      };
+      expect(settlementBody.values.find((row) => row.key === "net_payout_paise")?.value).toBe(6930);
+      expect(settlementBody.gap).toMatchObject({
+        adjustmentsPaise: 1400,
+        settledFromEarlierPaise: 8330,
+      });
+      expect(settlementBody.provisional).toBe(true);
+
+      const ordered = await call(
+        "GET",
+        `/agent/v1/metrics?outletId=${outlet.id}&platform=zomato&from=2026-11-02&to=2026-11-09&basis=order_date`,
+        tokenA,
+      );
+      const orderedBody = (await ordered.json()) as {
+        gap: { adjustmentsPaise: number; notYetSettledPaise: number };
+        values: Array<{ key: string; value: number | null }>;
+      };
+      expect(orderedBody.values.find((row) => row.key === "net_payout_paise")?.value).toBe(10331);
+      expect(orderedBody.gap).toMatchObject({ adjustmentsPaise: 1000, notYetSettledPaise: 2001 });
+
+      const pending = await post(
+        "swiggy",
+        "2026-11-01",
+        "2026-11-08",
+        await file("swiggy-900001-pending.xlsx"),
+      );
+      expect(pending.status).toBe(200);
+      const settled = await post(
+        "swiggy",
+        "2026-11-01",
+        "2026-11-08",
+        await file("swiggy-900001.xlsx"),
+      );
+      expect(settled.status).toBe(200);
+      const swiggyRows = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+        db.payoutOrder.findMany({ where: { outletId: outlet.id, platform: "swiggy" } }),
+      );
+      const live = swiggyRows.filter((row) => row.supersededAt == null);
+      expect(live).toHaveLength(3);
+      expect(
+        live.every((row) => row.utrLast4 === "WXYZ" && row.settlementStatus === "settled"),
+      ).toBe(true);
+      expect(
+        swiggyRows.some((row) => row.supersededAt != null && row.settlementStatus === "pending"),
+      ).toBe(true);
+      expect(JSON.stringify(swiggyRows)).not.toContain("SBI0000WXYZ");
+    } finally {
+      if (previousSalt === undefined) delete process.env.CUSTOMER_HASH_SALT;
+      else process.env.CUSTOMER_HASH_SALT = previousSalt;
+    }
   });
 });

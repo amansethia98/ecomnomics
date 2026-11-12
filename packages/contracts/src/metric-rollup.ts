@@ -14,6 +14,13 @@ import {
   requireMetric,
   resolveCheck,
 } from "./metric-dictionary.js";
+import type {
+  PayoutAdjustmentFact,
+  PayoutCycleFact,
+  PayoutGap,
+  PayoutOrderFact,
+} from "./payout-read.js";
+import { NOT_SETTLEMENT_FIGURE, readPayoutWindow } from "./payout-read.js";
 
 export interface RollupFact {
   key: string;
@@ -60,6 +67,14 @@ export interface MetricRollup {
   to: string;
   provisional: boolean;
   values: RollupValue[];
+  /** Set when this outlet has payout orders. Explains the settlement and order-date gap. */
+  gap?: PayoutGap;
+}
+
+export interface PayoutRollupInput {
+  orders: readonly PayoutOrderFact[];
+  adjustments: readonly PayoutAdjustmentFact[];
+  cycles: readonly PayoutCycleFact[];
 }
 
 const NOT_COMBINED = "This figure is not combined across platforms.";
@@ -80,18 +95,26 @@ interface DayIndex {
   window: RollupFact[];
 }
 
-export function rollupMetrics(rows: readonly RollupFact[], query: RollupQuery): MetricRollup {
+export function rollupMetrics(
+  rows: readonly RollupFact[],
+  query: RollupQuery,
+  payout?: PayoutRollupInput,
+): MetricRollup {
   const days = daysBetween(query.from, query.to);
   const provisional =
     query.to > addIsoDays(query.today, -7) && query.from < addIsoDays(query.today, 1);
   if (query.basis === "settlement_date") {
-    return {
-      basis: query.basis,
-      from: query.from,
-      to: query.to,
-      provisional,
-      values: settlementValues(query.platform, days),
-    };
+    return applyPayout(
+      {
+        basis: query.basis,
+        from: query.from,
+        to: query.to,
+        provisional,
+        values: settlementValues(query.platform, days),
+      },
+      query,
+      payout,
+    );
   }
   const index = indexFacts(rows, query.from, query.to, days);
   const platform = query.platform;
@@ -104,7 +127,88 @@ export function rollupMetrics(rows: readonly RollupFact[], query: RollupQuery): 
   if (platform !== "combined") {
     values.push(...derivedPayouts(platform, index));
   }
-  return { basis: query.basis, from: query.from, to: query.to, provisional, values };
+  return applyPayout(
+    { basis: query.basis, from: query.from, to: query.to, provisional, values },
+    query,
+    payout,
+  );
+}
+
+function applyPayout(
+  rollup: MetricRollup,
+  query: RollupQuery,
+  payout: PayoutRollupInput | undefined,
+): MetricRollup {
+  if (!payout) return rollup;
+  const read = readPayoutWindow({
+    platform: query.platform,
+    basis: query.basis,
+    from: query.from,
+    to: query.to,
+    orders: payout.orders,
+    adjustments: payout.adjustments,
+    cycles: payout.cycles,
+  });
+  const byKey = new Map(read.values.map((value) => [value.key, value]));
+  const values = rollup.values.map((value) => {
+    const next = byKey.get(value.key);
+    if (!next) {
+      if (query.basis !== "settlement_date") return value;
+      return {
+        ...value,
+        value: null,
+        status: "not_available" as const,
+        reason: NOT_SETTLEMENT_FIGURE,
+        coverageDays: 0,
+        missingDays: [],
+        windowMatch: false,
+      };
+    }
+    if (next.status === "not_available") {
+      return {
+        ...value,
+        value: null,
+        status: "not_available" as const,
+        reason: next.reason,
+        coverageDays: 0,
+        missingDays: [],
+        windowMatch: false,
+      };
+    }
+    return {
+      ...value,
+      value: next.value,
+      status: "ok" as const,
+      reason: undefined,
+      coverageDays: value.expectedDays,
+      missingDays: [],
+      windowMatch: false,
+    };
+  });
+  const customers = byKey.get("unique_customers");
+  if (customers && !values.some((value) => value.key === "unique_customers")) {
+    values.push({
+      key: "unique_customers",
+      platform: query.platform,
+      unit: "count",
+      kind: "distinct",
+      accuracy: "exact",
+      value: null,
+      status: "not_available",
+      reason: customers.reason,
+      coverageDays: 0,
+      expectedDays: rollup.values[0]?.expectedDays ?? 0,
+      missingDays: [],
+      partialDays: [],
+      windowMatch: false,
+    });
+  }
+  return {
+    ...rollup,
+    provisional: rollup.provisional || read.provisional,
+    values,
+    gap: read.gap,
+  };
 }
 
 function indexFacts(

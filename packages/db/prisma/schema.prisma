@@ -2771,6 +2771,9 @@ model Restaurant {
   fetches        MetricFetch[]
   checks         MetricCheck[]
   windowItems    PlatformWindowItem[]
+  payoutOrders   PayoutOrder[]
+  payoutAdjustments PayoutAdjustment[]
+  payoutCycles   PayoutCycle[]
   reports        Report[]
   actions        Action[]
   tokens         AgentToken[]
@@ -2798,6 +2801,9 @@ model Outlet {
   fetches             MetricFetch[]
   checks              MetricCheck[]
   windowItems         PlatformWindowItem[]
+  payoutOrders        PayoutOrder[]
+  payoutAdjustments   PayoutAdjustment[]
+  payoutCycles        PayoutCycle[]
   reports             Report[]
   actions             Action[]
   jobRuns             JobRun[]
@@ -2878,6 +2884,9 @@ model MetricFetch {
   metrics               MetricValue[]
   checks                MetricCheck[]
   items                 PlatformWindowItem[]
+  payoutOrders          PayoutOrder[]
+  payoutAdjustments     PayoutAdjustment[]
+  payoutCycles          PayoutCycle[]
 
   @@index([spaceId, createdAt], map: "metric_fetches_space_idx")
   @@index([outletId, platform, requestedPeriodStart], map: "metric_fetches_window_idx")
@@ -2932,6 +2941,132 @@ model PlatformWindowItem {
   @@index([spaceId], map: "platform_window_items_space_idx")
   @@index([fetchId], map: "platform_window_items_fetch_idx")
   @@map("platform_window_items")
+}
+
+/// One order from a payout file. The current row is the latest settlement state.
+/// A later file for the same order keeps the previous row.
+model PayoutOrder {
+  id               String      @id @default(cuid())
+  restaurantId     String
+  restaurant       Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId          String
+  outletId         String
+  outlet           Outlet      @relation(fields: [outletId, spaceId], references: [id, spaceId], onDelete: Cascade)
+  platform         String
+  platformOrderId  String
+  /// UTC midnight of the Asia/Kolkata civil order date.
+  orderDate        DateTime
+  cycleId          String
+  cycleStart       DateTime
+  cycleEnd         DateTime
+  settlementStatus String
+  settlementDate   DateTime?
+  utrLast4         String?     @map("utr_last4")
+  orderStatus      String
+  category         String?
+  cancelledBy      String?     @map("cancelled_by")
+  grossSalesPaise  Int         @map("gross_sales_paise")
+  discountPaise    Int         @map("discount_paise")
+  commissionPaise  Int         @map("commission_paise")
+  platformFeesPaise Int        @map("platform_fees_paise")
+  taxesPaise       Int         @map("taxes_paise")
+  tdsPaise         Int         @map("tds_paise")
+  tcsPaise         Int         @map("tcs_paise")
+  cvPaise          Int         @map("cv_paise")
+  gstCollectedPaise Int        @map("gst_collected_paise")
+  complaintsCancellationChargesPaise Int @map("complaints_cancellation_charges_paise")
+  netPayoutPaise   Int         @map("net_payout_paise")
+  /// Swiggy marked-food-ready flags. Null on Zomato and when the annexure has no column.
+  mfrMarked        Boolean?    @map("mfr_marked")
+  mfrAccurate      Boolean?    @map("mfr_accurate")
+  /// Salted HMAC of the Zomato customer id. Null for Swiggy and when no salt is configured.
+  customerHash     String?     @map("customer_hash")
+  fetchId          String?
+  fetch            MetricFetch? @relation(fields: [fetchId], references: [id], onDelete: SetNull)
+  supersededAt     DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  /// Current rows are unique on (platform, outletId, platformOrderId) where supersededAt is null.
+  @@index([outletId, platform, orderDate], map: "payout_orders_order_date_idx")
+  @@index([outletId, platform, settlementDate], map: "payout_orders_settlement_idx")
+  @@index([spaceId], map: "payout_orders_space_idx")
+  @@index([fetchId], map: "payout_orders_fetch_idx")
+  @@map("payout_orders")
+}
+
+/// A non-order amount booked on one payout cycle. A prior-week line keeps the
+/// cycle that booked it, so a later file does not count it again.
+model PayoutAdjustment {
+  id           String      @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId      String
+  outletId     String
+  outlet       Outlet      @relation(fields: [outletId, spaceId], references: [id, spaceId], onDelete: Cascade)
+  platform     String
+  cycleId      String
+  type         String
+  /// Empty when the file has no invoice or campaign id. Part of the current-row key.
+  invoiceId    String      @default("") @map("invoice_id")
+  periodFrom   DateTime
+  periodTo     DateTime
+  /// Positive paise are taken from the restaurant. A credit is negative.
+  amountPaise  Int         @map("amount_paise")
+  bookedCycle  String      @map("booked_cycle")
+  fetchId      String?
+  fetch        MetricFetch? @relation(fields: [fetchId], references: [id], onDelete: SetNull)
+  supersededAt DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([outletId, platform, bookedCycle], map: "payout_adjustments_cycle_idx")
+  @@index([outletId, platform, periodFrom], map: "payout_adjustments_period_idx")
+  @@index([spaceId], map: "payout_adjustments_space_idx")
+  @@index([fetchId], map: "payout_adjustments_fetch_idx")
+  @@map("payout_adjustments")
+}
+
+/// The platform's own cycle totals, kept so a rebuilt sum can be checked and a miss
+/// does not replace the stored orders.
+model PayoutCycle {
+  id                 String      @id @default(cuid())
+  restaurantId       String
+  restaurant         Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId            String
+  outletId           String
+  outlet             Outlet      @relation(fields: [outletId, spaceId], references: [id, spaceId], onDelete: Cascade)
+  platform           String
+  cycleId            String
+  cycleStart         DateTime
+  cycleEnd           DateTime
+  settlementStatus   String
+  settlementDate     DateTime?
+  utrLast4           String?     @map("utr_last4")
+  orderCount         Int?        @map("payout_orders")
+  grossSalesPaise    Int?        @map("gross_sales_paise")
+  discountPaise      Int?        @map("discount_paise")
+  cvPaise            Int?        @map("cv_paise")
+  commissionPaise    Int?        @map("commission_paise")
+  platformFeesPaise  Int?        @map("platform_fees_paise")
+  taxesPaise         Int?        @map("taxes_paise")
+  tdsPaise           Int?        @map("tds_paise")
+  tcsPaise           Int?        @map("tcs_paise")
+  gstCollectedPaise  Int?        @map("gst_collected_paise")
+  complaintsCancellationChargesPaise Int? @map("complaints_cancellation_charges_paise")
+  adSpendPaise       Int?        @map("ad_spend_paise")
+  netPayoutPaise     Int?        @map("net_payout_paise")
+  platformNetPayoutPaise Int?    @map("platform_net_payout_paise")
+  fetchId            String?
+  fetch              MetricFetch? @relation(fields: [fetchId], references: [id], onDelete: SetNull)
+  supersededAt       DateTime?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  @@index([outletId, platform, cycleStart], map: "payout_cycles_window_idx")
+  @@index([spaceId], map: "payout_cycles_space_idx")
+  @@index([fetchId], map: "payout_cycles_fetch_idx")
+  @@map("payout_cycles")
 }
 
 model Report {

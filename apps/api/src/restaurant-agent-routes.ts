@@ -4,6 +4,7 @@ import {
   CreateJobRunSchema,
   CreateReportSchema,
   IngestMetricReportSchema,
+  IngestPayoutReportSchema,
   PatchActionSchema,
   PutMetricsSchema,
   ReadMetricsQuerySchema,
@@ -17,6 +18,7 @@ import {
   createAction,
   createReport,
   ingestBusinessReport,
+  ingestPayoutReport,
   markActionFileUploaded,
   markReportFileUploaded,
   RestaurantAgentError,
@@ -40,6 +42,7 @@ import {
 
 const MAX_AGENT_JSON_BYTES = 1024 * 1024;
 const MAX_METRIC_REPORT_BYTES = 4 * 1024 * 1024;
+const MAX_PAYOUT_REPORT_BYTES = 12 * 1024 * 1024;
 
 type AgentEnv = { Variables: { restaurantId: string; spaceId: string; userId: string } };
 
@@ -70,6 +73,10 @@ export function restaurantAgentRoutes(options: RestaurantAgentRouteOptions) {
   app.use(
     "/agent/v1/metric-reports",
     requestBodyLimit(MAX_METRIC_REPORT_BYTES, "Request body is too large.", "invalid_body"),
+  );
+  app.use(
+    "/agent/v1/payout-reports",
+    requestBodyLimit(MAX_PAYOUT_REPORT_BYTES, "Request body is too large.", "invalid_body"),
   );
   app.use("/agent/v1/reports", jsonLimit);
   app.use("/agent/v1/actions", jsonLimit);
@@ -108,6 +115,33 @@ export function restaurantAgentRoutes(options: RestaurantAgentRouteOptions) {
         ...(basis ? { basis } : {}),
       });
       return c.json(await readMetrics(options.prisma, scopeOf(c), input));
+    } catch (error) {
+      return agentFailure(c, error);
+    }
+  });
+
+  app.post("/agent/v1/payout-reports", async (c) => {
+    try {
+      const input = IngestPayoutReportSchema.parse(await readJson(c));
+      const file = Buffer.from(input.fileBase64, "base64");
+      const result = await ingestPayoutReport(
+        options.prisma,
+        scopeOf(c),
+        { ...input, file },
+        { retention: payoutRetention(options.objectStorage) },
+      );
+      if (result.status === "rejected_mismatch" || result.status === "needs_owner") {
+        return c.json(
+          {
+            error: result.reason ?? "The file does not match the requested outlet.",
+            code: "file_identity",
+            fetchId: result.fetchId,
+            status: result.status,
+          },
+          422,
+        );
+      }
+      return c.json(result);
     } catch (error) {
       return agentFailure(c, error);
     }
@@ -347,6 +381,15 @@ async function receiveUpload(
     await markActionFileUploaded(options.prisma, scope, parentId, name, bytes.byteLength);
   }
   return c.json({ name, sizeBytes: bytes.byteLength });
+}
+
+function payoutRetention(storage: ObjectStorage | undefined) {
+  if (!storage) return undefined;
+  return {
+    async put(input: { sha256: string; parserVersion: string; body: Uint8Array }) {
+      await storage.put(`payouts/${input.parserVersion}/${input.sha256}`, yieldOnce(input.body));
+    },
+  };
 }
 
 async function* yieldOnce(bytes: Uint8Array): AsyncIterable<Uint8Array> {
