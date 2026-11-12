@@ -4,6 +4,8 @@ import type { MetricPlatform } from "./metric-dictionary.js";
 export const NOT_SETTLEMENT_FIGURE = "This figure is not part of the settlement-date payout.";
 export const NOT_ZOMATO_CUSTOMERS = "Distinct customers are counted from Zomato payout orders.";
 export const NOT_CYCLE_TOTAL = "The platform's cycle total is a settlement figure.";
+export const NO_SETTLED_AMOUNT = "This payout file has no settled amount.";
+export const NO_CUSTOMER_HASH = "Distinct customers need the stored customer hash.";
 
 export interface PayoutOrderFact {
   platform: MetricPlatform;
@@ -22,6 +24,7 @@ export interface PayoutOrderFact {
   gstCollectedPaise: number;
   complaintsCancellationChargesPaise: number;
   netPayoutPaise: number;
+  paidAmountPaise: number | null;
 }
 
 export interface PayoutAdjustmentFact {
@@ -40,6 +43,7 @@ export interface PayoutCycleFact {
   settlementStatus: "settled" | "pending";
   settlementDate: string | null;
   platformNetPayoutPaise: number | null;
+  paidAmountPaise: number | null;
 }
 
 export interface PayoutGap {
@@ -112,7 +116,7 @@ export function readPayoutWindow(input: {
   if (input.basis === "settlement_date") {
     return settlementRead(input, orders, adjustments, cycles, inWindow, provisional);
   }
-  return orderDateRead(input, orders, adjustments, provisional);
+  return orderDateRead(input, orders, adjustments, cycles, provisional);
 }
 
 function settlementRead(
@@ -140,6 +144,7 @@ function settlementRead(
     .filter((row) => inWindow(row.settlementDate))
     .reduce((total, row) => total + (row.platformNetPayoutPaise ?? 0), 0);
   values.push(ok("platform_net_payout_paise", platformNet));
+  values.push(paidAmount(input.platform, "settlement_date", input.from, input.to, orders, cycles));
   values.push(commissionGst(input.platform, sums));
   values.push(customers(input.platform, settled));
   const earlier = settled
@@ -163,6 +168,7 @@ function orderDateRead(
   input: { platform: MetricPlatform | "combined"; from: string; to: string },
   orders: PayoutOrderFact[],
   adjustments: PayoutAdjustmentFact[],
+  cycles: PayoutCycleFact[],
   provisional: boolean,
 ): PayoutRead {
   const placed = orders.filter(
@@ -184,6 +190,7 @@ function orderDateRead(
     status: "not_available",
     reason: NOT_CYCLE_TOTAL,
   });
+  values.push(paidAmount(input.platform, "order_date", input.from, input.to, orders, cycles));
   values.push(commissionGst(input.platform, sums));
   values.push(customers(input.platform, placed));
   const pending = placed
@@ -246,6 +253,64 @@ function spreadInWindow(rows: readonly PayoutAdjustmentFact[], from: string, to:
   return total;
 }
 
+function paidAmount(
+  platform: MetricPlatform | "combined",
+  basis: "order_date" | "settlement_date",
+  from: string,
+  to: string,
+  orders: readonly PayoutOrderFact[],
+  cycles: readonly PayoutCycleFact[],
+): PayoutReadValue {
+  const platforms: MetricPlatform[] = platform === "combined" ? ["zomato", "swiggy"] : [platform];
+  const present = platforms.filter(
+    (name) =>
+      orders.some((order) => order.platform === name) ||
+      cycles.some((cycle) => cycle.platform === name),
+  );
+  const known = (name: MetricPlatform) =>
+    orders.some((order) => order.platform === name && order.paidAmountPaise != null) ||
+    cycles.some((cycle) => cycle.platform === name && cycle.paidAmountPaise != null);
+  if (present.length === 0 || present.some((name) => !known(name))) {
+    return {
+      key: "paid_amount_paise",
+      value: null,
+      status: "not_available",
+      reason: NO_SETTLED_AMOUNT,
+    };
+  }
+  const inWindow = (date: string | null) => date != null && date >= from && date < to;
+  if (basis === "order_date") {
+    const perOrder = orders.some((order) => order.paidAmountPaise != null);
+    if (!perOrder) {
+      return {
+        key: "paid_amount_paise",
+        value: null,
+        status: "not_available",
+        reason: NOT_CYCLE_TOTAL,
+      };
+    }
+    const sum = orders
+      .filter((order) => order.orderDate >= from && order.orderDate < to)
+      .reduce((total, order) => total + (order.paidAmountPaise ?? 0), 0);
+    return ok("paid_amount_paise", sum);
+  }
+  const settled = orders.filter(
+    (order) => order.settlementStatus === "settled" && inWindow(order.settlementDate),
+  );
+  if (settled.some((order) => order.paidAmountPaise != null)) {
+    return ok(
+      "paid_amount_paise",
+      settled.reduce((total, order) => total + (order.paidAmountPaise ?? 0), 0),
+    );
+  }
+  return ok(
+    "paid_amount_paise",
+    cycles
+      .filter((cycle) => inWindow(cycle.settlementDate))
+      .reduce((total, cycle) => total + (cycle.paidAmountPaise ?? 0), 0),
+  );
+}
+
 function commissionGst(
   platform: MetricPlatform | "combined",
   sums: Record<AmountKey, number>,
@@ -274,9 +339,16 @@ function customers(
       reason: NOT_ZOMATO_CUSTOMERS,
     };
   }
-  const hashes = new Set(
-    orders.flatMap((order) => (order.customerHash ? [order.customerHash] : [])),
-  );
+  if (orders.length === 0) return ok("unique_customers", 0);
+  if (orders.some((order) => order.customerHash == null)) {
+    return {
+      key: "unique_customers",
+      value: null,
+      status: "not_available",
+      reason: NO_CUSTOMER_HASH,
+    };
+  }
+  const hashes = new Set(orders.map((order) => order.customerHash));
   return ok("unique_customers", hashes.size);
 }
 

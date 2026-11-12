@@ -117,6 +117,7 @@ export function rollupMetrics(
     );
   }
   const index = indexFacts(rows, query.from, query.to, days);
+  if (payout) writePayoutOrderDays(index, query, payout);
   const platform = query.platform;
   const values =
     platform === "combined"
@@ -140,6 +141,7 @@ function applyPayout(
   payout: PayoutRollupInput | undefined,
 ): MetricRollup {
   if (!payout) return rollup;
+  if (query.basis !== "settlement_date" && !payoutCoversWindow(payout, query)) return rollup;
   const read = readPayoutWindow({
     platform: query.platform,
     basis: query.basis,
@@ -150,6 +152,7 @@ function applyPayout(
     cycles: payout.cycles,
   });
   const byKey = new Map(read.values.map((value) => [value.key, value]));
+  if (query.basis !== "settlement_date") return overlayPayoutExtras(rollup, query, read, byKey);
   const values = rollup.values.map((value) => {
     const next = byKey.get(value.key);
     if (!next) {
@@ -185,30 +188,203 @@ function applyPayout(
       windowMatch: false,
     };
   });
-  const customers = byKey.get("unique_customers");
-  if (customers && !values.some((value) => value.key === "unique_customers")) {
-    values.push({
-      key: "unique_customers",
-      platform: query.platform,
-      unit: "count",
-      kind: "distinct",
-      accuracy: "exact",
-      value: null,
-      status: "not_available",
-      reason: customers.reason,
-      coverageDays: 0,
-      expectedDays: rollup.values[0]?.expectedDays ?? 0,
-      missingDays: [],
-      partialDays: [],
-      windowMatch: false,
-    });
-  }
+  appendCustomers(values, byKey.get("unique_customers"), query, rollup);
   return {
     ...rollup,
     provisional: rollup.provisional || read.provisional,
     values,
     gap: read.gap,
   };
+}
+
+function overlayPayoutExtras(
+  rollup: MetricRollup,
+  query: RollupQuery,
+  read: ReturnType<typeof readPayoutWindow>,
+  byKey: Map<string, ReturnType<typeof readPayoutWindow>["values"][number]>,
+): MetricRollup {
+  const extra = new Set(["platform_net_payout_paise", "paid_amount_paise", "unique_customers"]);
+  const values = rollup.values.map((value) => {
+    if (!extra.has(value.key)) return value;
+    return payoutValue(value, byKey.get(value.key));
+  });
+  appendCustomers(values, byKey.get("unique_customers"), query, rollup);
+  return {
+    ...rollup,
+    provisional: rollup.provisional || read.provisional,
+    values,
+    gap: read.gap,
+  };
+}
+
+function payoutValue(
+  value: MetricRollup["values"][number],
+  next: ReturnType<typeof readPayoutWindow>["values"][number] | undefined,
+): MetricRollup["values"][number] {
+  if (!next) return value;
+  if (next.status === "not_available") {
+    return {
+      ...value,
+      value: null,
+      status: "not_available",
+      reason: next.reason,
+      coverageDays: 0,
+      missingDays: [],
+      windowMatch: false,
+    };
+  }
+  return {
+    ...value,
+    value: next.value,
+    status: "ok",
+    reason: undefined,
+    coverageDays: value.expectedDays,
+    missingDays: [],
+    windowMatch: false,
+  };
+}
+
+function appendCustomers(
+  values: MetricRollup["values"],
+  customers: ReturnType<typeof readPayoutWindow>["values"][number] | undefined,
+  query: RollupQuery,
+  rollup: MetricRollup,
+): void {
+  if (!customers || values.some((value) => value.key === "unique_customers")) return;
+  const known = customers.status === "ok";
+  values.push({
+    key: "unique_customers",
+    platform: query.platform,
+    unit: "count",
+    kind: "distinct",
+    accuracy: "exact",
+    value: known ? customers.value : null,
+    status: known ? "ok" : "not_available",
+    reason: customers.reason,
+    coverageDays: known ? (rollup.values[0]?.expectedDays ?? 0) : 0,
+    expectedDays: rollup.values[0]?.expectedDays ?? 0,
+    missingDays: [],
+    partialDays: [],
+    windowMatch: false,
+  });
+}
+
+function payoutCoversWindow(payout: PayoutRollupInput, query: RollupQuery): boolean {
+  const platforms: MetricPlatform[] =
+    query.platform === "combined" ? ["zomato", "swiggy"] : [query.platform];
+  if (
+    payout.orders.some(
+      (order) =>
+        platforms.includes(order.platform) &&
+        order.orderDate >= query.from &&
+        order.orderDate < query.to,
+    )
+  ) {
+    return true;
+  }
+  return payout.adjustments.some((row) => {
+    if (!platforms.includes(row.platform)) return false;
+    return daysBetween(row.periodFrom, row.periodTo).some(
+      (day) => day >= query.from && day < query.to,
+    );
+  });
+}
+
+function writePayoutOrderDays(
+  index: DayIndex,
+  query: RollupQuery,
+  payout: PayoutRollupInput,
+): void {
+  const platforms: MetricPlatform[] =
+    query.platform === "combined" ? ["zomato", "swiggy"] : [query.platform];
+  const days = new Set(index.days);
+  for (const platform of platforms) {
+    const grouped = new Map<string, PayoutOrderFact[]>();
+    for (const order of payout.orders) {
+      if (order.platform !== platform || !days.has(order.orderDate)) continue;
+      const list = grouped.get(order.orderDate) ?? [];
+      list.push(order);
+      grouped.set(order.orderDate, list);
+    }
+    for (const [day, orders] of grouped) {
+      const put = (key: string, value: number) => {
+        index.facts.set(`${platform}\t${day}\t${key}`, value);
+      };
+      put(
+        "gross_sales_paise",
+        orders.reduce((total, order) => total + order.grossSalesPaise, 0),
+      );
+      put(
+        "discount_paise",
+        orders.reduce((total, order) => total + order.discountPaise, 0),
+      );
+      put(
+        "cv_paise",
+        orders.reduce((total, order) => total + order.cvPaise, 0),
+      );
+      put(
+        "commission_paise",
+        orders.reduce((total, order) => total + order.commissionPaise, 0),
+      );
+      put(
+        "platform_fees_paise",
+        orders.reduce((total, order) => total + order.platformFeesPaise, 0),
+      );
+      put(
+        "taxes_paise",
+        orders.reduce((total, order) => total + order.taxesPaise, 0),
+      );
+      put(
+        "tds_paise",
+        orders.reduce((total, order) => total + order.tdsPaise, 0),
+      );
+      put(
+        "tcs_paise",
+        orders.reduce((total, order) => total + order.tcsPaise, 0),
+      );
+      put(
+        "gst_collected_paise",
+        orders.reduce((total, order) => total + order.gstCollectedPaise, 0),
+      );
+      put(
+        "complaints_cancellation_charges_paise",
+        orders.reduce((total, order) => total + order.complaintsCancellationChargesPaise, 0),
+      );
+      put(
+        "net_payout_paise",
+        orders.reduce((total, order) => total + order.netPayoutPaise, 0),
+      );
+      put("payout_orders", orders.length);
+    }
+    const adsDays = new Set<string>();
+    for (const row of payout.adjustments) {
+      if (
+        row.platform !== platform ||
+        !/\b(ads?|advertis\w*|cpc|sponsored)\b|growth|investment/i.test(row.type)
+      ) {
+        continue;
+      }
+      const period = daysBetween(row.periodFrom, row.periodTo);
+      if (period.length === 0) continue;
+      const base = Math.trunc(row.amountPaise / period.length);
+      let remainder = row.amountPaise - base * period.length;
+      for (const day of period) {
+        let share = base;
+        if (remainder > 0) {
+          share += 1;
+          remainder -= 1;
+        } else if (remainder < 0) {
+          share -= 1;
+          remainder += 1;
+        }
+        if (!days.has(day)) continue;
+        const slot = `${platform}\t${day}\tad_spend_paise`;
+        const previous = adsDays.has(slot) ? (index.facts.get(slot) ?? 0) : 0;
+        index.facts.set(slot, (previous ?? 0) + share);
+        adsDays.add(slot);
+      }
+    }
+  }
 }
 
 function indexFacts(

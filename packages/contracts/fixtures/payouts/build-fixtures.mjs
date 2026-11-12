@@ -93,16 +93,18 @@ function zomato(id, name) {
       settlement: "pending",
     }),
   ]);
-  book.addWorksheet("Addition Deductions Details").addRows([
-    ["A) Investments in growth services"],
-    ["Type", "Invoice", "Deduction time period", "Total amount", "Adjusted amount"],
-    ["Ads", "INV-ADS", "02 Nov 2026 - 08 Nov 2026", "10.00", "10.00"],
-    ["Total Ads", "", "", "10.00", "10.00"],
-    ["D) Adjustments from previous week"],
-    ["Type", "Invoice", "Deduction time period", "Total amount", "Adjusted amount"],
-    ["Prior week fee", "INV-PRIOR", "26 Oct 2026 - 01 Nov 2026", "4.00", "4.00"],
-    ["Total Deductions", "", "", "10.00", "10.00"],
-  ]);
+  book
+    .addWorksheet("Addition Deductions Details")
+    .addRows([
+      ["A) Investments in growth services"],
+      ["Type", "Invoice", "Deduction time period", "Total amount", "Adjusted amount"],
+      ["Ads", "INV-ADS", "02 Nov 2026 - 08 Nov 2026", "10.00", "10.00"],
+      ["Total Ads", "", "", "10.00", "10.00"],
+      ["D) Adjustments from previous week"],
+      ["Type", "Invoice", "Deduction time period", "Total amount", "Adjusted amount"],
+      ["Prior week fee", "INV-PRIOR", "26 Oct 2026 - 01 Nov 2026", "4.00", "4.00"],
+      ["Total Deductions", "", "", "10.00", "10.00"],
+    ]);
   book.addWorksheet("Payout Breakup").addRows([
     ["", "Particular", "Total"],
     ["", "Number of Orders", 3],
@@ -157,13 +159,15 @@ function order(id, date, status, cancelledBy, customer, phone, extra) {
 function swiggy(id, name, settlement) {
   const paid = settlement === "Paid";
   const book = new ExcelJS.Workbook();
-  book.addWorksheet("Summary").addRows([
-    [name],
-    [`Rest. ID - ${id}`],
-    ["Area - Testarea"],
-    ["City - Testcity"],
-    ["Payout Period", "31 October - 06 November"],
-  ]);
+  book
+    .addWorksheet("Summary")
+    .addRows([
+      [name],
+      [`Rest. ID - ${id}`],
+      ["Area - Testarea"],
+      ["City - Testcity"],
+      ["Payout Period", "31 October - 06 November"],
+    ]);
   const orders = book.addWorksheet("Order Level");
   orders.addRows([
     ["Order level"],

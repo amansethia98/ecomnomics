@@ -324,7 +324,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Rolled-up values. Sums add. Ratios use summed parts. platform_only is not_available unless the window matches. settlement_date sums stored payout orders and adjustments and includes gap. Until a payout file is stored, settlement_date is not_available."
+            "description": "Rolled-up values. Sums add. Ratios use summed parts. platform_only is not_available unless the window matches. settlement_date sums stored payout orders and adjustments and includes gap. paid_amount_paise is the file's settled amount. Until a payout file is stored, settlement_date is not_available."
           }
         }
       }

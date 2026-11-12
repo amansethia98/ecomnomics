@@ -5,12 +5,12 @@ import { addIsoDays } from "./metric-dates.js";
 import type { MetricPlatform } from "./metric-dictionary.js";
 import { PAISE_SUM_TOLERANCE } from "./metric-dictionary.js";
 import type { ObservedReportIdentity } from "./metric-parse.js";
-import { costPaise, discountPaise, signedPaise } from "./payout-money.js";
+import { costPaise, discountPaise, rupeesToPaise, signedPaise } from "./payout-money.js";
 
 const require = createRequire(import.meta.url);
 const { Workbook: ExcelWorkbook } = require("exceljs") as { Workbook: new () => Workbook };
 
-export const PAYOUT_PARSER_VERSION = "2026-11-12.payout.1";
+export const PAYOUT_PARSER_VERSION = "2026-11-12.payout.2";
 
 export interface PayoutOrderAmounts {
   grossSalesPaise: number;
@@ -38,6 +38,8 @@ export interface ParsedPayoutOrder extends PayoutOrderAmounts {
   customerHash: string | null;
   mfrMarked: boolean | null;
   mfrAccurate: boolean | null;
+  /// Bank paid amount for this order, when the file has a per-order settled amount.
+  paidAmountPaise: number | null;
   recomputedNetPaise: number;
 }
 
@@ -64,6 +66,8 @@ export interface ParsedCycleTotals {
   complaintsCancellationChargesPaise: number | null;
   adSpendPaise: number | null;
   platformNetPayoutPaise: number | null;
+  /// Summary settled amount (Zomato Amount Settled, Swiggy total payout). Null when the file has none.
+  paidAmountPaise: number | null;
 }
 
 export interface PayoutCheck {
@@ -232,6 +236,7 @@ function parseZomato(sheets: Map<string, string[][]>, salt: string | null): Payo
       gstCollectedPaise: costPaise(cell(row, colIncludes(header.header, "gst collected"))),
       complaintsCancellationChargesPaise: complaints,
       netPayoutPaise: printed,
+      paidAmountPaise: orderPaid(header.header, row),
       recomputedNetPaise: recomputed,
     });
   }
@@ -243,8 +248,12 @@ function parseZomato(sheets: Map<string, string[][]>, salt: string | null): Payo
     };
   }
   const cycle = cycleFromOrders(identity.restaurantId, "zomato", range, orders);
+  const summary = sheets.get("summary") ?? [];
+  const summaryDate = summarySettlementDate(summary, range.year);
+  if (summaryDate) cycle.settlementDate = summaryDate;
   const adjustments = zomatoAdjustments(sheets.get("addition deductions details") ?? []);
   const totals = zomatoTotals(sheets.get("payout breakup") ?? []);
+  applyPaidTotal(totals, orders, summaryPaid(summary));
   const observed = withPeriod(identity.observed, cycle.cycleStart, cycle.cycleEnd);
   return {
     ok: true,
@@ -337,6 +346,7 @@ function parseSwiggy(sheets: Map<string, string[][]>, _salt: string | null): Pay
       gstCollectedPaise: costPaise(cell(row, colIncludes(header.header, "gst collected"))),
       complaintsCancellationChargesPaise: complaints,
       netPayoutPaise: signedPaise(cell(row, colIncludes(header.header, "net payout"))),
+      paidAmountPaise: orderPaid(header.header, row),
       recomputedNetPaise: recomputed,
     });
   }
@@ -373,8 +383,11 @@ function parseSwiggy(sheets: Map<string, string[][]>, _salt: string | null): Pay
     ),
     utrLast4: mode(orders.flatMap((order) => (order.utrLast4 ? [order.utrLast4] : []))),
   };
+  const summaryDate = summarySettlementDate(summary, Number(corrected.start.slice(0, 4)));
+  if (summaryDate) cycle.settlementDate = summaryDate;
   const adjustments = swiggyAdjustments(sheets.get("payout breakup") ?? [], corrected);
   const totals = swiggyTotals(sheets.get("payout breakup") ?? []);
+  applyPaidTotal(totals, orders, summaryPaid(summary));
   const observed = withPeriod(identity.observed, cycle.cycleStart, cycle.cycleEnd);
   return { ok: true, payout: finish("swiggy", observed, cycle, orders, adjustments, totals, []) };
 }
@@ -487,6 +500,13 @@ function buildChecks(
     sum((order) => order.netPayoutPaise) - deduction,
     totals.platformNetPayoutPaise,
   );
+  if (totals.paidAmountPaise != null && orders.every((order) => order.paidAmountPaise != null)) {
+    compare(
+      "paid_amount_paise",
+      orders.reduce((total, order) => total + (order.paidAmountPaise ?? 0), 0),
+      totals.paidAmountPaise,
+    );
+  }
   return checks;
 }
 
@@ -684,6 +704,7 @@ function emptyTotals(): ParsedCycleTotals {
     complaintsCancellationChargesPaise: null,
     adSpendPaise: null,
     platformNetPayoutPaise: null,
+    paidAmountPaise: null,
   };
 }
 
@@ -749,7 +770,13 @@ function swiggyIdentity(rows: string[][]): {
     if (cityMatch?.[1]) city = cityMatch[1].trim();
     const areaMatch = joined.match(/^area\s*[-:]\s*(.+)$/i);
     if (areaMatch?.[1]) area = areaMatch[1].trim();
-    if (!name && joined && !/rest\.?\s*id|city\s*[-:]|area\s*[-:]|payout period/i.test(joined)) {
+    if (
+      !name &&
+      joined &&
+      !/rest\.?\s*id|city\s*[-:]|area\s*[-:]|payout period|amount settled|total payout|payout amount|net payout|settlement date|payout date/i.test(
+        joined,
+      )
+    ) {
       name = joined;
     }
   }
@@ -804,6 +831,79 @@ function correctSwiggyPeriod(
   }
   if (min === plain.start && maxExclusive === plain.end) return { ...plain, year: baseYear };
   return { start: min, end: maxExclusive, year: Number(min.slice(0, 4)) };
+}
+
+function orderPaid(header: string[], row: string[]): number | null {
+  return rupeesToPaise(cell(row, paidColumn(header)));
+}
+
+function paidColumn(header: string[]): number | null {
+  const found = header.findIndex((value) => {
+    const label = norm(value);
+    return (
+      label.includes("amount settled") ||
+      label.includes("settled amount") ||
+      label.includes("amount paid") ||
+      label === "paid amount"
+    );
+  });
+  return found < 0 ? null : found;
+}
+
+function applyPaidTotal(
+  totals: ParsedCycleTotals,
+  orders: ParsedPayoutOrder[],
+  summary: number | null,
+): void {
+  if (summary != null) {
+    totals.paidAmountPaise = summary;
+    return;
+  }
+  if (orders.length > 0 && orders.every((order) => order.paidAmountPaise != null)) {
+    totals.paidAmountPaise = orders.reduce(
+      (total, order) => total + (order.paidAmountPaise ?? 0),
+      0,
+    );
+  }
+}
+
+function summaryPaid(rows: string[][]): number | null {
+  return (
+    labeledMoney(rows, "amount settled") ??
+    labeledMoney(rows, "total payout") ??
+    labeledMoney(rows, "payout amount") ??
+    labeledMoney(rows, "net payout")
+  );
+}
+
+function summarySettlementDate(rows: string[][], year: number | null): string | null {
+  const text =
+    labeledText(rows, "payout settlement date") ||
+    labeledText(rows, "settlement date") ||
+    labeledText(rows, "payout date");
+  return text ? parseCivilDate(text, year) : null;
+}
+
+function labeledMoney(rows: string[][], needle: string): number | null {
+  const value = labeledText(rows, needle);
+  return value ? rupeesToPaise(value) : null;
+}
+
+function labeledText(rows: string[][], needle: string): string {
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+    const row = rows[rowIndex] ?? [];
+    for (let index = 0; index < row.length; index += 1) {
+      const label = norm(row[index] ?? "");
+      if (!label.includes(needle) || label === "#ref!") continue;
+      const next = (row[index + 1] ?? "").trim();
+      if (next && norm(next) !== "#ref!") return next;
+      const below = (rows[rowIndex + 1]?.[index] ?? "").trim();
+      if (below && norm(below) !== "#ref!") return below;
+      const inline = (row[index] ?? "").replace(/^[^:：-]*[:：-]\s*/, "").trim();
+      if (inline && norm(inline) !== label && norm(inline) !== "#ref!") return inline;
+    }
+  }
+  return "";
 }
 
 function firstRange(rows: string[][]): { start: string; end: string; year: number } | null {

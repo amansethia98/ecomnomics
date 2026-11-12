@@ -155,6 +155,16 @@ describe("payout workbooks", () => {
       "Customer hashes were not stored because CUSTOMER_HASH_SALT is not set.",
     );
     expect(unsalted.payout.orders.every((order) => order.customerHash == null)).toBe(true);
+    const unread = readPayoutWindow({
+      platform: "zomato",
+      basis: "settlement_date",
+      from: "2026-11-11",
+      to: "2026-11-12",
+      ...factsOf(unsalted.payout),
+    });
+    expect(unread.values.find((row) => row.key === "unique_customers")?.reason).toBe(
+      "Distinct customers need the stored customer hash.",
+    );
   });
 
   it("splits settlement and order dates, and counts a prior-week adjustment once", async () => {
@@ -249,8 +259,65 @@ describe("payout workbooks", () => {
     const text = execFileSync("unzip", ["-p", path]).toString("utf8");
     expect(text).not.toContain(FULL_ZOMATO_UTR);
     expect(text).not.toContain(PHONE);
+    expect(text).not.toContain("CUSTA");
+    expect(text).not.toContain("CUSTB");
     expect(text).toContain("ABCD");
     expect(text).toContain("900002");
+  });
+
+  it("keeps an earlier business total when that window has no payout orders", async () => {
+    const parsed = await parsePayoutWorkbook(await fixture("zomato-900002.xlsx"), "zomato", SALT);
+    if (!parsed.ok) throw new Error(parsed.reason);
+    const rollup = rollupMetrics(
+      [
+        {
+          key: "gross_sales_paise",
+          platform: "zomato",
+          granularity: "day",
+          periodStart: "2026-10-01",
+          periodEnd: "2026-10-02",
+          value: 10000,
+          rowRole: "fact",
+        },
+      ],
+      {
+        platform: "zomato",
+        from: "2026-10-01",
+        to: "2026-10-02",
+        today: "2026-12-01",
+        basis: "order_date",
+      },
+      factsOf(parsed.payout),
+    );
+    expect(rollup.values.find((row) => row.key === "gross_sales_paise")?.value).toBe(10000);
+    expect(rollup.gap).toBeUndefined();
+  });
+
+  it("keeps the other platform's business total beside a payout day", async () => {
+    const parsed = await parsePayoutWorkbook(await fixture("zomato-900002.xlsx"), "zomato", SALT);
+    if (!parsed.ok) throw new Error(parsed.reason);
+    const rollup = rollupMetrics(
+      [
+        {
+          key: "gross_sales_paise",
+          platform: "swiggy",
+          granularity: "day",
+          periodStart: "2026-11-02",
+          periodEnd: "2026-11-03",
+          value: 5000,
+          rowRole: "fact",
+        },
+      ],
+      {
+        platform: "combined",
+        from: "2026-11-02",
+        to: "2026-11-03",
+        today: "2026-12-01",
+        basis: "order_date",
+      },
+      factsOf(parsed.payout),
+    );
+    expect(rollup.values.find((row) => row.key === "gross_sales_paise")?.value).toBe(16000);
   });
 });
 
@@ -293,6 +360,7 @@ function factsOf(payout: ParsedPayoutFile): {
       gstCollectedPaise: order.gstCollectedPaise,
       complaintsCancellationChargesPaise: order.complaintsCancellationChargesPaise,
       netPayoutPaise: order.netPayoutPaise,
+      paidAmountPaise: order.paidAmountPaise,
     })),
     adjustments: payout.adjustments.map((row) => ({
       platform: payout.cycleId.startsWith("swiggy") ? "swiggy" : "zomato",
@@ -310,6 +378,7 @@ function factsOf(payout: ParsedPayoutFile): {
         settlementStatus: payout.settlementStatus,
         settlementDate: payout.settlementDate,
         platformNetPayoutPaise: payout.totals.platformNetPayoutPaise,
+        paidAmountPaise: payout.totals.paidAmountPaise,
       },
     ],
   };

@@ -342,6 +342,7 @@ async function replaceCycle(
       adSpendPaise: payout.totals.adSpendPaise,
       netPayoutPaise: payout.orders.reduce((total, order) => total + order.netPayoutPaise, 0),
       platformNetPayoutPaise: payout.totals.platformNetPayoutPaise,
+      paidAmountPaise: payout.totals.paidAmountPaise,
       fetchId,
     },
   });
@@ -375,6 +376,7 @@ function sameOrder(
     gstCollectedPaise: number;
     complaintsCancellationChargesPaise: number;
     netPayoutPaise: number;
+    paidAmountPaise: number | null;
     mfrMarked: boolean | null;
     mfrAccurate: boolean | null;
     customerHash: string | null;
@@ -407,6 +409,7 @@ function sameOrder(
     current.gstCollectedPaise === order.gstCollectedPaise &&
     current.complaintsCancellationChargesPaise === order.complaintsCancellationChargesPaise &&
     current.netPayoutPaise === order.netPayoutPaise &&
+    current.paidAmountPaise === order.paidAmountPaise &&
     current.mfrMarked === order.mfrMarked &&
     current.mfrAccurate === order.mfrAccurate &&
     current.customerHash === order.customerHash
@@ -447,6 +450,7 @@ function orderInput(
     gstCollectedPaise: order.gstCollectedPaise,
     complaintsCancellationChargesPaise: order.complaintsCancellationChargesPaise,
     netPayoutPaise: order.netPayoutPaise,
+    paidAmountPaise: order.paidAmountPaise,
     mfrMarked: order.mfrMarked,
     mfrAccurate: order.mfrAccurate,
     customerHash: order.customerHash,
@@ -509,6 +513,7 @@ export async function loadPayoutRollup(
           gstCollectedPaise: row.gstCollectedPaise,
           complaintsCancellationChargesPaise: row.complaintsCancellationChargesPaise,
           netPayoutPaise: row.netPayoutPaise,
+          paidAmountPaise: row.paidAmountPaise,
         },
       ];
     }),
@@ -538,6 +543,7 @@ export async function loadPayoutRollup(
           settlementStatus: row.settlementStatus,
           settlementDate: row.settlementDate ? indiaCivilDate(row.settlementDate) : null,
           platformNetPayoutPaise: row.platformNetPayoutPaise,
+          paidAmountPaise: row.paidAmountPaise,
         },
       ];
     }),

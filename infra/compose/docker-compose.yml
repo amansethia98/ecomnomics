@@ -34,6 +34,8 @@ x-app-environment: &app-environment # Runtime
   TICKET_BOARD_ENABLED:
   RESTAURANT_COMPUTER_ENABLED:
   RESTAURANT_STARTER_BOTS_ENABLED:
+  # Salt for hashing Zomato customer ids on payout orders. Unset stores no customer hash.
+  CUSTOMER_HASH_SALT:
   USER_DEVICES_ENABLED:
   BOT_MESSAGE_MAX_HOPS:
   RAKAZO_MESSAGE_USER_MAX_CHARS:

@@ -2976,6 +2976,8 @@ model PayoutOrder {
   gstCollectedPaise Int        @map("gst_collected_paise")
   complaintsCancellationChargesPaise Int @map("complaints_cancellation_charges_paise")
   netPayoutPaise   Int         @map("net_payout_paise")
+  /// Bank paid amount for this order. Null when the file has no per-order settled amount.
+  paidAmountPaise  Int?        @map("paid_amount_paise")
   /// Swiggy marked-food-ready flags. Null on Zomato and when the annexure has no column.
   mfrMarked        Boolean?    @map("mfr_marked")
   mfrAccurate      Boolean?    @map("mfr_accurate")
@@ -3057,6 +3059,8 @@ model PayoutCycle {
   adSpendPaise       Int?        @map("ad_spend_paise")
   netPayoutPaise     Int?        @map("net_payout_paise")
   platformNetPayoutPaise Int?    @map("platform_net_payout_paise")
+  /// Summary settled amount. Null when that platform's file has no bank-paid figure.
+  paidAmountPaise    Int?        @map("paid_amount_paise")
   fetchId            String?
   fetch              MetricFetch? @relation(fields: [fetchId], references: [id], onDelete: SetNull)
   supersededAt       DateTime?
