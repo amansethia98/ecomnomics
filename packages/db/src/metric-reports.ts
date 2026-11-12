@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { IngestMetricReportInput, ReadMetricsQuery, StoredWindowRow } from "@rakazo/contracts";
+import type { IngestMetricReportInput, StoredWindowRow } from "@rakazo/contracts";
 import {
   civilDayBounds,
   civilRangeBounds,
@@ -16,7 +16,6 @@ import {
 } from "@rakazo/contracts";
 import type { PrismaClient } from "./client.js";
 import type { Prisma } from "./generated/prisma/client.js";
-import { loadPayoutRollup } from "./payout-reports.js";
 import type { RestaurantScope } from "./restaurant-agent.js";
 import { lockMetricWindow, metricWindowLockKey, RestaurantAgentError } from "./restaurant-agent.js";
 
@@ -27,10 +26,6 @@ export interface IngestMetricReportResult {
   written: number;
   superseded: number;
   checks: number;
-}
-
-function indiaToday(now = new Date()): string {
-  return indiaCivilDate(now);
 }
 
 function sha256(text: string): string {
@@ -439,56 +434,4 @@ function fetchData(
     runId: input.runId,
     capturedAt: details.capturedAt,
   };
-}
-
-export async function readMetrics(
-  db: PrismaClient,
-  scope: RestaurantScope,
-  query: ReadMetricsQuery,
-) {
-  const outlet = await db.outlet.findFirst({
-    where: { id: query.outletId, restaurantId: scope.restaurantId, spaceId: scope.spaceId },
-    select: { id: true },
-  });
-  if (!outlet) {
-    throw new RestaurantAgentError("unknown_outlet", 422, "Outlet is not part of this restaurant.");
-  }
-  const platforms = query.platform === "combined" ? ["zomato", "swiggy"] : [query.platform];
-  const range = civilRangeBounds(query.from, query.to);
-  const stored = await db.metricValue.findMany({
-    where: {
-      restaurantId: scope.restaurantId,
-      spaceId: scope.spaceId,
-      outletId: query.outletId,
-      platform: { in: platforms },
-      supersededAt: null,
-      periodStart: { gte: range.start, lt: range.end },
-    },
-  });
-  const payout = await loadPayoutRollup(db, scope, query);
-  return rollupMetrics(
-    stored.flatMap((row) => {
-      if (row.platform !== "zomato" && row.platform !== "swiggy") return [];
-      if (row.rowRole !== "fact" && row.rowRole !== "platform_check") return [];
-      return [
-        {
-          key: row.key,
-          platform: row.platform,
-          granularity: row.granularity,
-          periodStart: indiaCivilDate(row.periodStart),
-          periodEnd: indiaCivilDate(row.periodEnd),
-          value: row.value == null ? null : Number(row.value.toString()),
-          rowRole: row.rowRole,
-        },
-      ];
-    }),
-    {
-      platform: query.platform,
-      from: query.from,
-      to: query.to,
-      today: indiaToday(),
-      basis: query.basis,
-    },
-    payout,
-  );
 }

@@ -1,9 +1,8 @@
 import { createHash } from "node:crypto";
-import type { IngestPayoutReportInput, PayoutRollupInput } from "@rakazo/contracts";
+import type { IngestPayoutReportInput } from "@rakazo/contracts";
 import {
   checkObservedIdentity,
   FILE_IDENTITY_ATTEMPT_LIMIT,
-  indiaCivilDate,
   missingPlatformIdReason,
   utcMidnight,
 } from "@rakazo/contracts";
@@ -456,99 +455,6 @@ function orderInput(
     customerHash: order.customerHash,
     fetchId,
   };
-}
-
-export async function loadPayoutRollup(
-  db: PrismaClient,
-  scope: RestaurantScope,
-  query: {
-    outletId: string;
-    platform: "zomato" | "swiggy" | "combined";
-    from: string;
-    to: string;
-  },
-): Promise<PayoutRollupInput | undefined> {
-  const platforms = query.platform === "combined" ? ["zomato", "swiggy"] : [query.platform];
-  const where = {
-    restaurantId: scope.restaurantId,
-    spaceId: scope.spaceId,
-    outletId: query.outletId,
-    platform: { in: platforms },
-    supersededAt: null,
-  };
-  const [orders, adjustments, cycles] = await Promise.all([
-    db.payoutOrder.findMany({
-      where: {
-        ...where,
-        OR: [
-          { orderDate: { gte: utcMidnight(query.from), lt: utcMidnight(query.to) } },
-          { settlementDate: { gte: utcMidnight(query.from), lt: utcMidnight(query.to) } },
-        ],
-      },
-    }),
-    db.payoutAdjustment.findMany({ where }),
-    db.payoutCycle.findMany({ where }),
-  ]);
-  if (orders.length === 0 && adjustments.length === 0 && cycles.length === 0) return undefined;
-  const cycleById = new Map(cycles.map((row) => [row.cycleId, row]));
-  const facts: PayoutRollupInput = {
-    orders: orders.flatMap((row) => {
-      if (row.platform !== "zomato" && row.platform !== "swiggy") return [];
-      if (row.settlementStatus !== "settled" && row.settlementStatus !== "pending") return [];
-      return [
-        {
-          platform: row.platform,
-          orderDate: indiaCivilDate(row.orderDate),
-          settlementStatus: row.settlementStatus,
-          settlementDate: row.settlementDate ? indiaCivilDate(row.settlementDate) : null,
-          customerHash: row.customerHash,
-          grossSalesPaise: row.grossSalesPaise,
-          discountPaise: row.discountPaise,
-          commissionPaise: row.commissionPaise,
-          platformFeesPaise: row.platformFeesPaise,
-          taxesPaise: row.taxesPaise,
-          tdsPaise: row.tdsPaise,
-          tcsPaise: row.tcsPaise,
-          cvPaise: row.cvPaise,
-          gstCollectedPaise: row.gstCollectedPaise,
-          complaintsCancellationChargesPaise: row.complaintsCancellationChargesPaise,
-          netPayoutPaise: row.netPayoutPaise,
-          paidAmountPaise: row.paidAmountPaise,
-        },
-      ];
-    }),
-    adjustments: adjustments.flatMap((row) => {
-      if (row.platform !== "zomato" && row.platform !== "swiggy") return [];
-      const cycle = cycleById.get(row.bookedCycle);
-      const status = cycle?.settlementStatus === "settled" ? "settled" : "pending";
-      return [
-        {
-          platform: row.platform,
-          type: row.type,
-          periodFrom: indiaCivilDate(row.periodFrom),
-          periodTo: indiaCivilDate(row.periodTo),
-          amountPaise: row.amountPaise,
-          bookedCycle: row.bookedCycle,
-          settlementDate: cycle?.settlementDate ? indiaCivilDate(cycle.settlementDate) : null,
-          settlementStatus: status,
-        },
-      ];
-    }),
-    cycles: cycles.flatMap((row) => {
-      if (row.platform !== "zomato" && row.platform !== "swiggy") return [];
-      if (row.settlementStatus !== "settled" && row.settlementStatus !== "pending") return [];
-      return [
-        {
-          platform: row.platform,
-          settlementStatus: row.settlementStatus,
-          settlementDate: row.settlementDate ? indiaCivilDate(row.settlementDate) : null,
-          platformNetPayoutPaise: row.platformNetPayoutPaise,
-          paidAmountPaise: row.paidAmountPaise,
-        },
-      ];
-    }),
-  };
-  return facts;
 }
 
 async function retain(

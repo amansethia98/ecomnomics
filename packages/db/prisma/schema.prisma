@@ -2847,6 +2847,7 @@ model MetricValue {
   @@index([outletId, platform, granularity, periodStart, periodEnd, key], map: "metric_values_window_idx")
   @@index([spaceId, key, periodStart])
   @@index([fetchId], map: "metric_values_fetch_idx")
+  @@index([restaurantId, outletId, platform, periodStart], map: "metric_values_owner_read_idx")
   @@map("restaurant_metric_values")
 }
 
@@ -2890,6 +2891,7 @@ model MetricFetch {
 
   @@index([spaceId, createdAt], map: "metric_fetches_space_idx")
   @@index([outletId, platform, requestedPeriodStart], map: "metric_fetches_window_idx")
+  @@index([restaurantId, outletId, platform, requestedPeriodStart], map: "metric_fetches_owner_read_idx")
   @@map("metric_fetches")
 }
 
@@ -2992,6 +2994,8 @@ model PayoutOrder {
   /// Current rows are unique on (platform, outletId, platformOrderId) where supersededAt is null.
   @@index([outletId, platform, orderDate], map: "payout_orders_order_date_idx")
   @@index([outletId, platform, settlementDate], map: "payout_orders_settlement_idx")
+  @@index([restaurantId, outletId, orderDate], map: "payout_orders_owner_order_idx")
+  @@index([restaurantId, outletId, settlementDate], map: "payout_orders_owner_settlement_idx")
   @@index([spaceId], map: "payout_orders_space_idx")
   @@index([fetchId], map: "payout_orders_fetch_idx")
   @@map("payout_orders")
@@ -3024,6 +3028,7 @@ model PayoutAdjustment {
 
   @@index([outletId, platform, bookedCycle], map: "payout_adjustments_cycle_idx")
   @@index([outletId, platform, periodFrom], map: "payout_adjustments_period_idx")
+  @@index([restaurantId, outletId, periodFrom], map: "payout_adjustments_owner_read_idx")
   @@index([spaceId], map: "payout_adjustments_space_idx")
   @@index([fetchId], map: "payout_adjustments_fetch_idx")
   @@map("payout_adjustments")

@@ -1,10 +1,10 @@
 /** ISO dates, interpreted as civil days. India has no daylight-saving shift. */
 
-const INDIA = "Asia/Kolkata";
+const INDIA_OFFSET_MS = 5.5 * 60 * 60 * 1000;
 
-/** Calendar date of an instant in Asia/Kolkata. */
+/** Calendar date of an instant in Asia/Kolkata. The offset does not change with the date. */
 export function indiaCivilDate(value: Date): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: INDIA }).format(value);
+  return new Date(value.getTime() + INDIA_OFFSET_MS).toISOString().slice(0, 10);
 }
 
 /** Midnight at the start of an Asia/Kolkata civil date. The offset is fixed. */

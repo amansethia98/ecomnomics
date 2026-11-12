@@ -162,6 +162,7 @@ import { pluginSubmissionRoutes } from "./plugin-submissions.js";
 import { sendReferralEmails } from "./referral-email.js";
 import { mountApiRequestBodyLimits, rpcBodyLimit } from "./request-body-limit.js";
 import { restaurantAgentRoutes } from "./restaurant-agent-routes.js";
+import { restaurantOwnerRoutes } from "./restaurant-owner-routes.js";
 import { createRouter } from "./router.js";
 import { handleRpcError } from "./rpc-errors.js";
 import { mountScreenTarget } from "./screen-proxy.js";
@@ -881,6 +882,17 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
       uploadSecret: env.authSecret,
       publicBaseUrl: env.apiUrl,
       objectStorage,
+    }),
+  );
+  app.route(
+    "/",
+    restaurantOwnerRoutes({
+      prisma,
+      getSession: async (headers) => {
+        const session = await auth.api.getSession({ headers });
+        const userId = session?.user?.id;
+        return userId ? { userId } : null;
+      },
     }),
   );
   app.route(
