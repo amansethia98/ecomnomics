@@ -1,12 +1,11 @@
+import { METRIC_KEYS, OwnerMetricsQuerySchema, ownerMetricsErrorMessage } from "@rakazo/contracts";
 import { describe, expect, it } from "vitest";
-import { METRIC_KEYS } from "./metric-dictionary.js";
-import type { OwnerAdjustmentFact, OwnerMetricsInput, OwnerOrderFact } from "./owner-metrics.js";
-import {
-  assembleOwnerMetrics,
-  OwnerMetricsQuerySchema,
-  ownerMetricsErrorMessage,
-  spreadShares,
-} from "./owner-metrics.js";
+import type {
+  OwnerAdjustmentFact,
+  OwnerMetricsInput,
+  OwnerOrderFact,
+} from "./owner-metrics-assemble.js";
+import { assembleOwnerMetrics, spreadShares } from "./owner-metrics-assemble.js";
 
 const north = { id: "outlet-north", name: "North" };
 const south = { id: "outlet-south", name: "South" };

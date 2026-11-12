@@ -1,17 +1,9 @@
-import type {
-  OwnerCycleFact,
-  OwnerMetricsQuery,
-  OwnerMetricsResponse,
-  OwnerOrderFact,
-} from "@rakazo/contracts";
-import {
-  assembleOwnerMetrics,
-  civilRangeBounds,
-  indiaCivilDate,
-  ownerMetricLoadKeys,
-} from "@rakazo/contracts";
+import type { OwnerMetricsQuery, OwnerMetricsResponse } from "@rakazo/contracts";
+import { civilRangeBounds, indiaCivilDate } from "@rakazo/contracts";
 import { getLogger } from "@rakazo/logging";
 import type { PrismaClient } from "./client.js";
+import type { OwnerCycleFact, OwnerOrderFact } from "./owner-metrics-assemble.js";
+import { assembleOwnerMetrics, ownerMetricLoadKeys } from "./owner-metrics-assemble.js";
 import type { RestaurantScope } from "./restaurant-agent.js";
 import { RestaurantAgentError } from "./restaurant-agent.js";
 import { runAsSystem, runAsTenant } from "./row-security.js";

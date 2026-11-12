@@ -826,11 +826,13 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
         tokenA,
       );
       const orderedBody = (await ordered.json()) as {
+        adjustments: { amountPaise: number };
         gap: { adjustmentsPaise: number; notYetSettledPaise: number };
         values: Array<{ key: string; value: number | null; reason?: string }>;
       };
       expect(orderedBody.values.find((row) => row.key === "payout_orders")?.value).toBe(33);
-      expect(orderedBody.values.find((row) => row.key === "ad_spend_paise")?.value).toBe(240000);
+      expect(orderedBody.values.find((row) => row.key === "ad_spend_paise")?.value).toBeNull();
+      expect(orderedBody.adjustments.amountPaise).toBe(240000);
       expect(orderedBody.values.find((row) => row.key === "paid_amount_paise")?.reason).toBe(
         "The platform's cycle total is a settlement figure.",
       );

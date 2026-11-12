@@ -2,7 +2,7 @@
 
 `GET /api/v1/restaurants/:restaurantId/metrics`
 
-The signed-in owner of a restaurant reads one total, and a series when `grain` is set. The same read is available to the restaurant agent as `GET /agent/v1/metrics` when the request includes `keys`. The agent token is not accepted on the owner route.
+The signed-in owner of a restaurant reads one total, and a series when `grain` is set. `GET /agent/v1/metrics` calls this same read. Omit `keys` there to return every dictionary key. The agent token is not accepted on the owner route.
 
 Dates are civil dates in Asia/Kolkata. `to` is exclusive. `platform` is `zomato`, `swiggy`, or `all`. `basis` is `order_date` or `settlement_date`. Omit `outletIds` to include every outlet. A range longer than 400 days is rejected. More than 100 keys is rejected.
 

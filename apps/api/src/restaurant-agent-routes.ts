@@ -5,11 +5,11 @@ import {
   CreateReportSchema,
   IngestMetricReportSchema,
   IngestPayoutReportSchema,
+  METRIC_KEYS,
   OwnerMetricsQuerySchema,
   ownerMetricsErrorMessage,
   PatchActionSchema,
   PutMetricsSchema,
-  ReadMetricsQuerySchema,
   unknownMetricKeyMessage,
   unknownMetricKeys,
 } from "@rakazo/contracts";
@@ -24,7 +24,6 @@ import {
   markActionFileUploaded,
   markReportFileUploaded,
   RestaurantAgentError,
-  readMetrics,
   readOwnerMetrics,
   readRestaurant,
   reportFileForUpload,
@@ -109,37 +108,36 @@ export function restaurantAgentRoutes(options: RestaurantAgentRouteOptions) {
 
   app.get("/agent/v1/metrics", async (c) => {
     try {
-      const keys = c.req.queries("keys");
-      if (keys && keys.length > 0) {
-        const platform = c.req.query("platform");
-        const grain = c.req.query("grain");
-        const outletIds = c.req.queries("outletIds") ?? [];
-        const single = c.req.query("outletId");
-        const likeForLike = c.req.query("likeForLike");
-        if (likeForLike !== undefined && likeForLike !== "true" && likeForLike !== "false") {
-          return agentError(c, 400, "invalid_body", "likeForLike must be true or false.");
-        }
-        const input = OwnerMetricsQuerySchema.parse({
-          platform: platform === "combined" ? "all" : platform,
-          from: c.req.query("from"),
-          to: c.req.query("to"),
-          keys,
-          basis: c.req.query("basis") ?? "order_date",
-          likeForLike: likeForLike === "true",
-          ...(outletIds.length > 0 ? { outletIds } : single ? { outletIds: [single] } : {}),
-          ...(grain ? { grain } : {}),
-        });
-        return c.json(await readOwnerMetrics(options.prisma, scopeOf(c), input));
+      const requested = c.req.queries("keys") ?? [];
+      const platform = c.req.query("platform");
+      const grain = c.req.query("grain");
+      const listed = c.req.queries("outletIds") ?? [];
+      const single = c.req.query("outletId");
+      const likeForLike = c.req.query("likeForLike");
+      if (likeForLike !== undefined && likeForLike !== "true" && likeForLike !== "false") {
+        return agentError(c, 400, "invalid_body", "likeForLike must be true or false.");
       }
-      const basis = c.req.query("basis");
-      const input = ReadMetricsQuerySchema.parse({
-        outletId: c.req.query("outletId"),
-        platform: c.req.query("platform"),
+      const outletIds = listed.length > 0 ? listed : single ? [single] : undefined;
+      const namedKeys = requested.length > 0;
+      // Omitting keys keeps the previous call: every dictionary key, for the named outlet.
+      // The placeholder key lets the shared schema check the dates. The 100-key cap applies when keys are sent.
+      const input = OwnerMetricsQuerySchema.parse({
+        platform: platform === "combined" ? "all" : platform,
         from: c.req.query("from"),
         to: c.req.query("to"),
-        ...(basis ? { basis } : {}),
+        keys: namedKeys ? requested : ["delivered_orders"],
+        basis: c.req.query("basis") ?? "order_date",
+        likeForLike: likeForLike === "true",
+        ...(outletIds ? { outletIds } : namedKeys ? {} : { outletIds: [] }),
+        ...(grain ? { grain } : {}),
       });
-      return c.json(await readMetrics(options.prisma, scopeOf(c), input));
+      return c.json(
+        await readOwnerMetrics(
+          options.prisma,
+          scopeOf(c),
+          namedKeys ? input : { ...input, keys: [...METRIC_KEYS] },
+        ),
+      );
     } catch (error) {
       const message = ownerMetricsErrorMessage(error);
       if (message) return agentError(c, 400, "invalid_body", message);
