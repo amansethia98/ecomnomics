@@ -8,6 +8,7 @@ import reconcile_base as b
 import swiggy_math as sm
 from reconciliation_policy import within_rounding_tolerance, gap_note, runtime_dir
 from owner_reconcile import rupee
+from download_finder import find_download, swiggy_pattern
 N=lambda x:' '.join(str(x or '').split()).lower()
 def number(x):
  t=str(x or '').strip().replace(',','').replace('₹','').replace('%','')
@@ -91,7 +92,13 @@ def render(r):
   value=r['rows'][label];value=value if label=='Orders' else (f'{sm.q(value):.2f}%' if '%' in label else rupee(value));bold=label in ('Net Payout','Payout %');out.append('| '+('**'+label+'**' if bold else label)+' | '+meaning+' | '+('**'+value+'**' if bold else value)+' |')
  out+=['','Notes:']+['- '+n for n in r['notes']];return '\n'.join(out)
 def main(argv=None):
- a=argparse.ArgumentParser();a.add_argument('workbook');a.add_argument('--screen',required=True);a.add_argument('--settings',required=True);a.add_argument('--job',default='');args=a.parse_args(argv);path=Path(args.workbook);screen=json.loads(Path(args.screen).read_text());settings=json.loads(Path(args.settings).read_text());root=runtime_dir();job=json.loads(Path(args.job).read_text() if args.job else (root/'job.json').read_text());lock=(root/'swiggy-processing.lock').open('a')
+ a=argparse.ArgumentParser();a.add_argument('workbook',nargs='?');a.add_argument('--find-in',help='download folder: take the newest annexure for the configured outlet saved for this job');a.add_argument('--screen',required=True);a.add_argument('--settings',required=True);a.add_argument('--job',default='');args=a.parse_args(argv);screen=json.loads(Path(args.screen).read_text());settings=json.loads(Path(args.settings).read_text());root=runtime_dir();job=json.loads(Path(args.job).read_text() if args.job else (root/'job.json').read_text());
+ if bool(args.workbook)==bool(args.find_in):a.error('pass either an annexure or --find-in <download folder>')
+ if args.workbook:path=Path(args.workbook)
+ else:
+  if not settings.get('outlet_id'):raise ValueError('--find-in needs outlet_id in the settings')
+  path=find_download(args.find_in,swiggy_pattern(settings['outlet_id']),float(job.get('issued_epoch') or 0));print('Using download: '+path.name)
+ lock=(root/'swiggy-processing.lock').open('a')
  try:
   fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
   if screen.get('job_label')!=job['label']:raise ValueError('Stale screen evidence: wrong logical job')

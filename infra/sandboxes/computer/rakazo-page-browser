@@ -10,12 +10,14 @@ Saved logins, cards and pay tokens go through page_secrets instead.
 from __future__ import annotations
 
 import contextlib
+import fnmatch
 import hashlib
 import json
 import math
 import mimetypes
 import os
 import re
+import signal
 import socket
 import stat
 import subprocess
@@ -2189,6 +2191,9 @@ class CdpClient(page_secrets.CdpClient):
         # Pages that opened during this call. A download that starts in a new tab has no request on the
         # page that was clicked, so the call waits for it the way it waits for a download link.
         self.new_pages: list[dict[str, Any]] = []
+        # Where the site's name for each download is written the moment it begins, so a call that is
+        # stopped before it names its files does not leave them under their guid.
+        self.name_journal: str | None = None
 
     def _skipped_event(self, head: bytes) -> None:
         super()._skipped_event(head)
@@ -2210,6 +2215,9 @@ class CdpClient(page_secrets.CdpClient):
             if isinstance(guid, str):
                 self.downloads.setdefault(guid, {"name": params.get("suggestedFilename"), "url": params.get("url"),
                                                  "state": "inProgress", "received": 0, "total": 0})
+                if self.name_journal and params.get("suggestedFilename"):
+                    with contextlib.suppress(OSError):
+                        record_download_name(self.name_journal, guid, params.get("suggestedFilename"))
         elif method == "Page.lifecycleEvent":
             self.lifecycle.setdefault((params.get("frameId"), params.get("loaderId")), set()).add(str(params.get("name")))
         elif method == "Runtime.bindingCalled" and params.get("name") == "rakazoDownloadHint":
@@ -2347,6 +2355,17 @@ DOWNLOADS_UNUSABLE = "Downloads cannot be saved on this computer: its Downloads 
 TOO_MANY_DOWNLOADS = f"downloads not saved: a call saves at most {MAX_DOWNLOADS} files."
 # A new tab whose address looks like a file, or that has not navigated yet, may be a download starting.
 FILE_DOWNLOAD = re.compile(r"\.(csv|xlsx?|pdf|zip|tsv)(?:$|\?)", re.IGNORECASE)
+# The supervisor kills a page call after 25 s. A call stops itself before then so the bot gets an answer,
+# and any download it started keeps the site's file name (see the name journal below).
+CALL_BUDGET_SECONDS = 21.0
+CALL_BUDGET_SPENT = ("The page was still busy, so this call stopped before its time limit. Any download it "
+                     "started keeps the site's own file name and finishes in the background. Do not click "
+                     "again: run rakazo-wait-download in the shell to wait for the file.")
+# Chromium names an unfinished download by its guid. A guid file left this long with no running
+# download is an orphan of a call that was stopped, and is given the name the site sent.
+ORPHAN_GRACE_SECONDS = 20.0
+GUID_NAME = re.compile(r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}")
+WAIT_DOWNLOAD_MAX_SECONDS = 600.0
 
 
 def page_may_download(url: str) -> bool:
@@ -2362,6 +2381,102 @@ def journal_path(folder: str) -> str:
     """Where a download that finishes after its call is recorded, outside the folder the bot lists."""
     digest = hashlib.sha256(os.path.realpath(folder).encode()).hexdigest()[:24]
     return f"/tmp/rakazo/downloads-{digest}.jsonl"
+
+
+def name_journal_path(folder: str) -> str:
+    """Where the site's name for each download in `folder` is kept, by guid, outside the folder the bot lists."""
+    digest = hashlib.sha256(os.path.realpath(folder).encode()).hexdigest()[:24]
+    return f"/tmp/rakazo/download-names-{digest}.jsonl"
+
+
+def record_download_name(journal: str, guid: str, name: Any) -> None:
+    os.makedirs(os.path.dirname(journal), exist_ok=True)
+    with open(journal, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps({"guid": guid, "name": str(name)[:500]}) + "\n")
+
+
+def recorded_names(folder: str) -> dict[str, str]:
+    names: dict[str, str] = {}
+    try:
+        with open(name_journal_path(folder), encoding="utf-8") as handle:
+            for line in handle:
+                with contextlib.suppress(json.JSONDecodeError, AttributeError, TypeError):
+                    item = json.loads(line)
+                    if isinstance(item.get("guid"), str) and isinstance(item.get("name"), str):
+                        names[item["guid"]] = item["name"]
+    except OSError:
+        pass
+    return names
+
+
+def adopt_orphans(folder: str, grace: float = ORPHAN_GRACE_SECONDS, now: float | None = None) -> list[str]:
+    """Give finished guid files that no call is naming the name the site sent, and record them.
+
+    A guid whose name was never recorded keeps its guid: a name is never made up.
+    """
+    names = recorded_names(folder)
+    if not names:
+        return []
+    now = time.time() if now is None else now
+    adopted: list[str] = []
+    try:
+        entries = os.listdir(folder)
+    except OSError:
+        return []
+    for entry in sorted(entries):
+        if not GUID_NAME.fullmatch(entry) or entry not in names:
+            continue
+        staged = os.path.join(folder, entry)
+        try:
+            info = os.lstat(staged)
+        except OSError:
+            continue
+        if (not stat.S_ISREG(info.st_mode) or now - info.st_mtime < grace
+                or os.path.lexists(staged + ".crdownload")):
+            continue
+        try:
+            chosen = place_download(staged, folder, download_name(names[entry]), set())
+        except (OSError, RuntimeError):
+            continue
+        with contextlib.suppress(OSError):
+            remember_download(folder, chosen, os.path.getsize(os.path.join(folder, chosen)))
+        adopted.append(chosen)
+    return adopted
+
+
+def wait_for_download(folder: str, pattern: str | None, since: float, timeout: float,
+                      sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
+    """The newest finished file in `folder` newer than `since`, matching `pattern` when given.
+
+    Files are matched by the name the site gave them. A file still downloading, or one still under its
+    guid, is waited for; nothing is renamed to fit the pattern.
+    """
+    deadline = time.monotonic() + max(0.0, min(timeout, WAIT_DOWNLOAD_MAX_SECONDS))
+    while True:
+        adopt_orphans(folder)
+        found: list[tuple[float, str]] = []
+        busy = 0
+        with contextlib.suppress(OSError):
+            for entry in os.listdir(folder):
+                path = os.path.join(folder, entry)
+                if entry.endswith(".crdownload") or GUID_NAME.fullmatch(entry):
+                    with contextlib.suppress(OSError):
+                        if os.path.getmtime(path) >= since:
+                            busy += 1
+                    continue
+                if pattern and not fnmatch.fnmatchcase(entry, pattern):
+                    continue
+                with contextlib.suppress(OSError):
+                    info = os.lstat(path)
+                    if stat.S_ISREG(info.st_mode) and info.st_mtime >= since:
+                        found.append((info.st_mtime, entry))
+        if found:
+            mtime, name = max(found)
+            path = os.path.join(folder, name)
+            return {"ok": True, "name": name, "path": path, "size": os.path.getsize(path), "mtime": mtime}
+        if time.monotonic() >= deadline:
+            return {"ok": False, "error": "No finished download matched in time.", "downloading": busy}
+        sleep(1.0)
 
 
 def remember_download(folder: str, name: str, size: int, kind: str | None = None) -> None:
@@ -2465,6 +2580,8 @@ def hold_tick(client: CdpClient, folder: str, busy: str, seen_busy: set[str]) ->
     client.call("Browser.setDownloadBehavior", {
         "behavior": "allowAndName", "downloadPath": folder, "eventsEnabled": True,
     })
+    with contextlib.suppress(Exception):
+        adopt_orphans(folder)
     max_bytes = max_file_bytes()
     taken: set[str] = set()
     for guid, download in client.downloads.items():
@@ -2587,6 +2704,10 @@ class Downloads:
         except Exception:  # noqa: BLE001
             # A browser that cannot be told downloads as it would without a folder; the call goes on.
             self.folder = None
+        if self.folder:
+            client.name_journal = name_journal_path(self.folder)
+            with contextlib.suppress(Exception):
+                adopt_orphans(self.folder)
         self.max_bytes = max_file_bytes()
         self.stopped: dict[str, str] = {}
         # Only the page's own navigations can turn into downloads; a frame's slow document is not waited for.
@@ -3482,6 +3603,7 @@ def hold_downloads(folder: Any) -> None:
         client.connect()
     except Exception:  # noqa: BLE001
         return
+    client.name_journal = name_journal_path(absolute)
     try:
         while True:
             try:
@@ -3496,6 +3618,32 @@ def hold_downloads(folder: Any) -> None:
         client.close()
 
 
+class CallBudgetSpent(RuntimeError):
+    pass
+
+
+def _budget_spent(_signum: int, _frame: Any) -> None:
+    raise CallBudgetSpent(CALL_BUDGET_SPENT)
+
+
+def start_call_budget(seconds: float | None = None) -> None:
+    """Stop this call before the supervisor kills it, so its downloads are listed and keep their names."""
+    if threading.current_thread() is not threading.main_thread() or not hasattr(signal, "setitimer"):
+        return
+    try:
+        seconds = float(os.environ.get("RAKAZO_CALL_BUDGET_SECONDS") or seconds or CALL_BUDGET_SECONDS)
+    except ValueError:
+        seconds = CALL_BUDGET_SECONDS
+    left = seconds - (time.monotonic() - STARTED)
+    signal.signal(signal.SIGALRM, _budget_spent)
+    signal.setitimer(signal.ITIMER_REAL, max(0.5, left))
+
+
+def stop_call_budget() -> None:
+    if threading.current_thread() is threading.main_thread() and hasattr(signal, "setitimer"):
+        signal.setitimer(signal.ITIMER_REAL, 0)
+
+
 def run(argv: list[str]) -> int:
     stdin_args = read_stdin_line() if os.environ.get("RAKAZO_BROWSER_ARGS_STDIN") == "1" else None
     if os.environ.get("RAKAZO_BROWSER_WATCH_STDIN") == "1":
@@ -3505,7 +3653,7 @@ def run(argv: list[str]) -> int:
                           "fallback": "computer_act"}))
         return 2
     command = argv[1]
-    if command not in ("navigate", "snapshot", "act", "finish", "purchase_check", "hold"):
+    if command not in ("navigate", "snapshot", "act", "finish", "purchase_check", "hold", "wait_download"):
         print(json.dumps({"ok": False, "error": f"unknown command: {command}", "fallback": "computer_act"}))
         return 2
     raw_args = stdin_args if stdin_args is not None else (argv[2] if len(argv) >= 3 else "")
@@ -3520,6 +3668,21 @@ def run(argv: list[str]) -> int:
     if command == "hold":
         hold_downloads(args.get("downloads"))
         return 0
+    if command == "wait_download":
+        folder = os.path.realpath(str(args.get("dir") or "Downloads"))
+        if not os.path.isdir(folder):
+            print(json.dumps({"ok": False, "error": "That download folder does not exist."}))
+            return 1
+        pattern = args.get("pattern")
+        try:
+            since = float(args.get("since") or 0)
+            timeout = float(args.get("timeout") or 120)
+        except (TypeError, ValueError):
+            print(json.dumps({"ok": False, "error": "since and timeout must be numbers."}))
+            return 2
+        result = wait_for_download(folder, pattern if isinstance(pattern, str) and pattern else None, since, timeout)
+        print(json.dumps(result))
+        return 0 if result["ok"] else 3
     port = cdp_port()
     downloads: Downloads | None = None
     client: CdpClient | None = None
@@ -3567,6 +3730,8 @@ def run(argv: list[str]) -> int:
         legacy = zomato_legacy.dispatch(command, args, port, lambda _: (target, address))
         if legacy is not None:
             return legacy
+        if command in ("navigate", "act", "snapshot"):
+            start_call_budget()
         if command in ("navigate", "act") and args.get("downloads") is not None:
             # While this file exists, the background hold does not change Chromium's download setting.
             busy = download_busy_path(str(args["downloads"]))
@@ -3661,6 +3826,7 @@ def run(argv: list[str]) -> int:
         print(json.dumps({**result, **({"downloads": saved} if saved else {})}))
         return 0  # Structured failures preserve partial action progress.
     except Exception as exc:  # noqa: BLE001
+        stop_call_budget()
         if downloads:
             try:
                 client.listen(0.01)
@@ -3673,6 +3839,7 @@ def run(argv: list[str]) -> int:
         print(json.dumps({**failure, **({"downloads": saved} if saved else {})}))
         return 0
     finally:
+        stop_call_budget()
         # Close first so Chromium drops this call's setting, then let the hold apply its own.
         if page:
             page.close()

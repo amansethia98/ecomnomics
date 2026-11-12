@@ -2288,6 +2288,9 @@ class CdpFrameTest(unittest.TestCase):
         self.assertEqual(self.client(ws_frame(payload))._read_frame(), payload)
 
 
+JOURNAL_GUID = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"
+
+
 class DownloadTest(unittest.TestCase):
     """Files a page downloads during a call, saved into the bot's folder with a stand-in Chromium."""
 
@@ -2906,6 +2909,119 @@ class DownloadTest(unittest.TestCase):
         self.assertFalse(Path(self.folder, "g4.crdownload").exists())
         self.assertIn(("Browser.cancelDownload", {"guid": "g4"}), sent)
         self.assertTrue(client.downloads["g4"]["journaled"])
+
+    def journal_folder(self):
+        """The bot's folder with an empty name journal, removed after the test."""
+        os.makedirs(self.folder, exist_ok=True)
+        journal = helper.name_journal_path(self.folder)
+        self.addCleanup(lambda: os.path.exists(journal) and os.remove(journal))
+
+    def test_the_site_name_is_recorded_when_the_download_begins(self):
+        self.journal_folder()
+        self.downloads()
+        self.begin(JOURNAL_GUID, "invoice_Annexure_123_04112026_99.xlsx")
+        self.assertEqual(helper.recorded_names(self.folder), {JOURNAL_GUID: "invoice_Annexure_123_04112026_99.xlsx"})
+
+    def test_an_orphaned_guid_file_gets_the_recorded_name_once_no_call_is_naming_it(self):
+        self.journal_folder()
+        helper.record_download_name(helper.name_journal_path(self.folder), JOURNAL_GUID, "report_9_01 Nov 2026.xlsx")
+        staged = Path(self.folder, JOURNAL_GUID)
+        staged.write_bytes(b"xlsx")
+        fresh = time.time()
+        os.utime(staged, (fresh, fresh))
+        self.assertEqual(helper.adopt_orphans(self.folder, now=fresh + 1), [])
+        self.assertTrue(staged.exists())
+        with patch.dict(os.environ, {"HOME": self.home}):
+            self.assertEqual(helper.adopt_orphans(self.folder, now=fresh + 60), ["report_9_01 Nov 2026.xlsx"])
+            self.assertEqual([item["name"] for item in helper.take_remembered(self.folder)], ["report_9_01 Nov 2026.xlsx"])
+        self.assertFalse(staged.exists())
+        self.assertEqual(Path(self.folder, "report_9_01 Nov 2026.xlsx").read_bytes(), b"xlsx")
+
+    def test_a_guid_with_no_recorded_name_or_still_downloading_is_left_alone(self):
+        self.journal_folder()
+        other = "11111111-2222-3333-4444-555555555555"
+        helper.record_download_name(helper.name_journal_path(self.folder), JOURNAL_GUID, "a.xlsx")
+        Path(self.folder, other).write_bytes(b"unknown")
+        Path(self.folder, JOURNAL_GUID).write_bytes(b"partial")
+        Path(self.folder, JOURNAL_GUID + ".crdownload").write_bytes(b"more")
+        self.assertEqual(helper.adopt_orphans(self.folder, now=time.time() + 600), [])
+        self.assertEqual(sorted(os.listdir(self.folder)), sorted([other, JOURNAL_GUID, JOURNAL_GUID + ".crdownload"]))
+
+    def test_the_hold_names_an_orphan_left_by_a_stopped_call(self):
+        self.journal_folder()
+        busy = helper.download_busy_path("bots/b1/Downloads")
+        helper.record_download_name(helper.name_journal_path(self.folder), JOURNAL_GUID, "statement.pdf")
+        staged = Path(self.folder, JOURNAL_GUID)
+        staged.write_bytes(b"pdf")
+        old = time.time() - 120
+        os.utime(staged, (old, old))
+        client = helper.CdpClient("ws://browser.example.test:9222/test")
+        client.call = lambda *_, **__: {}
+        client.downloads = {JOURNAL_GUID: {"name": "statement.pdf", "state": "completed"}}
+        with patch.dict(os.environ, {"HOME": self.home}):
+            helper.hold_tick(client, self.folder, busy, {JOURNAL_GUID})
+        self.assertEqual(os.listdir(self.folder), ["statement.pdf"])
+
+    def test_a_call_that_runs_out_of_time_answers_before_the_supervisor_kills_it(self):
+        self.journal_folder()
+        self.client.connect = Mock()
+        self.client.close = Mock()
+        # Listening lets the fake clock run, so the call's download wait ends.
+        self.client.listen = Mock(side_effect=lambda seconds: self.now.__setitem__(0, self.now[0] + max(seconds, 1.0)))
+        self.client.call = Mock(side_effect=lambda method, params=None, **_: (
+            {"sessionId": "session"} if method == "Target.attachToTarget" else
+            {"frameTree": {"frame": {"id": "top"}}} if method == "Page.getFrameTree" else {}))
+
+        def perform(*_, **__):
+            self.begin(JOURNAL_GUID, "invoice_Annexure_123_04112026_99.xlsx")
+            time.sleep(5)
+            return {"ok": True}
+
+        started = time.time()
+        with patch.object(helper, "wait_for_cdp"), \
+                patch.object(helper, "front_tab", return_value=("tab", "https://partner.example/")), \
+                patch.object(helper, "discover_ws_url", return_value="ws://127.0.0.1:9222/x"), \
+                patch.object(helper, "CdpClient", return_value=self.client), \
+                patch.object(helper, "AgentBrowser"), \
+                patch.object(helper.PageBrowser, "act", side_effect=perform), \
+                patch.dict(os.environ, {"HOME": self.home, "RAKAZO_CALL_BUDGET_SECONDS": "0.5"}), \
+                patch("builtins.print") as output:
+            self.assertEqual(helper.run(["rakazo-page-browser", "act", json.dumps(
+                {"actions": [{"type": "click", "ref": "e1"}], "downloads": "bots/b1/Downloads"})]), 0)
+        self.assertLess(time.time() - started, 4)
+        result = json.loads(output.call_args.args[0])
+        self.assertEqual(result["error"], helper.CALL_BUDGET_SPENT)
+        self.assertEqual(result["downloads"][0]["name"], "invoice_Annexure_123_04112026_99.xlsx")
+        self.assertEqual(result["downloads"][0]["state"], "downloading")
+        self.assertEqual(helper.recorded_names(self.folder)[JOURNAL_GUID], "invoice_Annexure_123_04112026_99.xlsx")
+
+
+class WaitForDownloadTest(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.folder = os.path.realpath(folder.name)
+
+    def test_the_newest_finished_file_matching_the_site_name_is_returned(self):
+        since = time.time() - 5
+        Path(self.folder, "Tax_invoice_123.pdf").write_bytes(b"pdf")
+        Path(self.folder, "invoice_Annexure_123_04112026_1.xlsx").write_bytes(b"old")
+        os.utime(Path(self.folder, "invoice_Annexure_123_04112026_1.xlsx"), (since - 100, since - 100))
+        Path(self.folder, "invoice_Annexure_123_04112026_2.xlsx").write_bytes(b"new")
+        Path(self.folder, "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0").write_bytes(b"guid")
+        found = helper.wait_for_download(self.folder, "invoice_Annexure_*", since, 0)
+        self.assertTrue(found["ok"])
+        self.assertEqual(found["name"], "invoice_Annexure_123_04112026_2.xlsx")
+
+    def test_a_download_still_saving_is_waited_for_then_times_out_without_renaming(self):
+        since = time.time() - 5
+        Path(self.folder, "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0.crdownload").write_bytes(b"part")
+        sleeps = []
+        with patch.object(helper.time, "monotonic", side_effect=[0.0, 0.0, 5.0]):
+            found = helper.wait_for_download(self.folder, "invoice_Annexure_*", since, 3, sleep=sleeps.append)
+        self.assertEqual(found, {"ok": False, "error": "No finished download matched in time.", "downloading": 1})
+        self.assertEqual(sleeps, [1.0])
+        self.assertEqual(os.listdir(self.folder), ["0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0.crdownload"])
 
 
 if __name__ == "__main__":
