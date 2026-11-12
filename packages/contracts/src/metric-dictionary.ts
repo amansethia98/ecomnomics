@@ -216,8 +216,8 @@ export const METRIC_DEFINITIONS = {
   ),
   paid_amount_paise: payout(
     "paise",
-    "Amount the bank paid. Per order when the file has a settled amount, otherwise the summary total.",
-    "Summary Amount Settled",
+    "Amount the bank paid. Zomato's Amount Settled, or Swiggy's summary total payout.",
+    "Amount Settled",
     "Summary total payout",
     true,
   ),

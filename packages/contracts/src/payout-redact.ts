@@ -1,16 +1,19 @@
-import { createRequire } from "node:module";
-import type { Cell, CellValue, Workbook } from "exceljs";
-
-const require = createRequire(import.meta.url);
-const { Workbook: ExcelWorkbook } = require("exceljs") as { Workbook: new () => Workbook };
+import type { Cell, CellValue } from "exceljs";
+import { openPayoutWorkbook } from "./payout-workbook.js";
 
 const PHONE = /(?:\+91[\s-]?)?[6-9]\d{9}/g;
 
 /** A copy of the workbook with bank references reduced to four characters, and phones and customer ids removed. */
 export async function redactPayoutWorkbook(bytes: Uint8Array): Promise<Uint8Array> {
-  const workbook = new ExcelWorkbook();
-  await workbook.xlsx.load(Buffer.from(bytes) as never);
+  const workbook = await openPayoutWorkbook(bytes);
+  for (const sheet of [...workbook.worksheets]) {
+    const name = sheet.name.replace(/\s+/g, " ").trim().toLowerCase();
+    if (name === "hsummary" || name === "hdiscount") workbook.removeWorksheet(sheet.id);
+  }
   for (const sheet of workbook.worksheets) {
+    for (const table of sheet.getTables() as unknown as Array<{ name: string }>) {
+      sheet.removeTable(table.name);
+    }
     let utrColumns = new Set<number>();
     let phoneColumns = new Set<number>();
     let customerColumns = new Set<number>();
@@ -70,7 +73,9 @@ function redactLabelValue(
         ? "phone"
         : isCustomerId(label)
           ? "customer"
-          : null;
+          : isSecretLabel(label)
+            ? "secret"
+            : null;
     if (!kind) continue;
     matched = true;
     row.eachCell({ includeEmpty: false }, (cell, other) => {
@@ -83,6 +88,12 @@ function redactLabelValue(
 
 function isCustomerId(label: string): boolean {
   return label.includes("customer id") || label === "customer" || label.includes("customer name");
+}
+
+function isSecretLabel(label: string): boolean {
+  return (
+    /\b(pan|tan|gstin|mid)\b/.test(label) || label === "address" || label.includes("legal entity")
+  );
 }
 
 function redactText(cell: Cell): void {
@@ -100,6 +111,7 @@ function cellText(value: CellValue): string {
   if (typeof value === "object" && "richText" in value && Array.isArray(value.richText)) {
     return value.richText.map((part) => part.text).join("");
   }
+  if (typeof value === "object" && "result" in value) return cellText(value.result as CellValue);
   if (typeof value === "object" && "text" in value && typeof value.text === "string") {
     return value.text;
   }

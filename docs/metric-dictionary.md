@@ -127,14 +127,14 @@ Commissionable value: item total plus packaging, minus the restaurant-funded dis
 
 ## `paid_amount_paise`
 
-Amount the bank paid. Per order when the file has a settled amount, otherwise the summary total.
+Amount the bank paid. Zomato's Amount Settled, or Swiggy's summary total payout.
 
 - unit: paise
 - aggregation: sum
 - accuracy: exact
 - crossPlatform: true
 - platforms: zomato, swiggy
-- zomato source: Summary Amount Settled
+- zomato source: Amount Settled
 - swiggy source: Summary total payout
 - check: absolute 100 paise plus relative 0
 

@@ -365,7 +365,9 @@ function overlaps(
 }
 
 function isAds(label: string): boolean {
-  return /\b(ads?|advertis\w*|cpc|sponsored)\b|growth|investment/i.test(label);
+  return /\b(ads?|advertis\w*|cpc|sponsored|hyperboost|marketing)\b|top picks|co-branded/i.test(
+    label,
+  );
 }
 
 function ok(key: string, value: number): PayoutReadValue {

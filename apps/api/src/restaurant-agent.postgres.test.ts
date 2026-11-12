@@ -734,8 +734,8 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
 
       const posted = await post(
         "zomato",
+        "2026-10-26",
         "2026-11-02",
-        "2026-11-09",
         await file("zomato-900002.xlsx"),
       );
       expect(posted.status).toBe(200);
@@ -745,53 +745,51 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
         checks: Array<{ pass: boolean }>;
         warnings: string[];
       };
-      expect(stored.orders).toBe(3);
+      expect(stored.orders).toBe(33);
       expect(stored.adjustments).toBe(2);
       expect(stored.checks.every((check) => check.pass)).toBe(true);
+      expect(stored.warnings.join(" ")).not.toContain("Test Kitchen");
 
       const rejected = await post(
         "zomato",
+        "2026-10-26",
         "2026-11-02",
-        "2026-11-09",
         await file("zomato-999002-wrong-outlet.xlsx"),
       );
       expect(rejected.status).toBe(422);
       const rejection = (await rejected.json()) as { code: string; fetchId: string };
       expect(rejection.code).toBe("file_identity");
 
-      const named = await post(
-        "zomato",
-        "2026-11-02",
-        "2026-11-09",
-        await file("zomato-900002-other-name.xlsx"),
-      );
-      expect(named.status).toBe(200);
-      const namedBody = (await named.json()) as { warnings: string[] };
-      expect(namedBody.warnings).toContain("The file names Other Kitchen, not Test Kitchen.");
-
       const current = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
         db.payoutOrder.findMany({
           where: { outletId: outlet.id, platform: "zomato", supersededAt: null },
         }),
       );
-      expect(current).toHaveLength(3);
-      expect(current.some((order) => order.utrLast4 === "ABCD")).toBe(true);
-      expect(current.some((order) => order.customerHash === "CUSTA")).toBe(false);
+      expect(current).toHaveLength(33);
+      expect(current.some((order) => order.utrLast4 === "0201")).toBe(true);
+      expect(current.some((order) => order.utrLast4 === "0299")).toBe(true);
+      expect(
+        current.some(
+          (order) =>
+            order.customerHash ===
+            "772e82626b52819280a7878e9e250599c432b79a94e7d9d5504b6ea52b1332ad",
+        ),
+      ).toBe(false);
       const dumped = JSON.stringify({
         orders: current,
         fetches: await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
           db.metricFetch.findMany({ where: { outletId: outlet.id } }),
         ),
       });
-      expect(dumped).not.toContain("UTRX900002ABCD");
-      expect(dumped).not.toContain("9876543210");
+      expect(dumped).not.toContain("TESTUTRAA000201");
+      expect(dumped).not.toContain("AABCT9000A");
       const linked = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
         db.payoutOrder.count({ where: { fetchId: rejection.fetchId } }),
       );
       expect(linked).toBe(0);
       const prior = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
         db.payoutAdjustment.count({
-          where: { outletId: outlet.id, invoiceId: "INV-PRIOR", supersededAt: null },
+          where: { outletId: outlet.id, invoiceId: "80110200", supersededAt: null },
         }),
       );
       expect(prior).toBe(1);
@@ -804,60 +802,74 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
 
       const settlement = await call(
         "GET",
-        `/agent/v1/metrics?outletId=${outlet.id}&platform=zomato&from=2026-11-11&to=2026-11-12&basis=settlement_date`,
+        `/agent/v1/metrics?outletId=${outlet.id}&platform=zomato&from=2026-11-04&to=2026-11-05&basis=settlement_date`,
         tokenA,
       );
       expect(settlement.status).toBe(200);
       const settlementBody = (await settlement.json()) as {
-        gap: { adjustmentsPaise: number; settledFromEarlierPaise: number };
+        gap: { adjustmentsPaise: number };
         values: Array<{ key: string; value: number | null }>;
         provisional: boolean;
       };
-      expect(settlementBody.values.find((row) => row.key === "net_payout_paise")?.value).toBe(6930);
-      expect(settlementBody.gap).toMatchObject({
-        adjustmentsPaise: 1400,
-        settledFromEarlierPaise: 8330,
-      });
-      expect(settlementBody.provisional).toBe(true);
+      expect(
+        settlementBody.values.find((row) => row.key === "platform_net_payout_paise")?.value,
+      ).toBe(922098);
+      expect(settlementBody.values.find((row) => row.key === "paid_amount_paise")?.value).toBe(
+        957098,
+      );
+      expect(settlementBody.gap.adjustmentsPaise).toBe(275000);
+      expect(settlementBody.provisional).toBe(false);
 
       const ordered = await call(
         "GET",
-        `/agent/v1/metrics?outletId=${outlet.id}&platform=zomato&from=2026-11-02&to=2026-11-09&basis=order_date`,
+        `/agent/v1/metrics?outletId=${outlet.id}&platform=zomato&from=2026-10-26&to=2026-11-02&basis=order_date`,
         tokenA,
       );
       const orderedBody = (await ordered.json()) as {
         gap: { adjustmentsPaise: number; notYetSettledPaise: number };
-        values: Array<{ key: string; value: number | null }>;
+        values: Array<{ key: string; value: number | null; reason?: string }>;
       };
-      expect(orderedBody.values.find((row) => row.key === "net_payout_paise")?.value).toBe(10331);
-      expect(orderedBody.gap).toMatchObject({ adjustmentsPaise: 1000, notYetSettledPaise: 2001 });
-
-      const pending = await post(
-        "swiggy",
-        "2026-11-01",
-        "2026-11-08",
-        await file("swiggy-900001-pending.xlsx"),
+      expect(orderedBody.values.find((row) => row.key === "payout_orders")?.value).toBe(33);
+      expect(orderedBody.values.find((row) => row.key === "ad_spend_paise")?.value).toBe(240000);
+      expect(orderedBody.values.find((row) => row.key === "paid_amount_paise")?.reason).toBe(
+        "The platform's cycle total is a settlement figure.",
       );
-      expect(pending.status).toBe(200);
+      expect(orderedBody.gap).toMatchObject({ adjustmentsPaise: 240000, notYetSettledPaise: 0 });
+
+      const again = await post(
+        "zomato",
+        "2026-10-26",
+        "2026-11-02",
+        await file("zomato-900002.xlsx"),
+      );
+      expect(again.status).toBe(200);
+      const still = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+        db.payoutOrder.count({
+          where: { outletId: outlet.id, platform: "zomato", supersededAt: null },
+        }),
+      );
+      expect(still).toBe(33);
+
       const settled = await post(
         "swiggy",
+        "2026-10-25",
         "2026-11-01",
-        "2026-11-08",
         await file("swiggy-900001.xlsx"),
       );
       expect(settled.status).toBe(200);
+      const swiggyBody = (await settled.json()) as {
+        orders: number;
+        checks: Array<{ pass: boolean }>;
+      };
+      expect(swiggyBody.orders).toBe(39);
+      expect(swiggyBody.checks.every((check) => check.pass)).toBe(true);
       const swiggyRows = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
         db.payoutOrder.findMany({ where: { outletId: outlet.id, platform: "swiggy" } }),
       );
       const live = swiggyRows.filter((row) => row.supersededAt == null);
-      expect(live).toHaveLength(3);
-      expect(
-        live.every((row) => row.utrLast4 === "WXYZ" && row.settlementStatus === "settled"),
-      ).toBe(true);
-      expect(
-        swiggyRows.some((row) => row.supersededAt != null && row.settlementStatus === "pending"),
-      ).toBe(true);
-      expect(JSON.stringify(swiggyRows)).not.toContain("SBI0000WXYZ");
+      expect(live).toHaveLength(39);
+      expect(live.every((row) => row.settlementStatus === "settled")).toBe(true);
+      expect(JSON.stringify(swiggyRows)).not.toContain("TESTUTRBB000101");
     } finally {
       if (previousSalt === undefined) delete process.env.CUSTOMER_HASH_SALT;
       else process.env.CUSTOMER_HASH_SALT = previousSalt;

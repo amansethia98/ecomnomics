@@ -12,10 +12,15 @@ import type { PayoutAdjustmentFact, PayoutCycleFact, PayoutOrderFact } from "./p
 import { readPayoutWindow } from "./payout-read.js";
 import { redactPayoutWorkbook } from "./payout-redact.js";
 
-const FULL_ZOMATO_UTR = "UTRX900002ABCD";
-const FULL_SWIGGY_UTR = "SBI0000WXYZ";
-const PHONE = "9876543210";
+const ZOMATO_UTR = "TESTUTRAA000201";
+const LATER_UTR = "TESTUTRAA000299";
+const SWIGGY_UTR = "TESTUTRBB000101";
+const CUSTOMER_ID = "772e82626b52819280a7878e9e250599c432b79a94e7d9d5504b6ea52b1332ad";
+const PAN = "AABCT9000A";
 const SALT = "fixture-salt";
+const ZOMATO_NET = 922098;
+const ZOMATO_PAID = 957098;
+const SWIGGY_PAYOUT = 1054387;
 
 const fixture = (name: string) => readFile(new URL(`../fixtures/payouts/${name}`, import.meta.url));
 
@@ -25,129 +30,148 @@ describe("payout workbooks", () => {
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     const payout = parsed.payout;
-    expect(payout.cycleId).toBe("zomato:900002:2026-11-02:2026-11-09");
-    expect(payout.orders).toHaveLength(3);
-    expect(payout.orders.map((order) => order.netPayoutPaise)).toEqual([8330, 0, 2001]);
-    expect(payout.orders[0]).toMatchObject({
-      orderDate: "2026-11-02",
-      orderStatus: "DELIVERED",
-      settlementStatus: "settled",
-      settlementDate: "2026-11-11",
-      utrLast4: "ABCD",
-      grossSalesPaise: 11000,
-      discountPaise: 750,
-      customerHash: hash("CUSTA"),
+    expect(payout.cycleId).toBe("zomato:900002:2026-10-26:2026-11-02");
+    expect(payout.observed).toMatchObject({
+      restaurantId: "900002",
+      name: "Test Kitchen",
+      city: "Testcity",
     });
-    expect(payout.orders[1]).toMatchObject({
-      orderDate: "2026-11-03",
-      orderStatus: "CANCELLED",
-      cancelledBy: "restaurant",
-      customerHash: hash("CUSTB"),
-    });
-    expect(payout.orders[2]).toMatchObject({
-      orderDate: "2026-11-08",
-      settlementStatus: "pending",
-      settlementDate: null,
-      utrLast4: null,
-      grossSalesPaise: 2001,
-      customerHash: hash("CUSTA"),
-    });
-    expect(new Set(payout.orders.map((order) => order.customerHash)).size).toBe(2);
+    expect(payout.orders).toHaveLength(33);
+    expect(payout.orders.filter((order) => order.orderStatus === "DELIVERED")).toHaveLength(30);
+    expect(payout.orders.filter((order) => order.orderStatus === "CANCELLED")).toHaveLength(2);
+    expect(payout.orders.filter((order) => order.orderStatus === "REJECTED")).toHaveLength(1);
+    expect(payout.settlementDate).toBe("2026-11-04");
+    expect(payout.utrLast4).toBe("0201");
+    const later = payout.orders.find((order) => order.settlementDate === "2026-11-11");
+    expect(later).toMatchObject({ utrLast4: "0299", settlementStatus: "settled" });
+    expect(payout.orders[0]?.customerHash).toBe(hash(CUSTOMER_ID));
     expect(payout.adjustments).toEqual([
       expect.objectContaining({
-        type: "Ads",
-        invoiceId: "INV-ADS",
-        periodFrom: "2026-11-02",
-        periodTo: "2026-11-09",
-        amountPaise: 1000,
-        bookedCycle: payout.cycleId,
-      }),
-      expect.objectContaining({
-        type: "Prior week fee",
-        invoiceId: "INV-PRIOR",
+        type: "ADS",
+        invoiceId: "80110201",
         periodFrom: "2026-10-26",
         periodTo: "2026-11-02",
-        amountPaise: 400,
-        bookedCycle: payout.cycleId,
+        amountPaise: 240000,
+      }),
+      expect.objectContaining({
+        type: "Previous week adjustment",
+        invoiceId: "80110200",
+        periodFrom: "2026-10-19",
+        periodTo: "2026-10-26",
+        amountPaise: 35000,
       }),
     ]);
-    expect(payout.totals.platformNetPayoutPaise).toBe(8931);
+    expect(payout.totals.orderCount).toBe(33);
+    expect(payout.totals.platformNetPayoutPaise).toBe(ZOMATO_NET);
+    expect(payout.totals.paidAmountPaise).toBe(ZOMATO_PAID);
     expect(payout.checks.every((check) => check.pass)).toBe(true);
-    expect(JSON.stringify(payout)).not.toContain(FULL_ZOMATO_UTR);
-    expect(JSON.stringify(payout)).not.toContain(PHONE);
+    const text = JSON.stringify(payout);
+    expect(text).not.toContain(ZOMATO_UTR);
+    expect(text).not.toContain(LATER_UTR);
+    expect(text).not.toContain(CUSTOMER_ID);
+    expect(text).not.toContain(PAN);
   });
 
-  it("parses the Swiggy annexure, shifting the summary period and keeping train and Toing", async () => {
+  it("parses the Swiggy annexure, keeping train and Toing on the summary payout", async () => {
     const parsed = await parsePayoutWorkbook(await fixture("swiggy-900001.xlsx"), "swiggy", SALT);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     const payout = parsed.payout;
-    expect(payout.cycleId).toBe("swiggy:900001:2026-11-01:2026-11-08");
-    expect(payout.observed.restaurantId).toBe("900001");
-    expect(payout.orders.map((order) => order.category)).toEqual([null, "TRAIN_ORDER", "Toing"]);
-    expect(payout.orders.map((order) => order.netPayoutPaise)).toEqual([15580, 4410, 0]);
+    expect(payout.cycleId).toBe("swiggy:900001:2026-10-25:2026-11-01");
+    expect(payout.observed).toMatchObject({
+      restaurantId: "900001",
+      name: "Test Kitchen",
+      city: "Testcity",
+      area: "Testarea",
+    });
+    expect(payout.orders).toHaveLength(39);
+    expect(payout.orders.filter((order) => order.category === "TRAIN_ORDER")).toHaveLength(1);
+    expect(payout.orders.filter((order) => order.category === "Toing")).toHaveLength(7);
+    expect(payout.orders.every((order) => order.settlementStatus === "settled")).toBe(true);
+    expect(payout.orders.filter((order) => order.settlementDate === "2026-11-11")).toHaveLength(1);
+    expect(payout.settlementDate).toBe("2026-11-03");
+    expect(payout.utrLast4).toBe("0101");
     expect(payout.orders[0]).toMatchObject({
       mfrMarked: true,
-      mfrAccurate: true,
-      commissionPaise: 3000,
-      taxesPaise: 720,
-      platformFeesPaise: 1000,
-      utrLast4: "WXYZ",
+      mfrAccurate: false,
       customerHash: null,
     });
-    expect(payout.orders[1]).toMatchObject({ mfrMarked: false, mfrAccurate: false });
-    expect(payout.orders[2]).toMatchObject({
-      mfrMarked: null,
-      mfrAccurate: null,
-      orderStatus: "CANCELLED",
-      cancelledBy: "customer",
-    });
-    expect(payout.adjustments).toEqual([
-      expect.objectContaining({
-        type: "Weekly ad pack",
-        amountPaise: 800,
-        bookedCycle: payout.cycleId,
-      }),
-    ]);
-    expect(payout.totals.platformNetPayoutPaise).toBe(19190);
+    expect(payout.adjustments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "HyperBoost",
+          amountPaise: 180000,
+          invoiceId: "261104TK80100101",
+        }),
+        expect.objectContaining({ type: "Top Picks - Ads", amountPaise: 40000 }),
+        expect.objectContaining({ type: "Ads Offers", amountPaise: 20000 }),
+        expect.objectContaining({
+          type: "Brandverse Social Media Marketing",
+          amountPaise: 30000,
+          periodFrom: "2026-10-25",
+          periodTo: "2026-11-01",
+        }),
+        expect.objectContaining({
+          type: "Previous week adjustment",
+          amountPaise: 25000,
+          periodFrom: "2026-10-18",
+          periodTo: "2026-10-25",
+        }),
+      ]),
+    );
+    expect(payout.adjustments).toHaveLength(5);
+    expect(payout.totals.orderCount).toBe(39);
+    expect(payout.totals.platformNetPayoutPaise).toBe(SWIGGY_PAYOUT);
+    expect(payout.totals.paidAmountPaise).toBe(SWIGGY_PAYOUT);
     expect(payout.checks.every((check) => check.pass)).toBe(true);
-    expect(JSON.stringify(payout)).not.toContain(FULL_SWIGGY_UTR);
+    expect(JSON.stringify(payout)).not.toContain(SWIGGY_UTR);
   });
 
   it("rejects a wrong outlet id and warns on a different name", async () => {
-    const wrong = await parsePayoutWorkbook(
+    const wrongSwiggy = await parsePayoutWorkbook(
       await fixture("swiggy-999001-wrong-outlet.xlsx"),
       "swiggy",
       SALT,
     );
-    expect(wrong.ok).toBe(true);
-    if (!wrong.ok) return;
-    const rejected = checkObservedIdentity(wrong.payout.observed, expected("swiggy", "900001"));
-    expect(rejected.reject).toBe("The file is for restaurant 999001, not 900001.");
+    expect(wrongSwiggy.ok).toBe(true);
+    if (!wrongSwiggy.ok) return;
+    const rejectedSwiggy = checkObservedIdentity(
+      wrongSwiggy.payout.observed,
+      expected("swiggy", "900001"),
+    );
+    expect(rejectedSwiggy.reject).toBe("The file is for restaurant 999001, not 900001.");
 
-    const named = await parsePayoutWorkbook(
-      await fixture("zomato-900002-other-name.xlsx"),
+    const wrongZomato = await parsePayoutWorkbook(
+      await fixture("zomato-999002-wrong-outlet.xlsx"),
       "zomato",
       SALT,
     );
+    expect(wrongZomato.ok).toBe(true);
+    if (!wrongZomato.ok) return;
+    const rejectedZomato = checkObservedIdentity(
+      wrongZomato.payout.observed,
+      expected("zomato", "900002"),
+    );
+    expect(rejectedZomato.reject).toBe("The file is for restaurant 999002, not 900002.");
+
+    const named = await parsePayoutWorkbook(await fixture("zomato-900002.xlsx"), "zomato", SALT);
     expect(named.ok).toBe(true);
     if (!named.ok) return;
-    const warned = checkObservedIdentity(named.payout.observed, expected("zomato", "900002"));
+    const warned = checkObservedIdentity(
+      named.payout.observed,
+      expected("zomato", "900002", "Other Kitchen"),
+    );
     expect(warned.reject).toBeNull();
-    expect(warned.warnings).toContain("The file names Other Kitchen, not Test Kitchen.");
+    expect(warned.warnings).toContain("The file names Test Kitchen, not Other Kitchen.");
   });
 
-  it("keeps a pending re-upload distinct and omits customer hashes without a salt", async () => {
-    const pending = await parsePayoutWorkbook(
-      await fixture("swiggy-900001-pending.xlsx"),
-      "swiggy",
-      null,
-    );
-    expect(pending.ok).toBe(true);
-    if (!pending.ok) return;
-    expect(pending.payout.settlementStatus).toBe("pending");
-    expect(pending.payout.settlementDate).toBeNull();
-    expect(pending.payout.orders.every((order) => order.utrLast4 == null)).toBe(true);
+  it("keeps a settled Swiggy cycle and omits customer hashes without a salt", async () => {
+    const swiggy = await parsePayoutWorkbook(await fixture("swiggy-900001.xlsx"), "swiggy", null);
+    expect(swiggy.ok).toBe(true);
+    if (!swiggy.ok) return;
+    expect(swiggy.payout.settlementStatus).toBe("settled");
+    expect(swiggy.payout.settlementDate).toBe("2026-11-03");
+    expect(swiggy.payout.utrLast4).toBe("0101");
     const unsalted = await parsePayoutWorkbook(await fixture("zomato-900002.xlsx"), "zomato", null);
     expect(unsalted.ok).toBe(true);
     if (!unsalted.ok) return;
@@ -158,8 +182,8 @@ describe("payout workbooks", () => {
     const unread = readPayoutWindow({
       platform: "zomato",
       basis: "settlement_date",
-      from: "2026-11-11",
-      to: "2026-11-12",
+      from: "2026-11-04",
+      to: "2026-11-05",
       ...factsOf(unsalted.payout),
     });
     expect(unread.values.find((row) => row.key === "unique_customers")?.reason).toBe(
@@ -172,49 +196,63 @@ describe("payout workbooks", () => {
     expect(zomato.ok).toBe(true);
     if (!zomato.ok) return;
     const facts = factsOf(zomato.payout);
+    const onSettlementDay = facts.orders.filter((order) => order.settlementDate === "2026-11-04");
     const settled = readPayoutWindow({
       platform: "zomato",
       basis: "settlement_date",
-      from: "2026-11-11",
-      to: "2026-11-12",
+      from: "2026-11-04",
+      to: "2026-11-05",
       ...facts,
     });
-    expect(value(settled.values, "net_payout_paise")).toBe(6930);
-    expect(value(settled.values, "platform_net_payout_paise")).toBe(8931);
-    expect(value(settled.values, "unique_customers")).toBe(2);
-    expect(settled.gap).toEqual({
-      settledFromEarlierPaise: 8330,
+    const adjustmentTotal = facts.adjustments.reduce((total, row) => total + row.amountPaise, 0);
+    expect(value(settled.values, "net_payout_paise")).toBe(
+      onSettlementDay.reduce((total, order) => total + order.netPayoutPaise, 0) - adjustmentTotal,
+    );
+    expect(value(settled.values, "platform_net_payout_paise")).toBe(ZOMATO_NET);
+    expect(value(settled.values, "paid_amount_paise")).toBe(ZOMATO_PAID);
+    expect(value(settled.values, "unique_customers")).toBeGreaterThan(1);
+    expect(settled.gap).toMatchObject({
+      settledFromEarlierPaise: onSettlementDay.reduce(
+        (total, order) => total + order.netPayoutPaise,
+        0,
+      ),
       notYetSettledPaise: 0,
-      adjustmentsPaise: 1400,
+      adjustmentsPaise: adjustmentTotal,
     });
-    expect(settled.provisional).toBe(true);
+    expect(settled.provisional).toBe(false);
 
     const ordered = readPayoutWindow({
-      platform: "zomato",
-      basis: "order_date",
-      from: "2026-11-02",
-      to: "2026-11-09",
-      ...facts,
-    });
-    expect(value(ordered.values, "net_payout_paise")).toBe(10331);
-    expect(value(ordered.values, "ad_spend_paise")).toBe(1000);
-    expect(ordered.gap).toMatchObject({ notYetSettledPaise: 2001, adjustmentsPaise: 1000 });
-
-    const prior = readPayoutWindow({
       platform: "zomato",
       basis: "order_date",
       from: "2026-10-26",
       to: "2026-11-02",
       ...facts,
     });
-    expect(prior.gap.adjustmentsPaise).toBe(400);
+    expect(value(ordered.values, "net_payout_paise")).toBe(
+      facts.orders.reduce((total, order) => total + order.netPayoutPaise, 0),
+    );
+    expect(value(ordered.values, "ad_spend_paise")).toBe(240000);
+    expect(value(ordered.values, "paid_amount_paise")).toBeNull();
+    expect(ordered.values.find((row) => row.key === "paid_amount_paise")?.reason).toBe(
+      "The platform's cycle total is a settlement figure.",
+    );
+    expect(ordered.gap).toMatchObject({ notYetSettledPaise: 0, adjustmentsPaise: 240000 });
+
+    const prior = readPayoutWindow({
+      platform: "zomato",
+      basis: "order_date",
+      from: "2026-10-19",
+      to: "2026-10-26",
+      ...facts,
+    });
+    expect(prior.gap.adjustmentsPaise).toBe(35000);
     expect(value(prior.values, "net_payout_paise")).toBe(0);
 
     const priorSettlement = readPayoutWindow({
       platform: "zomato",
       basis: "settlement_date",
-      from: "2026-10-26",
-      to: "2026-11-02",
+      from: "2026-10-19",
+      to: "2026-10-26",
       ...facts,
     });
     expect(priorSettlement.gap.adjustmentsPaise).toBe(0);
@@ -223,14 +261,14 @@ describe("payout workbooks", () => {
       [],
       {
         platform: "zomato",
-        from: "2026-11-11",
-        to: "2026-11-12",
+        from: "2026-11-04",
+        to: "2026-11-05",
         today: "2026-12-01",
         basis: "settlement_date",
       },
       facts,
     );
-    expect(rollup.gap?.adjustmentsPaise).toBe(1400);
+    expect(rollup.gap?.adjustmentsPaise).toBe(adjustmentTotal);
     expect(rollup.values.find((row) => row.key === "delivered_orders")?.reason).toBe(
       "This figure is not part of the settlement-date payout.",
     );
@@ -238,8 +276,8 @@ describe("payout workbooks", () => {
       [],
       {
         platform: "swiggy",
-        from: "2026-11-11",
-        to: "2026-11-12",
+        from: "2026-11-04",
+        to: "2026-11-05",
         today: "2026-12-01",
         basis: "settlement_date",
       },
@@ -250,18 +288,18 @@ describe("payout workbooks", () => {
     );
   });
 
-  it("redacts the full UTR and the phone number before the file is kept", async () => {
+  it("redacts the full UTR, PAN, and customer id before the file is kept", async () => {
     const original = await fixture("zomato-900002.xlsx");
     const redacted = await redactPayoutWorkbook(original);
     const dir = await mkdtemp(join(tmpdir(), "payout-redact-"));
     const path = join(dir, "redacted.xlsx");
     await writeFile(path, redacted);
     const text = execFileSync("unzip", ["-p", path]).toString("utf8");
-    expect(text).not.toContain(FULL_ZOMATO_UTR);
-    expect(text).not.toContain(PHONE);
-    expect(text).not.toContain("CUSTA");
-    expect(text).not.toContain("CUSTB");
-    expect(text).toContain("ABCD");
+    expect(text).not.toContain(ZOMATO_UTR);
+    expect(text).not.toContain(LATER_UTR);
+    expect(text).not.toContain(CUSTOMER_ID);
+    expect(text).not.toContain(PAN);
+    expect(text).toContain("0201");
     expect(text).toContain("900002");
   });
 
@@ -296,28 +334,34 @@ describe("payout workbooks", () => {
   it("keeps the other platform's business total beside a payout day", async () => {
     const parsed = await parsePayoutWorkbook(await fixture("zomato-900002.xlsx"), "zomato", SALT);
     if (!parsed.ok) throw new Error(parsed.reason);
+    const dayGross = parsed.payout.orders
+      .filter((order) => order.orderDate === "2026-10-26")
+      .reduce((total, order) => total + order.grossSalesPaise, 0);
+    expect(dayGross).toBeGreaterThan(0);
     const rollup = rollupMetrics(
       [
         {
           key: "gross_sales_paise",
           platform: "swiggy",
           granularity: "day",
-          periodStart: "2026-11-02",
-          periodEnd: "2026-11-03",
+          periodStart: "2026-10-26",
+          periodEnd: "2026-10-27",
           value: 5000,
           rowRole: "fact",
         },
       ],
       {
         platform: "combined",
-        from: "2026-11-02",
-        to: "2026-11-03",
+        from: "2026-10-26",
+        to: "2026-10-27",
         today: "2026-12-01",
         basis: "order_date",
       },
       factsOf(parsed.payout),
     );
-    expect(rollup.values.find((row) => row.key === "gross_sales_paise")?.value).toBe(16000);
+    expect(rollup.values.find((row) => row.key === "gross_sales_paise")?.value).toBe(
+      5000 + dayGross,
+    );
   });
 });
 
@@ -325,15 +369,15 @@ function hash(id: string): string {
   return createHmac("sha256", SALT).update(id).digest("hex");
 }
 
-function expected(platform: "zomato" | "swiggy", restaurantId: string) {
+function expected(platform: "zomato" | "swiggy", restaurantId: string, name = "Test Kitchen") {
   return {
     platform,
     report: "payout" as const,
     restaurantId,
-    name: "Test Kitchen",
+    name,
     city: "Testcity",
-    periodStart: platform === "swiggy" ? "2026-11-01" : "2026-11-02",
-    periodEnd: platform === "swiggy" ? "2026-11-08" : "2026-11-09",
+    periodStart: platform === "swiggy" ? "2026-10-25" : "2026-10-26",
+    periodEnd: platform === "swiggy" ? "2026-11-01" : "2026-11-02",
   };
 }
 
