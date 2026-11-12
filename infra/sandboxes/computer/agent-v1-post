@@ -80,18 +80,24 @@ def now():
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def paise(value):
-    """Rupees to non-negative integer paise. Blank is missing, not zero."""
+def paise(value, label="amount"):
+    """Rupees to non-negative integer paise. Blank is missing, not zero.
+
+    A negative calculator figure is refused. The metric API only stores
+    non-negative paise, and flipping the sign would record a loss as a payout.
+    """
     if value is None:
         return None
     text = str(value).replace(",", "").strip()
     if text == "":
         return None
     try:
-        amount = abs(Decimal(text)) * 100
+        rupees = Decimal(text)
     except InvalidOperation as error:
         raise ValueError(f"Not a money amount: {text[:40]}") from error
-    return int(amount.quantize(Decimal("1"), ROUND_HALF_UP))
+    if rupees < 0:
+        raise ValueError(f"{label} is negative ({text[:40]}). Nothing sent.")
+    return int((rupees * 100).quantize(Decimal("1"), ROUND_HALF_UP))
 
 
 def count_value(value):
@@ -135,12 +141,12 @@ def metric_values(result, screen):
     values = {}
     for key, label, kind in CALCULATOR_ROWS:
         raw = rows_in.get(label)
-        values[key] = count_value(raw) if kind == "count" else paise(raw)
-    values["platform_net_payout_paise"] = paise(result.get("platform_net"))
+        values[key] = count_value(raw) if kind == "count" else paise(raw, label)
+    values["platform_net_payout_paise"] = paise(result.get("platform_net"), "platform net")
     paid = result.get("paid_amount")
     if paid in (None, ""):
         paid = (screen or {}).get("paid_amount")
-    values["paid_amount_paise"] = paise(paid)
+    values["paid_amount_paise"] = paise(paid, "paid amount")
     return values
 
 
@@ -247,6 +253,8 @@ def main(argv=None):
         with open(args.screen, encoding="utf-8") as handle:
             screen = json.load(handle)
     try:
+        # Refuse a signed amount before any request, so a loss is not stored.
+        metric_values(result, screen)
         outlet_id = outlet_for(args.platform, result["outlet_id"])
         metrics, period_start, period_end = metrics_body(
             args.run_id, args.platform, outlet_id, result, screen, now()

@@ -20,7 +20,11 @@ class AgentV1PostTest(unittest.TestCase):
         self.assertEqual(agent.paise("1,23,456.78"), 12345678)
         self.assertEqual(agent.paise("10.005"), 1001)
         self.assertEqual(agent.paise("0.004"), 0)
-        self.assertEqual(agent.paise("-12.34"), 1234)
+        self.assertEqual(agent.paise("-0.00"), 0)
+        with self.assertRaises(ValueError) as raised:
+            agent.paise("-40.00", "Net Payout")
+        self.assertIn("Nothing sent", str(raised.exception))
+        self.assertNotIn("4000", str(raised.exception))
 
     def test_outlet_match_is_one_platform_id(self):
         outlets = [
@@ -71,6 +75,25 @@ class AgentV1PostTest(unittest.TestCase):
         self.assertNotIn("startedAt", failed)
         self.assertEqual(finished["status"], "succeeded")
         self.assertEqual(failed["skill"], "payout-swiggy")
+
+    def test_negative_net_payout_is_not_stored_as_a_credit(self):
+        result = {
+            "rows": {
+                "Orders": "1",
+                "ST+PC": "100",
+                "Merchant Discount Burn": "0",
+                "CV": "100",
+                "Ads": "120",
+                "Comm.+PG+GST": "20",
+                "Net Payout": "-40.00",
+            }
+        }
+        with self.assertRaises(ValueError) as raised:
+            agent.metric_values(result, {})
+        message = str(raised.exception)
+        self.assertIn("Net Payout", message)
+        self.assertIn("Nothing sent", message)
+        self.assertNotIn("4000", message)
 
     def test_printed_errors_drop_the_token(self):
         previous = agent.TOKEN
