@@ -23,6 +23,9 @@ export function swiggyWorkbookCsv(bytes: Uint8Array): string | null {
   try {
     const entries = readZip(Buffer.from(bytes));
     if (!entries) return null;
+    for (const part of entries.values()) {
+      if (rejectXml(part.toString("utf8"))) return null;
+    }
     const sheetPath = firstSheetPath(entries);
     const sheet = sheetPath ? entries.get(sheetPath) : undefined;
     if (!sheet) return null;
@@ -101,7 +104,57 @@ function escapeXml(value: string): string {
 }
 
 function rejectXml(xml: string): boolean {
-  return xml.includes("<!DOCTYPE") || xml.includes("<!ENTITY");
+  return /<!DOCTYPE|<!ENTITY/i.test(xml);
+}
+
+function nextTag(xml: string, name: string, from: number): number {
+  const token = `<${name}`;
+  let index = from;
+  while (index < xml.length) {
+    const found = xml.indexOf(token, index);
+    if (found < 0) return -1;
+    const boundary = xml.charCodeAt(found + token.length);
+    if (
+      boundary === 62 ||
+      boundary === 47 ||
+      boundary === 32 ||
+      boundary === 9 ||
+      boundary === 10 ||
+      boundary === 13
+    ) {
+      return found;
+    }
+    index = found + token.length;
+  }
+  return -1;
+}
+
+/** One forward scan. An unclosed tag rejects the part instead of rescanning the suffix. */
+function readElements(
+  xml: string,
+  name: string,
+  onElement: (attrs: string, body: string) => boolean,
+): boolean {
+  const closeToken = `</${name}>`;
+  let cursor = 0;
+  while (cursor < xml.length) {
+    const start = nextTag(xml, name, cursor);
+    if (start < 0) return true;
+    const openEnd = xml.indexOf(">", start);
+    if (openEnd < 0) return false;
+    const selfClosing = xml[openEnd - 1] === "/";
+    const attrs = xml.slice(start + name.length + 1, selfClosing ? openEnd - 1 : openEnd);
+    if (selfClosing) {
+      if (!onElement(attrs, "")) return false;
+      cursor = openEnd + 1;
+      continue;
+    }
+    const close = xml.indexOf(closeToken, openEnd + 1);
+    if (close < 0) return false;
+    if (!onElement(attrs, xml.slice(openEnd + 1, close))) return false;
+    cursor = close + closeToken.length;
+  }
+  return true;
 }
 
 function decodeXml(text: string): string | null {
@@ -130,26 +183,48 @@ function decodeXml(text: string): string | null {
 
 function textNodes(xml: string): string | null {
   let text = "";
-  for (const match of xml.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)) {
-    const decoded = decodeXml(match[1] ?? "");
-    if (decoded === null) return null;
+  let failed = false;
+  const ok = readElements(xml, "t", (_attrs, body) => {
+    const decoded = decodeXml(body);
+    if (decoded === null) {
+      failed = true;
+      return false;
+    }
     text += decoded;
+    return true;
+  });
+  return ok && !failed ? text : null;
+}
+
+function withoutPhonetic(xml: string): string | null {
+  let out = "";
+  let cursor = 0;
+  while (cursor < xml.length) {
+    const start = nextTag(xml, "rPh", cursor);
+    if (start < 0) return out + xml.slice(cursor);
+    out += xml.slice(cursor, start);
+    const close = xml.indexOf("</rPh>", start);
+    if (close < 0) return null;
+    cursor = close + "</rPh>".length;
   }
-  return text;
+  return out;
 }
 
 function sharedStrings(xml: string): string[] | null {
   if (rejectXml(xml)) return null;
-  const cleaned = xml
-    .replace(/<rPh\b[^>]*>[\s\S]*?<\/rPh>/g, "")
-    .replace(/<phoneticPr\b[^>]*\/>/g, "");
   const strings: string[] = [];
-  for (const match of cleaned.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)) {
-    const text = textNodes(match[1] ?? "");
-    if (text === null) return null;
+  let failed = false;
+  const ok = readElements(xml, "si", (_attrs, body) => {
+    const cleaned = withoutPhonetic(body);
+    const text = cleaned === null ? null : textNodes(cleaned);
+    if (text === null) {
+      failed = true;
+      return false;
+    }
     strings.push(text);
-  }
-  return strings;
+    return true;
+  });
+  return ok && !failed ? strings : null;
 }
 
 function cellValue(attrs: string, body: string, strings: readonly string[]): string | null {
@@ -173,35 +248,50 @@ function sheetTable(xml: string, strings: readonly string[]): string[][] | null 
   if (rejectXml(xml)) return null;
   const table: string[][] = [];
   let cellsSeen = 0;
-  for (const rowMatch of xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
+  let failed = false;
+  const ok = readElements(xml, "row", (_attrs, body) => {
     const cells = new Map<number, string>();
     let max = -1;
     let next = 0;
-    const body = rowMatch[1] ?? "";
-    for (const cell of body.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+    const cellsOk = readElements(body, "c", (attrs, inner) => {
       cellsSeen += 1;
-      if (cellsSeen > MAX_CELLS) return null;
-      const attrs = cell[1] ?? "";
+      if (cellsSeen > MAX_CELLS) {
+        failed = true;
+        return false;
+      }
       const ref = /\br="([A-Z]+)\d+"/.exec(attrs)?.[1];
       const column = ref ? columnIndex(ref) : next;
       next = column + 1;
-      if (column < 0 || column >= MAX_COLUMNS) return null;
-      const value = cellValue(attrs, cell[2] ?? "", strings);
-      if (value === null) return null;
+      if (column < 0 || column >= MAX_COLUMNS) {
+        failed = true;
+        return false;
+      }
+      const value = cellValue(attrs, inner, strings);
+      if (value === null) {
+        failed = true;
+        return false;
+      }
       cells.set(column, value);
       if (column > max) max = column;
-    }
-    if (max < 0) continue;
+      return true;
+    });
+    if (!cellsOk || failed) return false;
+    if (max < 0) return true;
     table.push(Array.from({ length: max + 1 }, (_unused, index) => cells.get(index) ?? ""));
-    if (table.length > MAX_ROWS) return null;
-  }
-  return table;
+    if (table.length > MAX_ROWS) {
+      failed = true;
+      return false;
+    }
+    return true;
+  });
+  return ok && !failed ? table : null;
 }
 
 function firstSheetPath(entries: Map<string, Buffer>): string | null {
   const workbook = entries.get("xl/workbook.xml")?.toString("utf8");
   const rels = entries.get("xl/_rels/workbook.xml.rels")?.toString("utf8");
-  if (!workbook || !rels || rejectXml(workbook) || rejectXml(rels)) {
+  if ((workbook && rejectXml(workbook)) || (rels && rejectXml(rels))) return null;
+  if (!workbook || !rels) {
     return entries.has("xl/worksheets/sheet1.xml") ? "xl/worksheets/sheet1.xml" : null;
   }
   const id = /<sheet\b[^>]*\br:id="([^"]+)"/.exec(workbook)?.[1];
@@ -250,31 +340,32 @@ function readZip(bytes: Buffer): Map<string, Buffer> | null {
     if ((flags & 0x1) !== 0 || nameLength === 0 || nameLength > 512) return null;
     if (offset + 46 + nameLength > bytes.length) return null;
     const name = bytes.subarray(offset + 46, offset + 46 + nameLength).toString("utf8");
-    if (name.includes("..") || name.startsWith("/") || name.includes("\\")) return null;
-    if (isWorkbookPart(name)) {
-      if (
-        uncompressedSize === 0 ||
-        uncompressedSize > MAX_ENTRY_BYTES ||
-        total + uncompressedSize > MAX_UNCOMPRESSED_BYTES ||
-        (method !== 0 && method !== 8)
-      ) {
-        return null;
-      }
-      if (localOffset + 30 > bytes.length) return null;
-      const localNameLength = bytes.readUInt16LE(localOffset + 26);
-      const localExtraLength = bytes.readUInt16LE(localOffset + 28);
-      const dataOffset = localOffset + 30 + localNameLength + localExtraLength;
-      if (dataOffset < 0 || dataOffset + compressedSize > bytes.length) return null;
-      const compressed = bytes.subarray(dataOffset, dataOffset + compressedSize);
-      const data =
-        method === 0
-          ? Buffer.from(compressed)
-          : inflateRawSync(compressed, { maxOutputLength: uncompressedSize });
-      if (data.length !== uncompressedSize) return null;
-      total += data.length;
-      entries.set(name, data);
-    }
     offset += 46 + nameLength + extraLength + commentLength;
+    const slipped =
+      name.includes("..") || name.startsWith("/") || name.includes("\\") || name.includes("\0");
+    if (slipped || !isWorkbookPart(name)) continue;
+    if (
+      uncompressedSize === 0 ||
+      uncompressedSize > MAX_ENTRY_BYTES ||
+      total + uncompressedSize > MAX_UNCOMPRESSED_BYTES ||
+      (method !== 0 && method !== 8)
+    ) {
+      return null;
+    }
+    if (localOffset + 30 > bytes.length) return null;
+    const localNameLength = bytes.readUInt16LE(localOffset + 26);
+    const localExtraLength = bytes.readUInt16LE(localOffset + 28);
+    const dataOffset = localOffset + 30 + localNameLength + localExtraLength;
+    if (dataOffset < 0 || dataOffset + compressedSize > bytes.length) return null;
+    const compressed = bytes.subarray(dataOffset, dataOffset + compressedSize);
+    const data =
+      method === 0
+        ? Buffer.from(compressed)
+        : inflateRawSync(compressed, { maxOutputLength: uncompressedSize });
+    if (data.length !== uncompressedSize || data.length > MAX_ENTRY_BYTES) return null;
+    total += data.length;
+    if (total > MAX_UNCOMPRESSED_BYTES) return null;
+    entries.set(name, data);
   }
   return entries;
 }
