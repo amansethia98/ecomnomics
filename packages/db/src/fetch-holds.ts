@@ -7,9 +7,6 @@ import { RestaurantAgentError } from "./restaurant-agent.js";
 const WINDOW_MS = 24 * 60 * 60 * 1000;
 export const FETCH_HOLD_REASON = "identity_mismatch";
 
-/** Statuses that count. Parse failures and other errors do not. */
-const COUNTED_STATUSES = ["rejected_mismatch", "local_mismatch"] as const;
-
 /**
  * Refuses a report upload while this outlet and platform are held.
  * The caller has not stored the file yet.
@@ -41,7 +38,10 @@ export async function assertFetchOpen(
 /**
  * Counts identity mismatches for this outlet and platform over the last 24
  * hours, including the row just written. The client's attempt number is not
- * an input. The third one opens a hold that stays until it is cleared.
+ * an input. A rejected_mismatch row counts only when this release marked it
+ * as an identity mismatch, so a parse failure stored by the previous release
+ * does not. A local_mismatch log counts. The third one opens a hold that
+ * stays until it is cleared.
  */
 export async function noteIdentityMismatch(
   db: PrismaClient,
@@ -57,7 +57,7 @@ export async function noteIdentityMismatch(
       outletId,
       platform,
       createdAt: { gte: since },
-      status: { in: [...COUNTED_STATUSES] },
+      OR: [{ status: "rejected_mismatch", identityMismatch: true }, { status: "local_mismatch" }],
     },
   });
   if (count < FILE_IDENTITY_ATTEMPT_LIMIT) return;

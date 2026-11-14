@@ -2865,8 +2865,8 @@ model MetricFetch {
   reportKind            String
   /// stored, skipped, rejected_mismatch, needs_owner, parse_failed, or a log
   /// with no file: signed_out, download_failed, ui_changed, local_mismatch,
-  /// missing_platform_id. Only rejected_mismatch and local_mismatch count
-  /// toward the hold.
+  /// missing_platform_id. A hold counts local_mismatch, and rejected_mismatch
+  /// only when identityMismatch is true.
   status                String
   requestedRestaurantId String?
   requestedName         String?
@@ -2884,6 +2884,9 @@ model MetricFetch {
   /// Hash of the raw downloaded bytes, when the agent sends one.
   rawSha256             String?
   attemptCount          Int
+  /// True only when this release recorded an identity mismatch. Older
+  /// rejected_mismatch rows, including parse failures, stay null and do not count.
+  identityMismatch      Boolean?
   source                String
   parserVersion         String
   reason                String?   @db.Text

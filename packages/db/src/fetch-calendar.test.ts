@@ -279,6 +279,20 @@ describe("fetch calendar", () => {
     expect(swiggy?.windows.length).toBeGreaterThan(0);
   });
 
+  it("does not spend the nightly backfill budget on a held platform", () => {
+    const date = "2026-10-05";
+    const horizon = addIsoDays(date, -90);
+    const dailyStart = addIsoDays(date, -7);
+    const openDays = daysBetween(horizon, dailyStart).length;
+    const held = plan({ date, held: new Set<"zomato" | "swiggy">(["zomato"]) });
+    const backfillDays = (platform: "zomato" | "swiggy") =>
+      of(held, platform, "daily")
+        .filter((window) => window.reasons.includes("backfill"))
+        .flatMap((window) => daysBetween(window.periodStart, window.periodEnd));
+    expect(backfillDays("zomato")).toEqual([]);
+    expect(backfillDays("swiggy")).toHaveLength(openDays);
+  });
+
   it("backfills gaps in chunks and stops at 90 days across both platforms", () => {
     const date = "2026-10-05";
     const horizon = addIsoDays(date, -90);

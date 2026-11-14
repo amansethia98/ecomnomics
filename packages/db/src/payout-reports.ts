@@ -118,6 +118,7 @@ export async function ingestPayoutReport(
         attempt: input.attempt ?? 1,
         reason: identity.reject,
         observed: parsed.payout.observed,
+        identityMismatch: true,
       }),
     });
     await noteIdentityMismatch(db, scope, input.outletId, input.platform);
@@ -498,6 +499,7 @@ function fetchData(
     } | null;
     capturedAt: Date;
     parserVersion: string;
+    identityMismatch?: boolean;
   },
 ) {
   const first = details.observed?.periods[0];
@@ -523,6 +525,7 @@ function fetchData(
     sha256: details.digest,
     rawSha256: input.rawSha256 ?? null,
     attemptCount: details.attempt,
+    identityMismatch: details.identityMismatch ?? null,
     source: input.source,
     parserVersion: details.parserVersion,
     reason: details.reason,

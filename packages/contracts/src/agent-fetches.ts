@@ -19,7 +19,9 @@ import { SWIGGY_DAILY_MAX_DAYS } from "./metric-dictionary.js";
  * night across both platforms.
  *
  * Identity mismatches are counted per outlet and platform over a rolling 24
- * hours. The count is `rejected_mismatch` plus log rows with `local_mismatch`.
+ * hours. The count is `rejected_mismatch` rows this release marked as identity
+ * mismatches, plus log rows with `local_mismatch`. Older `rejected_mismatch`
+ * rows are not counted.
  * A client-sent `attempt` is ignored. The third mismatch holds that outlet
  * and platform until a platform admin clears it. A held platform has no windows.
  */

@@ -104,6 +104,7 @@ export async function ingestBusinessReport(
         requestedEnd,
         observed,
         capturedAt,
+        identityMismatch: evaluation.identity,
       }),
     });
     if (evaluation.identity) {
@@ -397,6 +398,7 @@ function fetchData(
       periods: Array<{ start: string; end: string; label: string }>;
     } | null;
     capturedAt: Date;
+    identityMismatch?: boolean;
   },
 ) {
   const first = details.observed?.periods[0];
@@ -422,6 +424,7 @@ function fetchData(
     sha256: details.digest,
     rawSha256: input.rawSha256 ?? null,
     attemptCount: details.attempt,
+    identityMismatch: details.identityMismatch ?? null,
     source: input.source,
     parserVersion: METRIC_PARSER_VERSION,
     reason: details.reason,

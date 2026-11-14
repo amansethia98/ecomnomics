@@ -1593,6 +1593,7 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
             requestedPeriodEnd: new Date("2026-08-02T00:00:00.000Z"),
             sha256: `${index + 1}`.repeat(64).slice(0, 64),
             attemptCount: 1,
+            identityMismatch: true,
             source: "export",
             parserVersion: "2026-11-12.1",
             runId: `aged-${suffix}-${index}`,
@@ -1617,6 +1618,50 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
     });
     expect(live.status).toBe(422);
     expect(await live.json()).toMatchObject({ status: "rejected_mismatch" });
+    expect(await holdState(tokenA, outlet.id, "zomato")).toMatchObject({ held: false });
+  });
+
+  it("does not count rejected rows the previous release did not mark as identity mismatches", async () => {
+    const outlet = await createOutlet(ownerDb, await restaurantA(), {
+      name: "Test Kitchen",
+      city: "Testcity",
+      zomatoResId: "900002",
+    });
+    const restaurantId = await restaurantA();
+    await runAsSystem("unmarked rejections", () =>
+      ownerDb.metricFetch.createMany({
+        data: [0, 1].map((index) => ({
+          restaurantId,
+          spaceId: spaceA,
+          outletId: outlet.id,
+          platform: "zomato",
+          reportKind: "daily",
+          status: "rejected_mismatch",
+          requestedPeriodStart: new Date("2026-08-01T00:00:00.000Z"),
+          requestedPeriodEnd: new Date("2026-08-02T00:00:00.000Z"),
+          sha256: `${index + 3}`.repeat(64).slice(0, 64),
+          attemptCount: 1,
+          source: "export",
+          parserVersion: "2026-11-12.1",
+          reason: "The file could not be read.",
+          runId: `legacy-${suffix}-${index}`,
+          capturedAt: new Date(),
+        })),
+      }),
+    );
+    const csv = await sampleCsv();
+    const live = await call("POST", "/agent/v1/metric-reports", tokenA, {
+      outletId: outlet.id,
+      platform: "zomato",
+      report: "daily",
+      periodStart: "2026-09-01",
+      periodEnd: "2026-09-08",
+      csv,
+      runId: `legacy-live-${suffix}`,
+      source: "export",
+      capturedAt: "2026-11-12T05:00:00.000Z",
+    });
+    expect(live.status).toBe(422);
     expect(await holdState(tokenA, outlet.id, "zomato")).toMatchObject({ held: false });
   });
 

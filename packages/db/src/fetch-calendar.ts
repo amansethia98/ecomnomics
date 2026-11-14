@@ -57,9 +57,10 @@ interface Span {
 /** The windows a fetch job should download for one outlet on one civil date. */
 export function buildFetchPlan(input: FetchPlanFacts): FetchPlanResponse {
   const ids = { zomato: cleanId(input.zomatoResId), swiggy: cleanId(input.swiggyRid) };
+  const open = (platform: Platform) => Boolean(ids[platform]) && !input.held?.has(platform);
   const backfill = chunkBackfill(
-    ids.zomato ? missingDays(input, "zomato") : [],
-    ids.swiggy ? missingDays(input, "swiggy") : [],
+    open("zomato") ? missingDays(input, "zomato") : [],
+    open("swiggy") ? missingDays(input, "swiggy") : [],
   );
   return {
     date: input.date,
