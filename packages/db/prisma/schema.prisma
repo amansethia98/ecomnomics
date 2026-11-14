@@ -3046,7 +3046,8 @@ model PayoutAdjustment {
   platform     String
   cycleId      String
   type         String
-  /// Empty when the file has no invoice or campaign id. Part of the current-row key.
+  /// The file's invoice or campaign id. When that cell is blank, a stable sheet-and-row
+  /// key so two rows of the same type can both stay current. Part of the current-row key.
   invoiceId    String      @default("") @map("invoice_id")
   periodFrom   DateTime
   periodTo     DateTime
