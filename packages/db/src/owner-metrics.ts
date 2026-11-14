@@ -4,12 +4,26 @@ import { getLogger } from "@rakazo/logging";
 import type { PrismaClient } from "./client.js";
 import { Prisma } from "./generated/prisma/client.js";
 import type { OwnerCycleFact, OwnerOrderFact } from "./owner-metrics-assemble.js";
-import { assembleOwnerMetrics, ownerMetricLoadKeys } from "./owner-metrics-assemble.js";
+import {
+  assembleOwnerMetrics,
+  fetchCoverageSpans,
+  ownerMetricLoadKeys,
+} from "./owner-metrics-assemble.js";
 import type { RestaurantScope } from "./restaurant-agent.js";
 import { RestaurantAgentError } from "./restaurant-agent.js";
 import { runAsSystem, runAsTenant } from "./row-security.js";
 
 const PLATFORMS = ["zomato", "swiggy"] as const;
+const MISSING_PERIOD = /^(\d{4}-\d{2}-\d{2})\/(\d{4}-\d{2}-\d{2})$/;
+
+function parseMissingPeriods(encoded: string | null): Array<{ start: string; end: string }> {
+  if (!encoded) return [];
+  return encoded.split(",").flatMap((part) => {
+    const match = MISSING_PERIOD.exec(part);
+    if (!match?.[1] || !match[2]) return [];
+    return [{ start: match[1], end: match[2] }];
+  });
+}
 
 /**
  * Confirms the user is a member of the restaurant's space, then reads inside
@@ -108,6 +122,7 @@ export async function readOwnerMetrics(
         status: true,
         requestedPeriodStart: true,
         requestedPeriodEnd: true,
+        missingPeriods: true,
       },
     }),
     db.payoutOrder.findMany({
@@ -189,15 +204,16 @@ export async function readOwnerMetrics(
     }),
     fetches: fetches.flatMap((row) => {
       if (!isPlatform(row.platform)) return [];
-      return [
-        {
-          outletId: row.outletId,
-          platform: row.platform,
-          status: row.status,
-          from: indiaCivilDate(row.requestedPeriodStart),
-          to: indiaCivilDate(row.requestedPeriodEnd),
-        },
-      ];
+      const platform = row.platform;
+      const from = indiaCivilDate(row.requestedPeriodStart);
+      const to = indiaCivilDate(row.requestedPeriodEnd);
+      return fetchCoverageSpans(from, to, parseMissingPeriods(row.missingPeriods)).map((span) => ({
+        outletId: row.outletId,
+        platform,
+        status: row.status,
+        from: span.from,
+        to: span.to,
+      }));
     }),
     history: history.flatMap((row) => {
       if (!isPlatform(row.platform)) return [];

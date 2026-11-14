@@ -190,6 +190,7 @@ export async function ingestBusinessReport(
         requestedEnd,
         observed,
         capturedAt,
+        missingPeriods: evaluation.missingPeriods,
       }),
     });
     const existing = await tx.metricValue.findMany({
@@ -399,6 +400,7 @@ function fetchData(
     } | null;
     capturedAt: Date;
     identityMismatch?: boolean;
+    missingPeriods?: Array<{ start: string; end: string }>;
   },
 ) {
   const first = details.observed?.periods[0];
@@ -425,6 +427,9 @@ function fetchData(
     rawSha256: input.rawSha256 ?? null,
     attemptCount: details.attempt,
     identityMismatch: details.identityMismatch ?? null,
+    missingPeriods: details.missingPeriods?.length
+      ? details.missingPeriods.map((period) => `${period.start}/${period.end}`).join(",")
+      : null,
     source: input.source,
     parserVersion: METRIC_PARSER_VERSION,
     reason: details.reason,

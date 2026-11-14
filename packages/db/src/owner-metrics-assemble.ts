@@ -272,6 +272,26 @@ function resolveOutlets(
   });
 }
 
+/** Splits a stored fetch around periods the file did not contain. */
+export function fetchCoverageSpans(
+  from: string,
+  to: string,
+  gaps: readonly { start: string; end: string }[],
+): Array<{ from: string; to: string }> {
+  const spans: Array<{ from: string; to: string }> = [];
+  let cursor = from;
+  const ordered = [...gaps].sort((left, right) => left.start.localeCompare(right.start));
+  for (const gap of ordered) {
+    const start = gap.start < from ? from : gap.start;
+    const end = gap.end > to ? to : gap.end;
+    if (end <= cursor) continue;
+    if (start > cursor) spans.push({ from: cursor, to: start });
+    cursor = end;
+  }
+  if (cursor < to) spans.push({ from: cursor, to });
+  return spans;
+}
+
 /** Days that already have a stored figure, a stored fetch, or a payout order. */
 export function coveredCivilDays(
   input: {

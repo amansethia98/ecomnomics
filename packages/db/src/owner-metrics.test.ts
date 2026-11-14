@@ -5,7 +5,11 @@ import type {
   OwnerMetricsInput,
   OwnerOrderFact,
 } from "./owner-metrics-assemble.js";
-import { assembleOwnerMetrics, spreadShares } from "./owner-metrics-assemble.js";
+import {
+  assembleOwnerMetrics,
+  fetchCoverageSpans,
+  spreadShares,
+} from "./owner-metrics-assemble.js";
 
 const north = { id: "outlet-north", name: "North" };
 const south = { id: "outlet-south", name: "South" };
@@ -245,6 +249,56 @@ describe("owner metrics read", () => {
     });
     expect(lagged.lagBanner).toBe(true);
     expect(lagged.values[0]?.provisional).toBe(true);
+  });
+
+  it("reports a missing business-report period as uncovered", () => {
+    const spans = fetchCoverageSpans("2026-10-01", "2026-10-04", [
+      { start: "2026-10-02", end: "2026-10-03" },
+    ]);
+    expect(spans).toEqual([
+      { from: "2026-10-01", to: "2026-10-02" },
+      { from: "2026-10-03", to: "2026-10-04" },
+    ]);
+    const result = read({
+      query: query({ keys: ["delivered_orders"], from: "2026-10-01", to: "2026-10-04" }),
+      facts: [
+        {
+          outletId: north.id,
+          platform: "zomato",
+          key: "delivered_orders",
+          date: "2026-10-01",
+          value: 16,
+          valueBoolean: null,
+          granularity: "day",
+          periodEnd: "2026-10-02",
+        },
+        {
+          outletId: north.id,
+          platform: "zomato",
+          key: "delivered_orders",
+          date: "2026-10-03",
+          value: 24,
+          valueBoolean: null,
+          granularity: "day",
+          periodEnd: "2026-10-04",
+        },
+      ],
+      fetches: spans.map((span) => ({
+        outletId: north.id,
+        platform: "zomato" as const,
+        status: "stored",
+        from: span.from,
+        to: span.to,
+      })),
+    });
+    expect(result.values[0]).toMatchObject({
+      value: 40,
+      coverageDays: 2,
+      expectedDays: 3,
+      missingDates: ["2026-10-02"],
+    });
+    expect(result.outlets[0]?.partialDates).toEqual(["2026-10-02"]);
+    expect(result.note).toContain("North has no data on 2026-10-02");
   });
 
   it("counts a fetch gap as missing and does not turn it into zero", () => {

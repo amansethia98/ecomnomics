@@ -136,6 +136,84 @@ describe("business report parser", () => {
     expect(rowValue(parsed.rows, "swiggy_gmv_paise", "2026-11-03")?.value).toBe(100_000);
   });
 
+  it("stores a missing day as a gap and rejects a day that was not requested", () => {
+    const zomato = (columns: string, values: string) =>
+      [
+        `Restaurant ID,Restaurant name,Subzone,City,Overview,Metric,${columns}`,
+        `900002,Test Kitchen,Testarea,Testcity,Sales,Delivered orders,${values}`,
+      ].join("\n");
+    const requested = {
+      platform: "zomato" as const,
+      report: "daily" as const,
+      restaurantId: "900002",
+      name: "Test Kitchen",
+      city: "Testcity",
+      periodStart: "2026-10-01",
+      periodEnd: "2026-10-04",
+    };
+    const middle = evaluateBusinessReport(
+      zomato('"01 Oct, 2026","03 Oct, 2026"', "16,24"),
+      requested,
+    );
+    expect(middle.ok).toBe(true);
+    if (!middle.ok) return;
+    expect(middle.missingPeriods).toEqual([
+      { start: "2026-10-02", end: "2026-10-03", label: "2026-10-02" },
+    ]);
+    expect(middle.warnings).toContain("The file is missing 2026-10-02.");
+    expect(rowValue(middle.rows, "delivered_orders", "2026-10-01")?.value).toBe(16);
+    expect(rowValue(middle.rows, "delivered_orders", "2026-10-03")?.value).toBe(24);
+    expect(middle.rows.some((row) => row.periodStart === "2026-10-02")).toBe(false);
+
+    const ends = evaluateBusinessReport(zomato('"02 Oct, 2026"', "13"), requested);
+    expect(ends.ok).toBe(true);
+    if (ends.ok) {
+      expect(ends.missingPeriods.map((period) => period.start)).toEqual([
+        "2026-10-01",
+        "2026-10-03",
+      ]);
+      expect(ends.rows.some((row) => row.periodStart !== "2026-10-02")).toBe(false);
+    }
+
+    const extra = evaluateBusinessReport(
+      zomato('"01 Oct, 2026","02 Oct, 2026","04 Oct, 2026"', "16,13,9"),
+      requested,
+    );
+    expect(extra.ok).toBe(false);
+    if (!extra.ok) {
+      expect(extra.identity).toBe(true);
+      expect(extra.reason).toContain("was not requested");
+    }
+
+    const unordered = evaluateBusinessReport(
+      zomato('"03 Oct, 2026","01 Oct, 2026"', "24,16"),
+      requested,
+    );
+    expect(unordered.ok).toBe(false);
+    if (!unordered.ok) expect(unordered.reason).toContain("out of order");
+
+    const none = evaluateBusinessReport(zomato('"10 Oct, 2026"', "4"), requested);
+    expect(none.ok).toBe(false);
+    if (!none.ok) {
+      expect(none.identity).toBe(true);
+      expect(none.reason).toBe("The file has no requested period.");
+    }
+
+    const swiggy = evaluateBusinessReport(
+      [
+        "Restaurant ID,Restaurant name,Area,City,Overview,Metric,2nd Nov 2026,4th Nov 2026",
+        "900001,Test Kitchen,Testarea,Testcity,SALES,Delivered Orders,10,12",
+      ].join("\n"),
+      { ...swiggyDaily, periodEnd: "2026-11-05" },
+    );
+    expect(swiggy.ok).toBe(true);
+    if (!swiggy.ok) return;
+    expect(swiggy.missingPeriods.map((period) => period.start)).toEqual(["2026-11-03"]);
+    expect(swiggy.rows.some((row) => row.periodStart === "2026-11-03")).toBe(false);
+    expect(rowValue(swiggy.rows, "delivered_orders", "2026-11-02")?.value).toBe(10);
+    expect(rowValue(swiggy.rows, "delivered_orders", "2026-11-04")?.value).toBe(12);
+  });
+
   it("rejects a wrong id or shifted dates, and stores a different name or city", () => {
     const csv = fixture("swiggy_daily_sample.csv");
     const wrongId = evaluateBusinessReport(csv, { ...swiggyDaily, restaurantId: "900009" });

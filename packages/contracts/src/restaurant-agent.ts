@@ -83,6 +83,7 @@ export {
 export type {
   ExpectedReportIdentity,
   IdentityAssessment,
+  IdentityMatch,
   ObservedReportIdentity,
   ParsedMetricRow,
   ParsedWindowItem,
