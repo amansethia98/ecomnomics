@@ -1856,6 +1856,44 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
       missingDates: ["2026-10-02"],
     });
     expect(gap.outlets[0]?.partialDates).toEqual(["2026-10-02"]);
+    const planDays = async () => {
+      const response = await call(
+        "GET",
+        `/agent/v1/fetch-plan?outletId=${outlet.id}&date=2026-11-14`,
+        tokenA,
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        platforms: Array<{
+          platform: string;
+          windows: Array<{
+            report: string;
+            reasons: string[];
+            periodStart: string;
+            periodEnd: string;
+          }>;
+        }>;
+      };
+      return (
+        body.platforms
+          .find((item) => item.platform === "zomato")
+          ?.windows.filter(
+            (window) => window.report === "daily" && window.reasons.includes("backfill"),
+          )
+          .flatMap((window) => {
+            const days: string[] = [];
+            let cursor = window.periodStart;
+            while (cursor < window.periodEnd) {
+              days.push(cursor);
+              const next = new Date(`${cursor}T00:00:00.000Z`);
+              next.setUTCDate(next.getUTCDate() + 1);
+              cursor = next.toISOString().slice(0, 10);
+            }
+            return days;
+          }) ?? []
+      );
+    };
+    expect(await planDays()).toContain("2026-10-02");
 
     const filled = await post({
       periodStart: "2026-10-01",
@@ -1884,6 +1922,7 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
       missingDates: [],
     });
     expect(complete.outlets[0]?.partialDates).toEqual([]);
+    expect(await planDays()).not.toContain("2026-10-02");
     expect(await holdState(tokenA, outlet.id, "zomato")).toMatchObject({ held: false });
 
     const third = await post({

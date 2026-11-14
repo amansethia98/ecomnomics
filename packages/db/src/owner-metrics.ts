@@ -8,22 +8,13 @@ import {
   assembleOwnerMetrics,
   fetchCoverageSpans,
   ownerMetricLoadKeys,
+  parseMissingPeriods,
 } from "./owner-metrics-assemble.js";
 import type { RestaurantScope } from "./restaurant-agent.js";
 import { RestaurantAgentError } from "./restaurant-agent.js";
 import { runAsSystem, runAsTenant } from "./row-security.js";
 
 const PLATFORMS = ["zomato", "swiggy"] as const;
-const MISSING_PERIOD = /^(\d{4}-\d{2}-\d{2})\/(\d{4}-\d{2}-\d{2})$/;
-
-function parseMissingPeriods(encoded: string | null): Array<{ start: string; end: string }> {
-  if (!encoded) return [];
-  return encoded.split(",").flatMap((part) => {
-    const match = MISSING_PERIOD.exec(part);
-    if (!match?.[1] || !match[2]) return [];
-    return [{ start: match[1], end: match[2] }];
-  });
-}
 
 /**
  * Confirms the user is a member of the restaurant's space, then reads inside

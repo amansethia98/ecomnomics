@@ -272,6 +272,18 @@ function resolveOutlets(
   });
 }
 
+const MISSING_PERIOD = /^(\d{4}-\d{2}-\d{2})\/(\d{4}-\d{2}-\d{2})$/;
+
+/** Stored `start/end` pairs for periods a business report left out. */
+export function parseMissingPeriods(encoded: string | null): Array<{ start: string; end: string }> {
+  if (!encoded) return [];
+  return encoded.split(",").flatMap((part) => {
+    const match = MISSING_PERIOD.exec(part);
+    if (!match?.[1] || !match[2]) return [];
+    return [{ start: match[1], end: match[2] }];
+  });
+}
+
 /** Splits a stored fetch around periods the file did not contain. */
 export function fetchCoverageSpans(
   from: string,
