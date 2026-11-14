@@ -4,7 +4,12 @@ import { getLogger } from "@rakazo/logging";
 import type { PrismaClient } from "./client.js";
 import { Prisma } from "./generated/prisma/client.js";
 import type { OwnerCycleFact, OwnerOrderFact } from "./owner-metrics-assemble.js";
-import { assembleOwnerMetrics, ownerMetricLoadKeys } from "./owner-metrics-assemble.js";
+import {
+  assembleOwnerMetrics,
+  fetchCoverageSpans,
+  ownerMetricLoadKeys,
+  parseMissingPeriods,
+} from "./owner-metrics-assemble.js";
 import type { RestaurantScope } from "./restaurant-agent.js";
 import { RestaurantAgentError } from "./restaurant-agent.js";
 import { runAsSystem, runAsTenant } from "./row-security.js";
@@ -108,6 +113,7 @@ export async function readOwnerMetrics(
         status: true,
         requestedPeriodStart: true,
         requestedPeriodEnd: true,
+        missingPeriods: true,
       },
     }),
     db.payoutOrder.findMany({
@@ -189,15 +195,16 @@ export async function readOwnerMetrics(
     }),
     fetches: fetches.flatMap((row) => {
       if (!isPlatform(row.platform)) return [];
-      return [
-        {
-          outletId: row.outletId,
-          platform: row.platform,
-          status: row.status,
-          from: indiaCivilDate(row.requestedPeriodStart),
-          to: indiaCivilDate(row.requestedPeriodEnd),
-        },
-      ];
+      const platform = row.platform;
+      const from = indiaCivilDate(row.requestedPeriodStart);
+      const to = indiaCivilDate(row.requestedPeriodEnd);
+      return fetchCoverageSpans(from, to, parseMissingPeriods(row.missingPeriods)).map((span) => ({
+        outletId: row.outletId,
+        platform,
+        status: row.status,
+        from: span.from,
+        to: span.to,
+      }));
     }),
     history: history.flatMap((row) => {
       if (!isPlatform(row.platform)) return [];

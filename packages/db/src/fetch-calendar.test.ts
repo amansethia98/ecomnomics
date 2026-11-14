@@ -2,6 +2,7 @@ import { addIsoDays, daysBetween, expectedPeriods } from "@rakazo/contracts";
 import { describe, expect, it } from "vitest";
 import type { FetchPlanFacts } from "./fetch-calendar.js";
 import { buildFetchPlan, chunkBackfill } from "./fetch-calendar.js";
+import { fetchCoverageSpans } from "./owner-metrics-assemble.js";
 
 function plan(overrides: Partial<FetchPlanFacts> & Pick<FetchPlanFacts, "date">) {
   return buildFetchPlan({
@@ -403,6 +404,58 @@ describe("fetch calendar", () => {
       if (window.reasons.includes("backfill"))
         expect(spanDays(window.periodStart, window.periodEnd)).toBeLessThanOrEqual(7);
     }
+  });
+
+  it("backfills a day a stored daily report left out", () => {
+    const date = "2026-10-20";
+    const horizon = addIsoDays(date, -90);
+    const dailyStart = addIsoDays(date, -7);
+    const hole = fetchCoverageSpans("2026-10-01", "2026-10-04", [
+      { start: "2026-10-02", end: "2026-10-03" },
+    ]);
+    const stored = (
+      platform: "zomato" | "swiggy",
+      spans: ReadonlyArray<{ from: string; to: string }>,
+    ) =>
+      spans.map((span) => ({
+        outletId: "outlet-1",
+        platform,
+        status: "stored" as const,
+        from: span.from,
+        to: span.to,
+      }));
+    const elsewhere = [
+      { from: horizon, to: "2026-10-01" },
+      { from: "2026-10-04", to: dailyStart },
+    ];
+    const covered = plan({
+      date,
+      fetches: [
+        ...stored("zomato", [...hole, ...elsewhere]),
+        ...stored("swiggy", [{ from: horizon, to: dailyStart }]),
+      ],
+    });
+    expect(
+      of(covered, "zomato", "daily").filter((window) => window.reasons.includes("backfill")),
+    ).toEqual([
+      {
+        report: "daily",
+        reasons: ["backfill"],
+        periodStart: "2026-10-02",
+        periodEnd: "2026-10-03",
+      },
+    ]);
+
+    const whole = plan({
+      date,
+      fetches: [
+        ...stored("zomato", [{ from: horizon, to: dailyStart }]),
+        ...stored("swiggy", [{ from: horizon, to: dailyStart }]),
+      ],
+    });
+    expect(
+      of(whole, "zomato", "daily").filter((window) => window.reasons.includes("backfill")),
+    ).toEqual([]);
   });
 
   it("prefers the older day, and Zomato on a tie, when the night is full", () => {

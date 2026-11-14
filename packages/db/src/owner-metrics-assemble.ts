@@ -272,6 +272,38 @@ function resolveOutlets(
   });
 }
 
+const MISSING_PERIOD = /^(\d{4}-\d{2}-\d{2})\/(\d{4}-\d{2}-\d{2})$/;
+
+/** Stored `start/end` pairs for periods a business report left out. */
+export function parseMissingPeriods(encoded: string | null): Array<{ start: string; end: string }> {
+  if (!encoded) return [];
+  return encoded.split(",").flatMap((part) => {
+    const match = MISSING_PERIOD.exec(part);
+    if (!match?.[1] || !match[2]) return [];
+    return [{ start: match[1], end: match[2] }];
+  });
+}
+
+/** Splits a stored fetch around periods the file did not contain. */
+export function fetchCoverageSpans(
+  from: string,
+  to: string,
+  gaps: readonly { start: string; end: string }[],
+): Array<{ from: string; to: string }> {
+  const spans: Array<{ from: string; to: string }> = [];
+  let cursor = from;
+  const ordered = [...gaps].sort((left, right) => left.start.localeCompare(right.start));
+  for (const gap of ordered) {
+    const start = gap.start < from ? from : gap.start;
+    const end = gap.end > to ? to : gap.end;
+    if (end <= cursor) continue;
+    if (start > cursor) spans.push({ from: cursor, to: start });
+    cursor = end;
+  }
+  if (cursor < to) spans.push({ from: cursor, to });
+  return spans;
+}
+
 /** Days that already have a stored figure, a stored fetch, or a payout order. */
 export function coveredCivilDays(
   input: {

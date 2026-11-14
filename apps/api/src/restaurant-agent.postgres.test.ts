@@ -1758,4 +1758,183 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
     }
     expect(await holdState(tokenA, missing.id, "zomato")).toMatchObject({ held: false });
   });
+
+  it("stores a missing day as a gap and fills it on a later file", async () => {
+    const outlet = await createOutlet(ownerDb, await restaurantA(), {
+      name: "Test Kitchen",
+      city: "Testcity",
+      zomatoResId: "900002",
+    });
+    const csv = (columns: string, values: string) =>
+      [
+        `Restaurant ID,Restaurant name,Subzone,City,Overview,Metric,${columns}`,
+        `900002,Test Kitchen,Testarea,Testcity,Sales,Delivered orders,${values}`,
+      ].join("\n");
+    const post = (body: { periodStart: string; periodEnd: string; csv: string; runId: string }) =>
+      call("POST", "/agent/v1/metric-reports", tokenA, {
+        outletId: outlet.id,
+        platform: "zomato",
+        report: "daily",
+        source: "export",
+        capturedAt: "2026-11-12T05:00:00.000Z",
+        ...body,
+      });
+    const mismatch = await post({
+      periodStart: "2026-09-01",
+      periodEnd: "2026-09-03",
+      csv: csv('"01 Oct, 2026","02 Oct, 2026"', "1,2"),
+      runId: `gap-mismatch-${suffix}`,
+    });
+    expect(mismatch.status).toBe(422);
+    const again = await post({
+      periodStart: "2026-09-01",
+      periodEnd: "2026-09-03",
+      csv: csv('"01 Oct, 2026","02 Oct, 2026"', "1,2"),
+      runId: `gap-mismatch-2-${suffix}`,
+    });
+    expect(again.status).toBe(422);
+
+    const partial = await post({
+      periodStart: "2026-10-01",
+      periodEnd: "2026-10-04",
+      csv: csv('"01 Oct, 2026","03 Oct, 2026"', "16,24"),
+      runId: `gap-partial-${suffix}`,
+    });
+    expect(partial.status).toBe(200);
+    expect(await partial.json()).toMatchObject({
+      status: "stored",
+      reason: "The file is missing 2026-10-02.",
+    });
+    expect(await holdState(tokenA, outlet.id, "zomato")).toMatchObject({ held: false });
+    const storedGap = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricFetch.findFirst({
+        where: { outletId: outlet.id, status: "stored" },
+        select: { missingPeriods: true },
+      }),
+    );
+    expect(storedGap?.missingPeriods).toBe("2026-10-02/2026-10-03");
+    const absent = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricValue.count({
+        where: {
+          outletId: outlet.id,
+          periodStart: new Date("2026-10-02T00:00:00.000Z"),
+          supersededAt: null,
+        },
+      }),
+    );
+    expect(absent).toBe(0);
+    const mismatches = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricFetch.count({
+        where: { outletId: outlet.id, status: "rejected_mismatch", identityMismatch: true },
+      }),
+    );
+    expect(mismatches).toBe(2);
+
+    const readCoverage = async () => {
+      const response = await call(
+        "GET",
+        `/agent/v1/metrics?outletId=${outlet.id}&platform=zomato&from=2026-10-01&to=2026-10-04&keys=delivered_orders`,
+        tokenA,
+      );
+      expect(response.status).toBe(200);
+      return (await response.json()) as {
+        values: Array<{
+          key: string;
+          value: number | null;
+          coverageDays: number;
+          expectedDays: number;
+          missingDates: string[];
+        }>;
+        outlets: Array<{ partialDates: string[] }>;
+      };
+    };
+    const gap = await readCoverage();
+    expect(gap.values.find((value) => value.key === "delivered_orders")).toMatchObject({
+      value: 40,
+      coverageDays: 2,
+      expectedDays: 3,
+      missingDates: ["2026-10-02"],
+    });
+    expect(gap.outlets[0]?.partialDates).toEqual(["2026-10-02"]);
+    const planDays = async () => {
+      const response = await call(
+        "GET",
+        `/agent/v1/fetch-plan?outletId=${outlet.id}&date=2026-11-14`,
+        tokenA,
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        platforms: Array<{
+          platform: string;
+          windows: Array<{
+            report: string;
+            reasons: string[];
+            periodStart: string;
+            periodEnd: string;
+          }>;
+        }>;
+      };
+      return (
+        body.platforms
+          .find((item) => item.platform === "zomato")
+          ?.windows.filter(
+            (window) => window.report === "daily" && window.reasons.includes("backfill"),
+          )
+          .flatMap((window) => {
+            const days: string[] = [];
+            let cursor = window.periodStart;
+            while (cursor < window.periodEnd) {
+              days.push(cursor);
+              const next = new Date(`${cursor}T00:00:00.000Z`);
+              next.setUTCDate(next.getUTCDate() + 1);
+              cursor = next.toISOString().slice(0, 10);
+            }
+            return days;
+          }) ?? []
+      );
+    };
+    expect(await planDays()).toContain("2026-10-02");
+
+    const filled = await post({
+      periodStart: "2026-10-01",
+      periodEnd: "2026-10-04",
+      csv: csv('"01 Oct, 2026","02 Oct, 2026","03 Oct, 2026"', "16,5,24"),
+      runId: `gap-full-${suffix}`,
+    });
+    expect(filled.status).toBe(200);
+    const present = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricValue.findFirst({
+        where: {
+          outletId: outlet.id,
+          key: "delivered_orders",
+          periodStart: new Date("2026-10-02T00:00:00.000Z"),
+          supersededAt: null,
+        },
+        select: { value: true },
+      }),
+    );
+    expect(Number(present?.value?.toString())).toBe(5);
+    const complete = await readCoverage();
+    expect(complete.values.find((value) => value.key === "delivered_orders")).toMatchObject({
+      value: 45,
+      coverageDays: 3,
+      expectedDays: 3,
+      missingDates: [],
+    });
+    expect(complete.outlets[0]?.partialDates).toEqual([]);
+    expect(await planDays()).not.toContain("2026-10-02");
+    expect(await holdState(tokenA, outlet.id, "zomato")).toMatchObject({ held: false });
+
+    const third = await post({
+      periodStart: "2026-09-01",
+      periodEnd: "2026-09-03",
+      csv: csv('"01 Oct, 2026","02 Oct, 2026"', "1,2"),
+      runId: `gap-mismatch-3-${suffix}`,
+    });
+    expect(third.status).toBe(422);
+    expect(await holdState(tokenA, outlet.id, "zomato")).toMatchObject({
+      held: true,
+      reason: "identity_mismatch",
+    });
+  });
 });

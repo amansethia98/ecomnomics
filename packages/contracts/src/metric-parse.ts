@@ -27,11 +27,23 @@ export interface ObservedReportIdentity {
   periods: ReportPeriod[];
 }
 
-export interface IdentityAssessment {
-  /** Set only for a wrong platform id, a wrong window, or a request that cannot be read. */
-  reject: string | null;
+/** A file whose periods are an in-order subset of the request. Absent periods are gaps. */
+export interface IdentityMatch {
+  ok: true;
+  reject: null;
   warnings: string[];
+  missingPeriods: ReportPeriod[];
 }
+
+export type IdentityAssessment =
+  | IdentityMatch
+  | {
+      ok: false;
+      /** A wrong platform id, an unrequested or disordered period, or a request that cannot be read. */
+      reject: string;
+      warnings: string[];
+      missingPeriods: [];
+    };
 
 export interface ExpectedReportIdentity {
   platform: MetricPlatform;
@@ -69,8 +81,10 @@ export type ReportEvaluation =
       granularity: MetricGranularity;
       rows: ParsedMetricRow[];
       items: ParsedWindowItem[];
-      /** Name, city, or area differed. The file is still stored. */
+      /** Name, city, area, or a requested period the file left out. The file is still stored. */
       warnings: string[];
+      /** Requested periods with no column. Nothing is stored for them. */
+      missingPeriods: ReportPeriod[];
     }
   | {
       ok: false;
@@ -148,8 +162,11 @@ export function missingPlatformIdReason(platform: MetricPlatform): string {
 
 /**
  * Shared by the business-report parser and by payout files, once the payout
- * header has been extracted. A wrong platform id or a wrong window rejects the
- * file. A different name, city, or area is a warning and the file can be stored.
+ * header has been extracted. A wrong platform id, a period that was not
+ * requested, a repeated period, or periods out of order rejects the file.
+ * Requested periods that are absent are a gap: the file can be stored, and
+ * `missingPeriods` lists them. A different name, city, or area is a warning.
+ * Payout requests have one period, so a missing payout period still rejects.
  */
 export function checkObservedIdentity(
   observed: ObservedReportIdentity,
@@ -157,34 +174,19 @@ export function checkObservedIdentity(
 ): IdentityAssessment {
   const warnings: string[] = [];
   const wanted = expectedPeriods(expected);
-  if (typeof wanted === "string") return { reject: wanted, warnings };
+  if (typeof wanted === "string") return rejectedIdentity(wanted);
   if (!expected.restaurantId.trim()) {
-    return { reject: missingPlatformIdReason(expected.platform), warnings };
+    return rejectedIdentity(missingPlatformIdReason(expected.platform));
   }
   if (
     canonicalRestaurantId(observed.restaurantId) !== canonicalRestaurantId(expected.restaurantId)
   ) {
-    return {
-      reject: `The file is for restaurant ${observed.restaurantId.trim()}, not ${expected.restaurantId.trim()}.`,
-      warnings,
-    };
+    return rejectedIdentity(
+      `The file is for restaurant ${observed.restaurantId.trim()}, not ${expected.restaurantId.trim()}.`,
+    );
   }
-  if (observed.periods.length !== wanted.length) {
-    return {
-      reject: `The file has ${observed.periods.length} periods and the request has ${wanted.length}.`,
-      warnings,
-    };
-  }
-  for (let index = 0; index < wanted.length; index += 1) {
-    const got = observed.periods[index];
-    const need = wanted[index];
-    if (!got || !need || got.start !== need.start || got.end !== need.end) {
-      return {
-        reject: `Column ${got?.label ?? index + 1} is ${got?.start ?? "unreadable"} to ${got?.end ?? "unreadable"}, not ${need?.start} to ${need?.end}.`,
-        warnings,
-      };
-    }
-  }
+  const periods = matchObservedPeriods(observed.periods, wanted);
+  if (!periods.ok) return rejectedIdentity(periods.reject);
   if (observed.name.trim() !== expected.name.trim()) {
     warnings.push(`The file names ${observed.name.trim()}, not ${expected.name.trim()}.`);
   }
@@ -198,7 +200,65 @@ export function checkObservedIdentity(
         : `The file is for ${city || area}, not ${stored}.`,
     );
   }
-  return { reject: null, warnings };
+  if (periods.missing.length > 0) warnings.push(missingPeriodWarning(periods.missing));
+  return { ok: true, reject: null, warnings, missingPeriods: periods.missing };
+}
+
+function rejectedIdentity(reject: string): IdentityAssessment {
+  return { ok: false, reject, warnings: [], missingPeriods: [] };
+}
+
+function periodKey(period: ReportPeriod): string {
+  return `${period.start}\t${period.end}`;
+}
+
+function columnReason(period: ReportPeriod, problem: string): string {
+  return `Column ${period.label} is ${period.start} to ${period.end}, ${problem}.`;
+}
+
+function missingPeriodWarning(periods: readonly ReportPeriod[]): string {
+  const labels = periods.map((period) => period.label);
+  const list =
+    labels.length <= 1
+      ? (labels[0] ?? "")
+      : `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}`;
+  return `The file is missing ${list}.`;
+}
+
+/**
+ * Present periods must be requested periods in order, with no repeats.
+ * A requested period that never appears is a gap. No match at all rejects.
+ */
+function matchObservedPeriods(
+  observed: readonly ReportPeriod[],
+  wanted: readonly ReportPeriod[],
+): { ok: true; missing: ReportPeriod[] } | { ok: false; reject: string } {
+  const indexByKey = new Map(wanted.map((period, index) => [periodKey(period), index]));
+  const seen = new Set<number>();
+  let last = -1;
+  let unrequested: ReportPeriod | null = null;
+  let duplicate: ReportPeriod | null = null;
+  let unordered: ReportPeriod | null = null;
+  for (const period of observed) {
+    const index = indexByKey.get(periodKey(period));
+    if (index === undefined) {
+      unrequested ??= period;
+      continue;
+    }
+    if (seen.has(index)) {
+      duplicate ??= period;
+      continue;
+    }
+    if (index < last) unordered ??= period;
+    seen.add(index);
+    last = index;
+  }
+  if (seen.size === 0) return { ok: false, reject: "The file has no requested period." };
+  if (unrequested)
+    return { ok: false, reject: columnReason(unrequested, "which was not requested") };
+  if (duplicate) return { ok: false, reject: columnReason(duplicate, "which is repeated") };
+  if (unordered) return { ok: false, reject: columnReason(unordered, "which is out of order") };
+  return { ok: true, missing: wanted.filter((_, index) => !seen.has(index)) };
 }
 
 function rejectedReport(
@@ -266,7 +326,7 @@ export function evaluateBusinessReport(
     return rejectedReport("The file contains more than one restaurant.", observed);
   }
   const identity = checkObservedIdentity(observed, expected);
-  if (identity.reject) return rejectedReport(identity.reject, observed, true);
+  if (!identity.ok) return rejectedReport(identity.reject, observed, true);
 
   const rows: ParsedMetricRow[] = [];
   const items: ParsedWindowItem[] = [];
@@ -297,6 +357,7 @@ export function evaluateBusinessReport(
     rows,
     items,
     warnings: identity.warnings,
+    missingPeriods: identity.missingPeriods,
   };
 }
 

@@ -24,6 +24,7 @@ import type { PrismaClient } from "./client.js";
 import { buildFetchPlan } from "./fetch-calendar.js";
 import { noteIdentityMismatch } from "./fetch-holds.js";
 import type { Prisma } from "./generated/prisma/client.js";
+import { fetchCoverageSpans, parseMissingPeriods } from "./owner-metrics-assemble.js";
 import type { RestaurantScope } from "./restaurant-agent.js";
 import { RestaurantAgentError } from "./restaurant-agent.js";
 
@@ -56,7 +57,12 @@ export async function readFetchPlan(
         requestedPeriodStart: { lt: horizonEnd },
         requestedPeriodEnd: { gt: horizonStart },
       },
-      select: { platform: true, requestedPeriodStart: true, requestedPeriodEnd: true },
+      select: {
+        platform: true,
+        requestedPeriodStart: true,
+        requestedPeriodEnd: true,
+        missingPeriods: true,
+      },
     }),
     db.payoutOrder.groupBy({
       by: ["platform", "orderDate"],
@@ -147,15 +153,16 @@ export async function readFetchPlan(
     ],
     fetches: fetches.flatMap((row) => {
       if (!isPlatform(row.platform)) return [];
-      return [
-        {
-          outletId: outlet.id,
-          platform: row.platform,
-          status: "stored",
-          from: indiaCivilDate(row.requestedPeriodStart),
-          to: indiaCivilDate(row.requestedPeriodEnd),
-        },
-      ];
+      const platform = row.platform;
+      const from = indiaCivilDate(row.requestedPeriodStart);
+      const to = indiaCivilDate(row.requestedPeriodEnd);
+      return fetchCoverageSpans(from, to, parseMissingPeriods(row.missingPeriods)).map((span) => ({
+        outletId: outlet.id,
+        platform,
+        status: "stored" as const,
+        from: span.from,
+        to: span.to,
+      }));
     }),
     orders: orders.flatMap((row) => {
       if (!isPlatform(row.platform)) return [];

@@ -8,6 +8,7 @@
 export type {
   ExpectedReportIdentity,
   IdentityAssessment,
+  IdentityMatch,
   ObservedReportIdentity,
   ReportPeriod,
 } from "./metric-parse.js";

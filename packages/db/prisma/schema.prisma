@@ -2887,6 +2887,9 @@ model MetricFetch {
   /// True only when this release recorded an identity mismatch. Older
   /// rejected_mismatch rows, including parse failures, stay null and do not count.
   identityMismatch      Boolean?
+  /// Requested periods absent from a stored business report, as `start/end`
+  /// pairs separated by commas. Those periods are not covered by this fetch.
+  missingPeriods        String?   @db.Text
   source                String
   parserVersion         String
   reason                String?   @db.Text
