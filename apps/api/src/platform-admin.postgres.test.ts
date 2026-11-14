@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@rakazo/db";
 import {
   createDb,
+  createOutlet,
   createPlatformAdminStore,
   ensureRestaurant,
   hashAgentToken,
@@ -9,6 +10,7 @@ import {
   revokeRuntimeAdminAuditAccess,
   runAsPlatformAdmin,
   runAsSystem,
+  runAsTenant,
 } from "@rakazo/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { platformAdminRoutes } from "./platform-admin-routes.js";
@@ -164,5 +166,101 @@ describePostgres("platform admin is a separate role (PostgreSQL)", () => {
     expect(denied.status).toBe(403);
     const still = await runAsPlatformAdmin("count", () => admin.prisma.adminAuditLog.count());
     expect(still).toBe(after);
+  });
+
+  it("clears a fetch hold for an allowlisted admin and refuses an agent token", async () => {
+    const outlet = await createOutlet(owner.prisma, restaurantId, {
+      name: "Held",
+      city: "Pune",
+      zomatoResId: "z-held",
+    });
+    const spaceId = `adm-space-${suffix}`;
+    const hold = await runAsSystem("open fetch hold", () =>
+      owner.prisma.fetchHold.create({
+        data: {
+          restaurantId,
+          spaceId,
+          outletId: outlet.id,
+          platform: "zomato",
+          reason: "identity_mismatch",
+        },
+        select: { id: true },
+      }),
+    );
+    const store = createPlatformAdminStore(admin.prisma);
+    const routes = platformAdminRoutes({
+      allowlist: ["auditor@example.com"],
+      store,
+      getSession: async () => ({
+        user: { id: `auditor-${suffix}`, email: "auditor@example.com", emailVerified: true },
+      }),
+      clientIp: () => "203.0.113.5",
+    });
+    const body = JSON.stringify({ outletId: outlet.id, platform: "zomato" });
+    const path = `/admin/v1/restaurants/${restaurantId}/fetch-holds`;
+    const before = await runAsPlatformAdmin("count", () => admin.prisma.adminAuditLog.count());
+    const denied = await routes.request(path, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ecom_agent_example",
+        "content-type": "application/json",
+      },
+      body,
+    });
+    expect(denied.status).toBe(403);
+    expect(await runAsPlatformAdmin("count", () => admin.prisma.adminAuditLog.count())).toBe(
+      before,
+    );
+
+    const wrong = await routes.request(`/admin/v1/restaurants/other-${suffix}/fetch-holds`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    expect(wrong.status).toBe(404);
+    expect(await wrong.json()).toMatchObject({ code: "not_found" });
+    const open = await runAsSystem("hold still open", () =>
+      owner.prisma.fetchHold.findUnique({ where: { id: hold.id }, select: { clearedAt: true } }),
+    );
+    expect(open?.clearedAt).toBeNull();
+    await expect(
+      runAsTenant({ spaceId, userId: `adm-user-${suffix}` }, () =>
+        db.fetchHold.update({
+          where: { id: hold.id },
+          data: { clearedAt: new Date(), clearedBy: "agent" },
+        }),
+      ),
+    ).rejects.toThrow();
+
+    const cleared = await routes.request(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    expect(cleared.status).toBe(200);
+    expect(await cleared.json()).toMatchObject({ outletId: outlet.id, platform: "zomato" });
+    const row = await runAsPlatformAdmin("cleared hold", () =>
+      admin.prisma.fetchHold.findUnique({ where: { id: hold.id } }),
+    );
+    expect(row?.clearedAt).not.toBeNull();
+    expect(row?.clearedBy).toBe(`auditor-${suffix}`);
+    const audit = await runAsPlatformAdmin("clear audit", () =>
+      admin.prisma.adminAuditLog.findFirst({
+        where: { action: "clear_fetch_hold", restaurantId },
+        orderBy: { createdAt: "desc" },
+      }),
+    );
+    expect(audit).toMatchObject({
+      adminUserId: `auditor-${suffix}`,
+      target: path,
+      ip: "203.0.113.5",
+    });
+
+    const again = await routes.request(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    expect(again.status).toBe(404);
   });
 });

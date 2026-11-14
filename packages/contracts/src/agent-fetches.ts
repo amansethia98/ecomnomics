@@ -17,6 +17,13 @@ import { SWIGGY_DAILY_MAX_DAYS } from "./metric-dictionary.js";
  * Missing days in the last 90, outside that daily window, are backfilled in
  * chunks of at most 30 days on Zomato and 7 on Swiggy, and at most 90 days a
  * night across both platforms.
+ *
+ * Identity mismatches are counted per outlet and platform over a rolling 24
+ * hours. The count is `rejected_mismatch` rows this release marked as identity
+ * mismatches, plus log rows with `local_mismatch`. Older `rejected_mismatch`
+ * rows are not counted.
+ * A client-sent `attempt` is ignored. The third mismatch holds that outlet
+ * and platform until a platform admin clears it. A held platform has no windows.
  */
 export const FETCH_DAILY_DAYS = 7;
 export const FETCH_HORIZON_DAYS = 90;
@@ -41,6 +48,7 @@ export const FETCH_STATUSES = [
   "skipped",
   "rejected_mismatch",
   "needs_owner",
+  "parse_failed",
   ...LOG_FETCH_STATUSES,
 ] as const;
 export type FetchStatus = (typeof FETCH_STATUSES)[number];
@@ -86,6 +94,8 @@ export interface FetchPlanPlatform {
   platformId: string | null;
   /** Set when this outlet has no id for the platform. `windows` is then empty. */
   reason: "missing_platform_id" | null;
+  /** True while a platform admin has not cleared the identity-mismatch hold. */
+  held: boolean;
   windows: FetchPlanWindow[];
 }
 
@@ -197,8 +207,17 @@ export interface MetricFetchListItem {
   createdAt: string;
 }
 
+export interface FetchHoldState {
+  platform: "zomato" | "swiggy";
+  held: boolean;
+  /** `identity_mismatch` while held. Null when fetching is open. */
+  reason: string | null;
+  createdAt: string | null;
+}
+
 export interface MetricFetchListResponse {
   fetches: MetricFetchListItem[];
+  holds: FetchHoldState[];
 }
 
 export const LogFetchSchema = z

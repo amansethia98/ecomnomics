@@ -37,7 +37,11 @@ export type MetricPlatform = (typeof METRIC_PLATFORMS)[number];
 /** Swiggy's Daily download refuses a range longer than this. Backfills are chunked. */
 export const SWIGGY_DAILY_MAX_DAYS = 7;
 
-/** After this many identity mismatches for one request, the fetch is needs_owner. */
+/**
+ * Identity mismatches for one outlet and one platform in a rolling 24 hours.
+ * The third opens a hold until a platform admin clears it. A client-sent
+ * attempt does not change this count.
+ */
 export const FILE_IDENTITY_ATTEMPT_LIMIT = 3;
 
 export const METRIC_PARSER_VERSION = "2026-11-12.1";

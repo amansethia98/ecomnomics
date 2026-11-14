@@ -45,6 +45,8 @@ export interface FetchPlanFacts {
     settlementDate: string | null;
   }>;
   cycles: readonly FetchPlanCycle[];
+  /** Platforms whose fetching is paused. Their plan has no windows. */
+  held?: ReadonlySet<Platform>;
 }
 
 interface Span {
@@ -55,9 +57,10 @@ interface Span {
 /** The windows a fetch job should download for one outlet on one civil date. */
 export function buildFetchPlan(input: FetchPlanFacts): FetchPlanResponse {
   const ids = { zomato: cleanId(input.zomatoResId), swiggy: cleanId(input.swiggyRid) };
+  const open = (platform: Platform) => Boolean(ids[platform]) && !input.held?.has(platform);
   const backfill = chunkBackfill(
-    ids.zomato ? missingDays(input, "zomato") : [],
-    ids.swiggy ? missingDays(input, "swiggy") : [],
+    open("zomato") ? missingDays(input, "zomato") : [],
+    open("swiggy") ? missingDays(input, "swiggy") : [],
   );
   return {
     date: input.date,
@@ -74,8 +77,15 @@ function platformPlan(
   platformId: string | null,
   backfill: readonly Span[],
 ): FetchPlanPlatform {
-  if (!platformId) {
-    return { platform, platformId: null, reason: "missing_platform_id", windows: [] };
+  const held = input.held?.has(platform) ?? false;
+  if (held || !platformId) {
+    return {
+      platform,
+      platformId,
+      reason: platformId ? null : "missing_platform_id",
+      held,
+      windows: [],
+    };
   }
   const windows: FetchPlanWindow[] = [windowFor("daily", ["scheduled"], dailyWindow(input.date))];
   const weekly = weeklyWindow(platform, input.date);
@@ -86,7 +96,7 @@ function platformPlan(
     for (const payout of payoutWindows(input, platform)) windows.push(payout);
   }
   for (const span of backfill) windows.push(windowFor("daily", ["backfill"], span));
-  return { platform, platformId, reason: null, windows };
+  return { platform, platformId, reason: null, held: false, windows };
 }
 
 function payoutWindows(input: FetchPlanFacts, platform: Platform): FetchPlanWindow[] {

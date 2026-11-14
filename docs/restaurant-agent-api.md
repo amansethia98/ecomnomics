@@ -36,20 +36,21 @@ Authorization: Bearer $RESTAURANT_AGENT_TOKEN
 
 Every error is JSON: `{ "error": "<sentence>", "code": "<code>" }`.
 
-| HTTP | code                          | When                                                                                                                  |
-| ---- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| 401  | `unauthorized`                | No token, or the token is unknown or revoked.                                                                         |
-| 400  | `invalid_body`                | The JSON does not match the shape below.                                                                              |
-| 400  | `unknown_metric_key`          | A metric row uses a key that is not in the list. The sentence names the key and the allowed keys. Nothing is written. |
-| 422  | `unknown_outlet`              | `outletId` is missing or belongs to another restaurant. Both cases use the same sentence.                             |
-| 422  | `file_identity`               | A business-report file is not the requested outlet or window. Nothing from that file is stored.                       |
-| 422  | `unknown_message`             | `chatMessageId` is not a message in this restaurant.                                                                  |
-| 404  | `not_found`                   | The action or file is not in this restaurant.                                                                         |
-| 409  | `invalid_transition`          | The action status is not a legal next step.                                                                           |
-| 409  | `approval_required`           | The action is not approved by a message a person in this restaurant sent.                                             |
-| 409  | `idempotency_conflict`        | `clientNonce` was already used for a different file list.                                                             |
-| 413  | `invalid_body`                | An uploaded file is larger than 20 MB.                                                                                |
-| 503  | `object_storage_unconfigured` | The request includes files and this server has no object storage. Nothing is created.                                 |
+| HTTP | code                          | When                                                                                                                    |
+| ---- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 401  | `unauthorized`                | No token, or the token is unknown or revoked.                                                                           |
+| 400  | `invalid_body`                | The JSON does not match the shape below.                                                                                |
+| 400  | `unknown_metric_key`          | A metric row uses a key that is not in the list. The sentence names the key and the allowed keys. Nothing is written.   |
+| 422  | `unknown_outlet`              | `outletId` is missing or belongs to another restaurant. Both cases use the same sentence.                               |
+| 422  | `file_identity`               | A business-report file is not the requested outlet or window, or it cannot be parsed. Nothing from that file is stored. |
+| 423  | `fetch_held`                  | Fetching for this outlet and platform is paused until a platform admin clears it. The file is not stored.               |
+| 422  | `unknown_message`             | `chatMessageId` is not a message in this restaurant.                                                                    |
+| 404  | `not_found`                   | The action or file is not in this restaurant.                                                                           |
+| 409  | `invalid_transition`          | The action status is not a legal next step.                                                                             |
+| 409  | `approval_required`           | The action is not approved by a message a person in this restaurant sent.                                               |
+| 409  | `idempotency_conflict`        | `clientNonce` was already used for a different file list.                                                               |
+| 413  | `invalid_body`                | An uploaded file is larger than 20 MB.                                                                                  |
+| 503  | `object_storage_unconfigured` | The request includes files and this server has no object storage. Nothing is created.                                   |
 
 ## Restaurant
 
@@ -103,7 +104,7 @@ Writes payout and other caller-supplied facts. A row whose value changed is kept
 
 `POST /agent/v1/metric-reports`
 
-Sends one Swiggy or Zomato business-report CSV. The server rejects the file when its platform outlet id does not match the id stored for that outlet, or when its date or week columns are not the requested window. Nothing from a rejected file is stored, and the attempt is logged with status `rejected_mismatch`. After 3 mismatches for the same request the status is `needs_owner`. The response is 422 with code `file_identity`. A different restaurant name, city, or area is stored with the file and written as a warning on that fetch. An outlet with no platform id is rejected with `This outlet has no Swiggy restaurant id. The file was not stored.` or the Zomato sentence. The name is not used as a fallback.
+Sends one Swiggy or Zomato business-report CSV. The server rejects the file when its platform outlet id does not match the id stored for that outlet, or when its date or week columns are not the requested window. Nothing from a rejected file is stored. An identity mismatch is logged with status `rejected_mismatch`. A file that cannot be parsed is logged with status `parse_failed` and does not count. `attempt` may be sent and is ignored. The server counts identity mismatches for that outlet and platform over the last 24 hours, including log rows with status `local_mismatch`. A `rejected_mismatch` row stored before this rule is not counted, because that status was also used for files that could not be parsed. The third one pauses fetching until a platform admin clears it. The mismatch response is 422 with code `file_identity`. While paused, the upload is 423 with code `fetch_held` and the file is not stored. `GET /agent/v1/fetches` includes `holds`, and `GET /agent/v1/fetch-plan` sets `held` and returns no windows for a paused platform. A different restaurant name, city, or area is stored with the file and written as a warning on that fetch. An outlet with no platform id is rejected with `This outlet has no Swiggy restaurant id. The file was not stored.` or the Zomato sentence. The name is not used as a fallback.
 
 A daily file replaces each day in its window for that platform. A key missing from the new file is superseded to null. A weekly or monthly file stores the platform's own figures for that window and does not overwrite daily facts. When those figures disagree with the rebuilt days, the disagreement is logged and the stored days stay as they are.
 
@@ -125,7 +126,7 @@ Swiggy Daily accepts at most 7 days per file. Split a backfill into chunks of 7 
 
 `POST /agent/v1/payout-reports`
 
-Sends one Swiggy invoice annexure or Zomato settlement workbook, base64-encoded. The server reads the outlet and the cycle from the file, then rejects it when the platform outlet id or the cycle dates do not match the request. Nothing from a rejected file is stored, and the attempt is logged with status `rejected_mismatch`. After 3 mismatches for the same request the status is `needs_owner`. The response is 422 with code `file_identity`. A different restaurant name or city is stored with the file and written as a warning. Orders are upserted on platform, outlet, and order id. A changed settlement replaces the current row and keeps the previous one. Adjustments for that cycle are replaced together. A check that misses the platform's own total is logged and does not change the stored order. The bank reference is stored as the last four characters. Zomato customer ids are stored only as a salted hash. If `CUSTOMER_HASH_SALT` is not set, the warning is `Customer hashes were not stored because CUSTOMER_HASH_SALT is not set.`
+Sends one Swiggy invoice annexure or Zomato settlement workbook, base64-encoded. The server reads the outlet and the cycle from the file, then rejects it when the platform outlet id or the cycle dates do not match the request. Nothing from a rejected file is stored. An identity mismatch is logged with status `rejected_mismatch`. `attempt` may be sent and is ignored. The third identity mismatch for that outlet and platform in 24 hours pauses fetching until a platform admin clears it. The mismatch response is 422 with code `file_identity`. While paused, the upload is 423 with code `fetch_held` and the file is not stored. A different restaurant name or city is stored with the file and written as a warning. Orders are upserted on platform, outlet, and order id. A changed settlement replaces the current row and keeps the previous one. Adjustments for that cycle are replaced together. A check that misses the platform's own total is logged and does not change the stored order. The bank reference is stored as the last four characters. Zomato customer ids are stored only as a salted hash. If `CUSTOMER_HASH_SALT` is not set, the warning is `Customer hashes were not stored because CUSTOMER_HASH_SALT is not set.`
 
 ```json
 {

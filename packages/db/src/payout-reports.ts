@@ -1,11 +1,6 @@
 import { createHash } from "node:crypto";
 import type { IngestPayoutReportInput } from "@rakazo/contracts";
-import {
-  checkObservedIdentity,
-  FILE_IDENTITY_ATTEMPT_LIMIT,
-  missingPlatformIdReason,
-  utcMidnight,
-} from "@rakazo/contracts";
+import { checkObservedIdentity, missingPlatformIdReason, utcMidnight } from "@rakazo/contracts";
 import type {
   ParsedPayoutFile,
   ParsedPayoutOrder,
@@ -13,6 +8,7 @@ import type {
   PayoutFileRetention,
 } from "@rakazo/contracts/payout";
 import type { PrismaClient } from "./client.js";
+import { assertFetchOpen, noteIdentityMismatch } from "./fetch-holds.js";
 import type { Prisma } from "./generated/prisma/client.js";
 import type { RestaurantScope } from "./restaurant-agent.js";
 import { lockMetricWindow, RestaurantAgentError } from "./restaurant-agent.js";
@@ -31,7 +27,7 @@ export interface IngestPayoutOptions {
 
 export interface IngestPayoutReportResult {
   fetchId: string;
-  status: "stored" | "skipped" | "rejected_mismatch" | "needs_owner";
+  status: "stored" | "skipped" | "rejected_mismatch" | "parse_failed" | "missing_platform_id";
   reason: string | null;
   orders: number;
   adjustments: number;
@@ -56,6 +52,7 @@ export async function ingestPayoutReport(
   if (!outlet) {
     throw new RestaurantAgentError("unknown_outlet", 422, "Outlet is not part of this restaurant.");
   }
+  await assertFetchOpen(db, scope, input.outletId, input.platform);
   const payoutFile = await import("@rakazo/contracts/payout");
   const digest = createHash("sha256").update(input.file).digest("hex");
   const requestedStart = utcMidnight(input.periodStart);
@@ -76,14 +73,14 @@ export async function ingestPayoutReport(
     const fetch = await db.metricFetch.create({
       data: fetchData(scope, input, {
         ...base,
-        status: "rejected_mismatch",
+        status: "missing_platform_id",
         digest,
         attempt: input.attempt ?? 1,
         reason,
         observed: null,
       }),
     });
-    return emptyResult(fetch.id, "rejected_mismatch", reason);
+    return emptyResult(fetch.id, "missing_platform_id", reason);
   }
 
   const salt = options.salt === undefined ? customerHashSalt() : options.salt;
@@ -92,14 +89,14 @@ export async function ingestPayoutReport(
     const fetch = await db.metricFetch.create({
       data: fetchData(scope, input, {
         ...base,
-        status: "rejected_mismatch",
+        status: "parse_failed",
         digest,
         attempt: input.attempt ?? 1,
         reason: parsed.reason,
         observed: parsed.observed,
       }),
     });
-    return emptyResult(fetch.id, "rejected_mismatch", parsed.reason);
+    return emptyResult(fetch.id, "parse_failed", parsed.reason);
   }
 
   const identity = checkObservedIdentity(parsed.payout.observed, {
@@ -113,29 +110,19 @@ export async function ingestPayoutReport(
   });
   const warnings = [...parsed.payout.warnings, ...identity.warnings];
   if (identity.reject) {
-    const prior = await db.metricFetch.count({
-      where: {
-        outletId: input.outletId,
-        platform: input.platform,
-        reportKind: "payout",
-        requestedPeriodStart: requestedStart,
-        requestedPeriodEnd: requestedEnd,
-        status: { in: ["rejected_mismatch", "needs_owner"] },
-      },
-    });
-    const attempt = input.attempt ?? prior + 1;
-    const status = attempt >= FILE_IDENTITY_ATTEMPT_LIMIT ? "needs_owner" : "rejected_mismatch";
     const fetch = await db.metricFetch.create({
       data: fetchData(scope, input, {
         ...base,
-        status,
+        status: "rejected_mismatch",
         digest,
-        attempt,
+        attempt: input.attempt ?? 1,
         reason: identity.reject,
         observed: parsed.payout.observed,
+        identityMismatch: true,
       }),
     });
-    return emptyResult(fetch.id, status, identity.reject);
+    await noteIdentityMismatch(db, scope, input.outletId, input.platform);
+    return emptyResult(fetch.id, "rejected_mismatch", identity.reject);
   }
 
   const payout = parsed.payout;
@@ -512,6 +499,7 @@ function fetchData(
     } | null;
     capturedAt: Date;
     parserVersion: string;
+    identityMismatch?: boolean;
   },
 ) {
   const first = details.observed?.periods[0];
@@ -537,6 +525,7 @@ function fetchData(
     sha256: details.digest,
     rawSha256: input.rawSha256 ?? null,
     attemptCount: details.attempt,
+    identityMismatch: details.identityMismatch ?? null,
     source: input.source,
     parserVersion: details.parserVersion,
     reason: details.reason,

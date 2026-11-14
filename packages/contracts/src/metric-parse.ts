@@ -72,7 +72,13 @@ export type ReportEvaluation =
       /** Name, city, or area differed. The file is still stored. */
       warnings: string[];
     }
-  | { ok: false; reason: string; observed: ObservedReportIdentity | null };
+  | {
+      ok: false;
+      reason: string;
+      observed: ObservedReportIdentity | null;
+      /** True only when the outlet or the window did not match. A parse failure is false. */
+      identity: boolean;
+    };
 
 const SWIGGY_HEADER = ["Restaurant ID", "Restaurant name", "Area", "City", "Overview", "Metric"];
 const ZOMATO_HEADER = ["Restaurant ID", "Restaurant name", "Subzone", "City", "Overview", "Metric"];
@@ -195,39 +201,40 @@ export function checkObservedIdentity(
   return { reject: null, warnings };
 }
 
+function rejectedReport(
+  reason: string,
+  observed: ObservedReportIdentity | null,
+  identity = false,
+): ReportEvaluation {
+  return { ok: false, reason, observed, identity };
+}
+
 export function evaluateBusinessReport(
   csv: string,
   expected: ExpectedReportIdentity,
 ): ReportEvaluation {
   if (expected.report === "payout") {
-    return {
-      ok: false,
-      reason:
-        "Payout files are spreadsheets. Extract the outlet and the period, then call checkObservedIdentity.",
-      observed: null,
-    };
+    return rejectedReport(
+      "Payout files are spreadsheets. Extract the outlet and the period, then call checkObservedIdentity.",
+      null,
+    );
   }
   const table = parseCsv(csv);
   const header = table[0];
-  if (!header) return { ok: false, reason: "The file has no header.", observed: null };
+  if (!header) return rejectedReport("The file has no header.", null);
   const prefix = expected.platform === "swiggy" ? SWIGGY_HEADER : ZOMATO_HEADER;
   if (prefix.some((name, index) => header[index]?.trim() !== name)) {
-    return {
-      ok: false,
-      reason: `This file is not a ${expected.platform} business report.`,
-      observed: null,
-    };
+    return rejectedReport(`This file is not a ${expected.platform} business report.`, null);
   }
   const periods: ReportPeriod[] = [];
   for (const label of header.slice(prefix.length)) {
     const period = parsePeriodLabel(label.trim(), expected);
     if (!period) {
-      return { ok: false, reason: `Could not read a date from "${label.trim()}".`, observed: null };
+      return rejectedReport(`Could not read a date from "${label.trim()}".`, null);
     }
     periods.push(period);
   }
-  if (periods.length === 0)
-    return { ok: false, reason: "The file has no date columns.", observed: null };
+  if (periods.length === 0) return rejectedReport("The file has no date columns.", null);
 
   const identities = new Set<string>();
   const grid: Array<{ section: string; metric: string; cells: Cell[] }> = [];
@@ -254,12 +261,12 @@ export function evaluateBusinessReport(
     city: (first?.[3] ?? "").trim(),
     periods,
   };
-  if (!first) return { ok: false, reason: "The file has no metric rows.", observed };
+  if (!first) return rejectedReport("The file has no metric rows.", observed);
   if (identities.size !== 1) {
-    return { ok: false, reason: "The file contains more than one restaurant.", observed };
+    return rejectedReport("The file contains more than one restaurant.", observed);
   }
   const identity = checkObservedIdentity(observed, expected);
-  if (identity.reject) return { ok: false, reason: identity.reject, observed };
+  if (identity.reject) return rejectedReport(identity.reject, observed, true);
 
   const rows: ParsedMetricRow[] = [];
   const items: ParsedWindowItem[] = [];

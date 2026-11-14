@@ -208,17 +208,8 @@ export function restaurantAgentRoutes(options: RestaurantAgentRouteOptions) {
         { ...input, file },
         { retention: payoutRetention(options.objectStorage) },
       );
-      if (result.status === "rejected_mismatch" || result.status === "needs_owner") {
-        return c.json(
-          {
-            error: result.reason ?? "The file does not match the requested outlet.",
-            code: "file_identity",
-            fetchId: result.fetchId,
-            status: result.status,
-          },
-          422,
-        );
-      }
+      const rejected = rejectedFile(c, result);
+      if (rejected) return rejected;
       return c.json(result);
     } catch (error) {
       return agentFailure(c, error);
@@ -229,17 +220,8 @@ export function restaurantAgentRoutes(options: RestaurantAgentRouteOptions) {
     try {
       const input = IngestMetricReportSchema.parse(await readJson(c));
       const result = await ingestBusinessReport(options.prisma, scopeOf(c), input);
-      if (result.status === "rejected_mismatch" || result.status === "needs_owner") {
-        return c.json(
-          {
-            error: result.reason ?? "The file does not match the requested outlet.",
-            code: "file_identity",
-            fetchId: result.fetchId,
-            status: result.status,
-          },
-          422,
-        );
-      }
+      const rejected = rejectedFile(c, result);
+      if (rejected) return rejected;
       return c.json(result);
     } catch (error) {
       return agentFailure(c, error);
@@ -486,12 +468,14 @@ async function readJson(c: Context): Promise<unknown> {
   }
 }
 
-function agentError(
-  c: Context,
-  status: 400 | 401 | 403 | 404 | 409 | 413 | 422 | 503,
-  code: string,
-  error: string,
-) {
+const AGENT_STATUSES = [400, 401, 403, 404, 409, 413, 422, 423, 503] as const;
+type AgentHttpStatus = (typeof AGENT_STATUSES)[number];
+
+function isAgentStatus(status: number): status is AgentHttpStatus {
+  return (AGENT_STATUSES as readonly number[]).includes(status);
+}
+
+function agentError(c: Context, status: AgentHttpStatus, code: string, error: string) {
   return c.json({ error, code }, status);
 }
 
@@ -507,8 +491,32 @@ function agentFailure(c: Context, error: unknown) {
     return agentError(c, 400, "invalid_body", message);
   }
   const known = error instanceof RestaurantAgentError ? error : outletFailure(error);
-  if (known) return agentError(c, known.status as 400, known.code, known.message);
+  if (known && isAgentStatus(known.status)) {
+    return agentError(c, known.status, known.code, known.message);
+  }
   throw error;
+}
+
+function rejectedFile(
+  c: Context,
+  result: { status: string; reason: string | null; fetchId: string },
+) {
+  if (
+    result.status !== "rejected_mismatch" &&
+    result.status !== "parse_failed" &&
+    result.status !== "missing_platform_id"
+  ) {
+    return null;
+  }
+  return c.json(
+    {
+      error: result.reason ?? "The file does not match the requested outlet.",
+      code: "file_identity",
+      fetchId: result.fetchId,
+      status: result.status,
+    },
+    422,
+  );
 }
 
 function isSchemaError(
