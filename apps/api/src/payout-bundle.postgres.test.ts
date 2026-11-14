@@ -154,9 +154,8 @@ describePostgres("built payout server", () => {
 
     const dir = await mkdtemp(path.join(tmpdir(), "payout-bundle-"));
     const portFile = path.join(dir, "port");
-    child = spawn("node", ["dist/payout-bundle-server.js"], {
+    child = spawn("node", ["dist/payout-bundle-server.js", portFile], {
       cwd: apiRoot,
-      env: { ...process.env, PAYOUT_BUNDLE_PORT_FILE: portFile },
       stdio: ["ignore", "inherit", "inherit"],
     });
     const deadline = Date.now() + 20_000;

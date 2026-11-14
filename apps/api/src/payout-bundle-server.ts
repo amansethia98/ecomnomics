@@ -6,8 +6,8 @@ import { restaurantAgentRoutes } from "./restaurant-agent-routes.js";
 // Built with the production server bundler. Booting this file is how the payout
 // suite checks that a workbook dependency resolves from the built output.
 const databaseUrl = process.env.DATABASE_URL;
-const portFile = process.env.PAYOUT_BUNDLE_PORT_FILE;
-if (!databaseUrl || !portFile) throw new Error("Missing DATABASE_URL or PAYOUT_BUNDLE_PORT_FILE");
+const portFile = process.argv[2];
+if (!databaseUrl || !portFile) throw new Error("Missing DATABASE_URL or the port file path");
 
 const db = createDb(databaseUrl, { applicationName: "payout-bundle" });
 const app = restaurantAgentRoutes({
