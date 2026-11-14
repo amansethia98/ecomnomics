@@ -837,7 +837,8 @@ function emitItems(
   });
 }
 
-function parsePeriodLabel(
+/** Reads one business-report column label into an inclusive start and exclusive end. */
+export function parsePeriodLabel(
   label: string,
   expected: ExpectedReportIdentity,
 ): ReportPeriod | undefined {

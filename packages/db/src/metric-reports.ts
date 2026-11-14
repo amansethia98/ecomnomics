@@ -427,6 +427,7 @@ function fetchData(
     observedPeriodEnd: last ? utcMidnight(last.end) : null,
     observedLabels: details.observed?.periods.map((period) => period.label).join(", ") ?? null,
     sha256: details.digest,
+    rawSha256: input.rawSha256 ?? null,
     attemptCount: details.attempt,
     source: input.source,
     parserVersion: METRIC_PARSER_VERSION,

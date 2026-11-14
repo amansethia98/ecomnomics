@@ -2861,7 +2861,8 @@ model MetricFetch {
   outlet                Outlet    @relation(fields: [outletId, spaceId], references: [id, spaceId], onDelete: Cascade)
   platform              String
   reportKind            String
-  /// stored, skipped, rejected_mismatch, or needs_owner.
+  /// stored, skipped, rejected_mismatch, needs_owner, or a log with no file:
+  /// signed_out, download_failed, ui_changed, local_mismatch, missing_platform_id.
   status                String
   requestedRestaurantId String?
   requestedName         String?
@@ -2874,7 +2875,10 @@ model MetricFetch {
   observedPeriodStart   DateTime?
   observedPeriodEnd     DateTime?
   observedLabels        String?   @db.Text
-  sha256                String
+  /// Hash of the parsed content. Null on a log row, which has no file.
+  sha256                String?
+  /// Hash of the raw downloaded bytes, when the agent sends one.
+  rawSha256             String?
   attemptCount          Int
   source                String
   parserVersion         String
@@ -2892,6 +2896,7 @@ model MetricFetch {
   @@index([spaceId, createdAt], map: "metric_fetches_space_idx")
   @@index([outletId, platform, requestedPeriodStart], map: "metric_fetches_window_idx")
   @@index([restaurantId, outletId, platform, requestedPeriodStart], map: "metric_fetches_owner_read_idx")
+  @@index([restaurantId, outletId, platform, reportKind, requestedPeriodStart, rawSha256], map: "metric_fetches_raw_sha_idx")
   @@map("metric_fetches")
 }
 

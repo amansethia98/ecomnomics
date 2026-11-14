@@ -535,6 +535,7 @@ function fetchData(
     observedPeriodEnd: last ? utcMidnight(last.end) : null,
     observedLabels: "payout",
     sha256: details.digest,
+    rawSha256: input.rawSha256 ?? null,
     attemptCount: details.attempt,
     source: input.source,
     parserVersion: details.parserVersion,

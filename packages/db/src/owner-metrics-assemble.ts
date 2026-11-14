@@ -272,12 +272,21 @@ function resolveOutlets(
   });
 }
 
-function uncoveredDays(
-  input: OwnerMetricsInput,
+/** Days that already have a stored figure, a stored fetch, or a payout order. */
+export function coveredCivilDays(
+  input: {
+    facts: readonly OwnerMetricFact[];
+    fetches: readonly OwnerFetchSpan[];
+    orders: readonly Pick<
+      OwnerOrderFact,
+      "outletId" | "platform" | "orderDate" | "settlementDate"
+    >[];
+    basis: "order_date" | "settlement_date";
+  },
   outletId: string,
   days: readonly string[],
   platforms: readonly MetricPlatform[],
-): string[] {
+): Set<string> {
   const covered = new Set<string>();
   for (const fact of input.facts) {
     if (fact.outletId !== outletId || !platforms.includes(fact.platform)) continue;
@@ -293,9 +302,29 @@ function uncoveredDays(
   }
   for (const order of input.orders) {
     if (order.outletId !== outletId || !platforms.includes(order.platform)) continue;
-    const date = input.query.basis === "settlement_date" ? order.settlementDate : order.orderDate;
+    const date = input.basis === "settlement_date" ? order.settlementDate : order.orderDate;
     if (date) covered.add(date);
   }
+  return covered;
+}
+
+function uncoveredDays(
+  input: OwnerMetricsInput,
+  outletId: string,
+  days: readonly string[],
+  platforms: readonly MetricPlatform[],
+): string[] {
+  const covered = coveredCivilDays(
+    {
+      facts: input.facts,
+      fetches: input.fetches,
+      orders: input.orders,
+      basis: input.query.basis,
+    },
+    outletId,
+    days,
+    platforms,
+  );
   return days.filter((day) => !covered.has(day));
 }
 
@@ -1021,6 +1050,27 @@ function keysBehind(key: string): Set<string> {
   return keys;
 }
 
+/** Latest Swiggy lag-banner value inside [from, to). Null when none is stored. */
+export function latestLagBanner(
+  facts: readonly Pick<
+    OwnerMetricFact,
+    "outletId" | "platform" | "key" | "date" | "value" | "valueBoolean"
+  >[],
+  outletIds: ReadonlySet<string>,
+  from: string,
+  to: string,
+): boolean | null {
+  let latest: { date: string; value: boolean } | undefined;
+  for (const fact of facts) {
+    if (fact.key !== "lag_banner" || fact.platform !== "swiggy") continue;
+    if (!outletIds.has(fact.outletId) || fact.date < from || fact.date >= to) continue;
+    const value = fact.valueBoolean ?? (fact.value == null ? null : fact.value !== 0);
+    if (value == null) continue;
+    if (!latest || fact.date >= latest.date) latest = { date: fact.date, value };
+  }
+  return latest ? latest.value : null;
+}
+
 function lagBanner(
   input: OwnerMetricsInput,
   from: string,
@@ -1028,15 +1078,7 @@ function lagBanner(
   included: ReadonlySet<string>,
 ): boolean | null {
   if (input.query.platform === "zomato") return null;
-  let latest: { date: string; value: boolean } | undefined;
-  for (const fact of input.facts) {
-    if (fact.key !== "lag_banner" || fact.platform !== "swiggy") continue;
-    if (!included.has(fact.outletId) || fact.date < from || fact.date >= to) continue;
-    const value = fact.valueBoolean ?? (fact.value == null ? null : fact.value !== 0);
-    if (value == null) continue;
-    if (!latest || fact.date >= latest.date) latest = { date: fact.date, value };
-  }
-  return latest ? latest.value : null;
+  return latestLagBanner(input.facts, included, from, to);
 }
 
 function settlementsIn(
