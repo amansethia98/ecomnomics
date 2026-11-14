@@ -36,21 +36,21 @@ Authorization: Bearer $RESTAURANT_AGENT_TOKEN
 
 Every error is JSON: `{ "error": "<sentence>", "code": "<code>" }`.
 
-| HTTP | code                          | When                                                                                                                  |
-| ---- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| 401  | `unauthorized`                | No token, or the token is unknown or revoked.                                                                         |
-| 400  | `invalid_body`                | The JSON does not match the shape below.                                                                              |
-| 400  | `unknown_metric_key`          | A metric row uses a key that is not in the list. The sentence names the key and the allowed keys. Nothing is written. |
-| 422  | `unknown_outlet`              | `outletId` is missing or belongs to another restaurant. Both cases use the same sentence.                             |
+| HTTP | code                          | When                                                                                                                    |
+| ---- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 401  | `unauthorized`                | No token, or the token is unknown or revoked.                                                                           |
+| 400  | `invalid_body`                | The JSON does not match the shape below.                                                                                |
+| 400  | `unknown_metric_key`          | A metric row uses a key that is not in the list. The sentence names the key and the allowed keys. Nothing is written.   |
+| 422  | `unknown_outlet`              | `outletId` is missing or belongs to another restaurant. Both cases use the same sentence.                               |
 | 422  | `file_identity`               | A business-report file is not the requested outlet or window, or it cannot be parsed. Nothing from that file is stored. |
-| 423  | `fetch_held`                  | Fetching for this outlet and platform is paused until a platform admin clears it. The file is not stored.            |
-| 422  | `unknown_message`             | `chatMessageId` is not a message in this restaurant.                                                                  |
-| 404  | `not_found`                   | The action or file is not in this restaurant.                                                                         |
-| 409  | `invalid_transition`          | The action status is not a legal next step.                                                                           |
-| 409  | `approval_required`           | The action is not approved by a message a person in this restaurant sent.                                             |
-| 409  | `idempotency_conflict`        | `clientNonce` was already used for a different file list.                                                             |
-| 413  | `invalid_body`                | An uploaded file is larger than 20 MB.                                                                                |
-| 503  | `object_storage_unconfigured` | The request includes files and this server has no object storage. Nothing is created.                                 |
+| 423  | `fetch_held`                  | Fetching for this outlet and platform is paused until a platform admin clears it. The file is not stored.               |
+| 422  | `unknown_message`             | `chatMessageId` is not a message in this restaurant.                                                                    |
+| 404  | `not_found`                   | The action or file is not in this restaurant.                                                                           |
+| 409  | `invalid_transition`          | The action status is not a legal next step.                                                                             |
+| 409  | `approval_required`           | The action is not approved by a message a person in this restaurant sent.                                               |
+| 409  | `idempotency_conflict`        | `clientNonce` was already used for a different file list.                                                               |
+| 413  | `invalid_body`                | An uploaded file is larger than 20 MB.                                                                                  |
+| 503  | `object_storage_unconfigured` | The request includes files and this server has no object storage. Nothing is created.                                   |
 
 ## Restaurant
 
