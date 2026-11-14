@@ -18,6 +18,7 @@
     "format": "biome check --write .",
     "db:generate": "pnpm --filter @rakazo/db generate",
     "db:migrate": "pnpm --filter @rakazo/api db:migrate",
+    "db:seed-labels": "pnpm --filter @rakazo/api db:seed-labels",
     "sandbox:build": "docker build -t rakazo/computer:local infra/sandboxes/computer",
     "sandbox:boat-snapshot": "tsx packages/adapters/src/cli/build-boat-snapshot.ts",
     "sandbox:boxd-snapshot": "tsx packages/adapters/src/cli/build-boxd-snapshot.ts",

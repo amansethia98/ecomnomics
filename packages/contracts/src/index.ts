@@ -28,6 +28,8 @@ export * from "./local-settings.js";
 export * from "./markdown-text.js";
 export * from "./mcp.js";
 export * from "./mcp-app.js";
+export * from "./metric-label.js";
+export * from "./metric-label-seed.js";
 export * from "./model-backups.js";
 export * from "./model-connections.js";
 export * from "./model-headers.js";

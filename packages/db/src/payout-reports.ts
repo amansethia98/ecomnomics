@@ -10,6 +10,7 @@ import type {
 import type { PrismaClient } from "./client.js";
 import { assertFetchOpen, noteIdentityMismatch } from "./fetch-holds.js";
 import type { Prisma } from "./generated/prisma/client.js";
+import { loadLabelBook } from "./metric-labels.js";
 import { isUniqueViolation } from "./prisma-errors.js";
 import type { RestaurantScope } from "./restaurant-agent.js";
 import { lockMetricWindow, RestaurantAgentError } from "./restaurant-agent.js";
@@ -95,7 +96,12 @@ export async function ingestPayoutReport(
   const salt = options.salt === undefined ? customerHashSalt() : options.salt;
   let parsed: Awaited<ReturnType<typeof payoutFile.parsePayoutWorkbook>>;
   try {
-    parsed = await payoutFile.parsePayoutWorkbook(input.file, input.platform, salt);
+    parsed = await payoutFile.parsePayoutWorkbook(
+      input.file,
+      input.platform,
+      salt,
+      await loadLabelBook(db),
+    );
   } catch {
     parsed = { ok: false, reason: "The file is not a payout workbook.", observed: null };
   }

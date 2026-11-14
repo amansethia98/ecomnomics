@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { migrateJobQueue, unwrapEnvFromKeyManager } from "@rakazo/adapters";
 import { loadRootEnv } from "@rakazo/core/node/load-root-env";
 import {
+  createDb,
   databaseUrls,
   deployMigrations,
   provisionPlatformAdminLogin,
@@ -12,6 +13,7 @@ import {
   RUNTIME_ROLE,
   revokeRuntimeAdminAuditAccess,
   SINGLE_DATABASE_URL_WARNING,
+  seedMetricLabels,
 } from "@rakazo/db";
 
 loadRootEnv();
@@ -36,6 +38,14 @@ if (!urls.separate) {
 
 // The runtime grant covers every table. Take the audit log back: only the admin login writes it.
 await revokeRuntimeAdminAuditAccess(urls.migrationUrl);
+
+const labelOwner = createDb(urls.migrationUrl, { applicationName: "metric-label-seed" });
+try {
+  await seedMetricLabels(labelOwner.prisma);
+} finally {
+  await labelOwner.prisma.$disconnect();
+  await labelOwner.pool.end();
+}
 const adminUrl = process.env.PLATFORM_ADMIN_DATABASE_URL;
 if (adminUrl) {
   await provisionPlatformAdminLogin(urls.migrationUrl, adminUrl);

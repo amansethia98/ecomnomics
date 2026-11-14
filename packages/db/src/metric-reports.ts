@@ -16,6 +16,7 @@ import {
 import type { PrismaClient } from "./client.js";
 import { assertFetchOpen, noteIdentityMismatch } from "./fetch-holds.js";
 import type { Prisma } from "./generated/prisma/client.js";
+import { loadLabelBook } from "./metric-labels.js";
 import type { RestaurantScope } from "./restaurant-agent.js";
 import { lockMetricWindow, metricWindowLockKey, RestaurantAgentError } from "./restaurant-agent.js";
 
@@ -76,15 +77,19 @@ export async function ingestBusinessReport(
       checks: 0,
     };
   }
-  const evaluation = evaluateBusinessReport(input.csv, {
-    platform: input.platform,
-    report: input.report,
-    restaurantId,
-    name: outlet.name,
-    city: outlet.city,
-    periodStart: input.periodStart,
-    periodEnd: input.periodEnd,
-  });
+  const evaluation = evaluateBusinessReport(
+    input.csv,
+    {
+      platform: input.platform,
+      report: input.report,
+      restaurantId,
+      name: outlet.name,
+      city: outlet.city,
+      periodStart: input.periodStart,
+      periodEnd: input.periodEnd,
+    },
+    await loadLabelBook(db),
+  );
   const observed = evaluation.observed;
   const warning =
     evaluation.ok && evaluation.warnings.length > 0 ? evaluation.warnings.join(" ") : null;
