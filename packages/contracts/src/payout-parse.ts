@@ -802,10 +802,11 @@ function zomatoAdjustments(rows: string[][], book?: LabelBook): ParsedAdjustment
       continue;
     }
     if (!header || !section) continue;
+    const columns = header;
     const type = cell(
       row,
-      columnFor(book, header, "zomato.payout.order_level.adjustment_type", () =>
-        col(header, "type"),
+      columnFor(book, columns, "zomato.payout.order_level.adjustment_type", () =>
+        col(columns, "type"),
       ),
     );
     if (!type || norm(type).startsWith("total")) continue;
@@ -814,9 +815,9 @@ function zomatoAdjustments(rows: string[][], book?: LabelBook): ParsedAdjustment
         row,
         columnFor(
           book,
-          header,
+          columns,
           "zomato.payout.order_level.adjustment_amount",
-          () => col(header, "adjusted") ?? col(header, "total amount"),
+          () => col(columns, "adjusted") ?? col(columns, "total amount"),
         ),
       ),
     );
@@ -826,9 +827,9 @@ function zomatoAdjustments(rows: string[][], book?: LabelBook): ParsedAdjustment
         row,
         columnFor(
           book,
-          header,
+          columns,
           "zomato.payout.order_level.adjustment_period",
-          () => col(header, "period") ?? col(header, "deduction"),
+          () => col(columns, "period") ?? col(columns, "deduction"),
         ),
       ),
     );
@@ -839,9 +840,9 @@ function zomatoAdjustments(rows: string[][], book?: LabelBook): ParsedAdjustment
         row,
         columnFor(
           book,
-          header,
+          columns,
           "zomato.payout.order_level.adjustment_invoice",
-          () => col(header, "invoice") ?? col(header, "campaign"),
+          () => col(columns, "invoice") ?? col(columns, "campaign"),
         ),
       ).trim(),
       periodFrom: period.start,
@@ -965,29 +966,30 @@ function swiggyGrowthAdjustments(
       continue;
     }
     if (!header) continue;
+    const columns = header;
     const type = cell(
       row,
       columnFor(
         book,
-        header,
+        columns,
         "swiggy.payout_annexure.breakup.adjustment_type",
-        () => col(header, "adjustment type") ?? col(header, "type"),
+        () => col(columns, "adjustment type") ?? col(columns, "type"),
       ),
     ).trim();
     if (!type || norm(type).startsWith("total")) continue;
     const settled = rupeesToPaise(
       cell(
         row,
-        columnFor(book, header, "swiggy.payout_annexure.breakup.settled_amount", () =>
-          col(header, "settled"),
+        columnFor(book, columns, "swiggy.payout_annexure.breakup.settled_amount", () =>
+          col(columns, "settled"),
         ),
       ),
     );
     const total = rupeesToPaise(
       cell(
         row,
-        columnFor(book, header, "swiggy.payout_annexure.breakup.total_amount", () =>
-          col(header, "total amount"),
+        columnFor(book, columns, "swiggy.payout_annexure.breakup.total_amount", () =>
+          col(columns, "total amount"),
         ),
       ),
     );
@@ -997,8 +999,8 @@ function swiggyGrowthAdjustments(
     const from = parseCivilDate(
       cell(
         row,
-        columnFor(book, header, "swiggy.payout_annexure.breakup.period_from", () =>
-          col(header, "period from"),
+        columnFor(book, columns, "swiggy.payout_annexure.breakup.period_from", () =>
+          col(columns, "period from"),
         ),
       ),
       null,
@@ -1006,8 +1008,8 @@ function swiggyGrowthAdjustments(
     const to = parseCivilDate(
       cell(
         row,
-        columnFor(book, header, "swiggy.payout_annexure.breakup.period_to", () =>
-          col(header, "period to"),
+        columnFor(book, columns, "swiggy.payout_annexure.breakup.period_to", () =>
+          col(columns, "period to"),
         ),
       ),
       null,
@@ -1016,8 +1018,8 @@ function swiggyGrowthAdjustments(
       type,
       invoiceId: cell(
         row,
-        columnFor(book, header, "swiggy.payout_annexure.breakup.invoice", () =>
-          col(header, "invoice"),
+        columnFor(book, columns, "swiggy.payout_annexure.breakup.invoice", () =>
+          col(columns, "invoice"),
         ),
       ).trim(),
       periodFrom: from ?? period.start,

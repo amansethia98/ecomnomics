@@ -200,6 +200,11 @@ export const ROW_SECURITY_MODELS: ReadonlySet<string> = new Set([
   "AgentToken",
   "JobRun",
   "AdminAuditLog",
+  // Global label tables. A missing context is reported, and the policies still
+  // let every login read them.
+  "MetricLabelSlot",
+  "MetricLabelAlias",
+  "MetricLabelRegistry",
   "Page",
   "PageVersion",
 ]);
