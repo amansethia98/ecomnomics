@@ -74,14 +74,6 @@ export function slotById(book: LabelBook, slotId: string): LabelSlot {
   return slot;
 }
 
-/** Printed label and section for a business-report slot. */
-export function placedLabel(book: LabelBook, slotId: string): { section: string; label: string } {
-  const slot = slotById(book, slotId);
-  const alias = book.aliases.find((item) => item.slotId === slotId && item.role === "read");
-  if (!alias) throw new Error(`Metric label slot ${slotId} has no read alias`);
-  return { section: slot.section, label: alias.label };
-}
-
 /** Suffix after `{item}` for a dynamic row, such as ` Revenue %`. */
 export function itemSuffix(book: LabelBook, slotId: string): string {
   const alias = book.aliases.find((item) => item.slotId === slotId && item.role === "item_pattern");

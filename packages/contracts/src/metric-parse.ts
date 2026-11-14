@@ -10,7 +10,7 @@ import {
 import type { MetricGranularity, MetricKey, MetricPlatform } from "./metric-dictionary.js";
 import { requireMetric, SWIGGY_DAILY_MAX_DAYS } from "./metric-dictionary.js";
 import type { LabelBook } from "./metric-label.js";
-import { itemSuffix, normaliseLabel, placedLabel } from "./metric-label.js";
+import { itemSuffix, normaliseLabel } from "./metric-label.js";
 import { METRIC_LABEL_ALIASES, METRIC_LABEL_SLOTS } from "./metric-label-seed.js";
 
 export type ReportKind = "daily" | "weekly" | "monthly";
@@ -334,6 +334,7 @@ export function evaluateBusinessReport(
 
   const rows: ParsedMetricRow[] = [];
   const items: ParsedWindowItem[] = [];
+  const aliasSlots = book ? businessAliasSlots(book, expected.platform) : null;
   for (let index = 0; index < periods.length; index += 1) {
     const period = periods[index];
     if (!period) continue;
@@ -354,8 +355,13 @@ export function evaluateBusinessReport(
         continue;
       }
       const cell = line.cells[index];
-      const metricKey = book ? normaliseLabel(line.metric) : line.metric;
-      if (cell) cells.set(`${line.section}\t${metricKey}`, cell);
+      if (!cell) continue;
+      if (aliasSlots) {
+        const slotId = aliasSlots.get(`${line.section}\t${normaliseLabel(line.metric)}`);
+        if (slotId) cells.set(slotId, cell);
+      } else {
+        cells.set(`${line.section}\t${line.metric}`, cell);
+      }
     }
     if (expected.platform === "swiggy") emitSwiggy(expected.report, period, cells, rows, book);
     else emitZomato(expected.report, period, cells, rows, book);
@@ -437,12 +443,30 @@ for (const slot of METRIC_LABEL_SLOTS) {
   }
 }
 
+function businessAliasSlots(book: LabelBook, platform: MetricPlatform): Map<string, string> {
+  const sections = new Map<string, string>();
+  for (const slot of book.slots) {
+    if (slot.platform === platform && slot.reportKind === "business") {
+      sections.set(slot.id, slot.section);
+    }
+  }
+  const found = new Map<string, string>();
+  for (const alias of book.aliases) {
+    if (alias.role !== "read" || alias.platform !== platform || alias.reportKind !== "business") {
+      continue;
+    }
+    const section = sections.get(alias.slotId);
+    if (!section) continue;
+    found.set(`${section}\t${alias.normLabel}`, alias.slotId);
+  }
+  return found;
+}
+
 function read(column: Column, section: string, label: string): Cell | undefined {
   if (!column.book) return column.cells.get(`${section}\t${label}`);
   const slotId = businessSlotIds.get(`${column.platform}\t${section}\t${label}`);
   if (!slotId) throw new Error(`No label slot for ${column.platform} ${section} / ${label}`);
-  const placed = placedLabel(column.book, slotId);
-  return column.cells.get(`${placed.section}\t${normaliseLabel(placed.label)}`);
+  return column.cells.get(slotId);
 }
 
 function asNumber(cell: Cell | undefined): number | null {
@@ -922,10 +946,9 @@ function emitItems(
   items: ParsedWindowItem[],
   book?: LabelBook,
 ): void {
-  const top5Key = book
-    ? `${placedLabel(book, "swiggy.business.MENU.top5_items").section}\t${normaliseLabel(placedLabel(book, "swiggy.business.MENU.top5_items").label)}`
-    : "MENU\tTop Selling Items (Gross Revenue)";
-  const top5 = asPaise(cells.get(top5Key));
+  const top5 = asPaise(
+    cells.get(book ? "swiggy.business.MENU.top5_items" : "MENU\tTop Selling Items (Gross Revenue)"),
+  );
   itemCells.forEach((item, index) => {
     if (top5 == null || item.pct == null) return;
     items.push({

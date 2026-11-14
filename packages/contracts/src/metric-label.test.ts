@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import type { LabelAlias } from "./metric-label.js";
 import { labelCollisions, normaliseLabel } from "./metric-label.js";
 import { METRIC_LABEL_ALIASES, METRIC_LABEL_SLOTS, seedLabelBook } from "./metric-label-seed.js";
 import { evaluateBusinessReport, parseCsv } from "./metric-parse.js";
@@ -101,6 +102,40 @@ describe("label book parses the synthetic files the same way", () => {
     expect(evaluateBusinessReport(sheet ?? "", swiggyDaily, book)).toEqual(
       evaluateBusinessReport(sheet ?? "", swiggyDaily),
     );
+  });
+
+  it("reads a business row through a second alias for the same slot", () => {
+    const renamed = metricFixture("swiggy_daily_sample.csv").replaceAll("Net Sales", "Net Revenue");
+    const slotId = "swiggy.business.SALES.net_sales";
+    const alias: LabelAlias = {
+      id: `${slotId}#0#1`,
+      slotId,
+      platform: "swiggy",
+      reportKind: "business",
+      label: "Net Revenue",
+      normLabel: normaliseLabel("Net Revenue"),
+      matchMode: "exact",
+      includeTokens: ["net revenue"],
+      excludeTokens: [],
+      group: 0,
+      role: "read",
+      source: "admin",
+      createdBy: "label-test",
+    };
+    const original = evaluateBusinessReport(metricFixture("swiggy_daily_sample.csv"), swiggyDaily);
+    const viaAlias = evaluateBusinessReport(renamed, swiggyDaily, {
+      ...book,
+      aliases: [...book.aliases, alias],
+    });
+    const missed = evaluateBusinessReport(renamed, swiggyDaily, book);
+    expect(original.ok).toBe(true);
+    expect(viaAlias).toEqual(original);
+    expect(missed.ok).toBe(true);
+    if (!missed.ok || !original.ok) return;
+    const sales = (rows: typeof original.rows) =>
+      rows.find((row) => row.key === "swiggy_net_sales_paise" && row.periodStart === "2026-11-02");
+    expect(sales(original.rows)?.value).not.toBeNull();
+    expect(sales(missed.rows)?.value).toBeNull();
   });
 
   it("reads each payout fixture the same way", async () => {
