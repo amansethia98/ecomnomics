@@ -40,6 +40,8 @@ Every error is JSON: `{ "error": "<sentence>", "code": "<code>" }`.
 | ---- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 401  | `unauthorized`                | No token, or the token is unknown or revoked.                                                                                                                                                                                    |
 | 400  | `invalid_body`                | The JSON does not match the shape below.                                                                                                                                                                                         |
+| 400  | `raw_hash_mismatch`           | The workbook hash does not match the uploaded bytes. Nothing is stored.                                                                                                                                                          |
+| 400  | `invalid_workbook`            | The file is not a Swiggy workbook. Nothing is stored.                                                                                                                                                                            |
 | 400  | `unknown_metric_key`          | A metric row uses a key that is not in the list. The sentence names the key and the allowed keys. Nothing is written.                                                                                                            |
 | 422  | `unknown_outlet`              | `outletId` is missing or belongs to another restaurant. Both cases use the same sentence.                                                                                                                                        |
 | 422  | `file_identity`               | A business-report file is not the requested outlet, contains a period that was not requested, or cannot be parsed. Nothing from that file is stored. A requested period with no column is stored, and that period stays missing. |
@@ -50,6 +52,7 @@ Every error is JSON: `{ "error": "<sentence>", "code": "<code>" }`.
 | 409  | `approval_required`           | The action is not approved by a message a person in this restaurant sent.                                                                                                                                                        |
 | 409  | `idempotency_conflict`        | `clientNonce` was already used for a different file list.                                                                                                                                                                        |
 | 413  | `invalid_body`                | An uploaded file is larger than 20 MB.                                                                                                                                                                                           |
+| 413  | `file_too_large`              | A Swiggy business-report workbook is larger than 10 MB. Nothing is stored.                                                                                                                                                       |
 | 503  | `object_storage_unconfigured` | The request includes files and this server has no object storage. Nothing is created.                                                                                                                                            |
 
 ## Restaurant
@@ -104,11 +107,13 @@ Writes payout and other caller-supplied facts. A row whose value changed is kept
 
 `POST /agent/v1/metric-reports`
 
-Sends one Swiggy or Zomato business-report CSV. The server rejects the file when its platform outlet id does not match the id stored for that outlet, when a column is a period that was not requested, repeated, or out of order, or when the file contains none of the requested periods. Nothing from a rejected file is stored. A file whose columns are requested periods in order is stored when one or more requested periods are absent. The warning is `The file is missing <periods>.` Those periods are not stored as zero, and a later metrics read shows them as missing days. The fetch plan keeps an absent day in the backfill until a later file for that window contains it. An identity mismatch is logged with status `rejected_mismatch`. A file that cannot be parsed is logged with status `parse_failed` and does not count. `attempt` may be sent and is ignored. The server counts identity mismatches for that outlet and platform over the last 24 hours, including log rows with status `local_mismatch`. A `rejected_mismatch` row stored before this rule is not counted, because that status was also used for files that could not be parsed. The third one pauses fetching until a platform admin clears it. The mismatch response is 422 with code `file_identity`. While paused, the upload is 423 with code `fetch_held` and the file is not stored. `GET /agent/v1/fetches` includes `holds`, and `GET /agent/v1/fetch-plan` sets `held` and returns no windows for a paused platform. A different restaurant name, city, or area is stored with the file and written as a warning on that fetch. An outlet with no platform id is rejected with `This outlet has no Swiggy restaurant id. The file was not stored.` or the Zomato sentence. The name is not used as a fallback.
+Sends one Swiggy or Zomato business-report CSV, or a Swiggy workbook. The server rejects the file when its platform outlet id does not match the id stored for that outlet, when a column is a period that was not requested, repeated, or out of order, or when the file contains none of the requested periods. Nothing from a rejected file is stored. A file whose columns are requested periods in order is stored when one or more requested periods are absent. The warning is `The file is missing <periods>.` Those periods are not stored as zero, and a later metrics read shows them as missing days. The fetch plan keeps an absent day in the backfill until a later file for that window contains it. An identity mismatch is logged with status `rejected_mismatch`. A file that cannot be parsed is logged with status `parse_failed` and does not count. `attempt` may be sent and is ignored. The server counts identity mismatches for that outlet and platform over the last 24 hours, including log rows with status `local_mismatch`. A `rejected_mismatch` row stored before this rule is not counted, because that status was also used for files that could not be parsed. The third one pauses fetching until a platform admin clears it. The mismatch response is 422 with code `file_identity`. While paused, the upload is 423 with code `fetch_held` and the file is not stored. `GET /agent/v1/fetches` includes `holds`, and `GET /agent/v1/fetch-plan` sets `held` and returns no windows for a paused platform. A different restaurant name, city, or area is stored with the file and written as a warning on that fetch. An outlet with no platform id is rejected with `This outlet has no Swiggy restaurant id. The file was not stored.` or the Zomato sentence. The name is not used as a fallback.
 
 A daily file replaces each present day in its window for that platform. A key missing from a present day is superseded to null. A requested day with no column is left missing and is not superseded to null. A weekly or monthly file stores the platform's own figures for that window and does not overwrite daily facts. When those figures disagree with the rebuilt days, the disagreement is logged and the stored days stay as they are.
 
 Swiggy Daily accepts at most 7 days per file. Split a backfill into chunks of 7 days or fewer.
+
+A Swiggy file may be a workbook instead of a CSV. Set `format` to `xlsx`, send the file as `fileBase64`, and set `rawSha256` to the hash of those file bytes. Leave `csv` out. The server checks the hash, reads the first sheet as text, and then uses the same outlet, period, and gap checks as a CSV. It does not calculate formulas, and it does not store the file. A workbook larger than 10 MB is `413` with code `file_too_large` and the sentence `The workbook is larger than 10 MB.` A hash that does not match the bytes is `400` with code `raw_hash_mismatch` and the sentence `The file hash does not match the uploaded bytes.` A file that is not a workbook is `400` with code `invalid_workbook` and the sentence `This file is not a Swiggy workbook.` Zomato stays CSV.
 
 ```json
 {
@@ -118,6 +123,22 @@ Swiggy Daily accepts at most 7 days per file. Split a backfill into chunks of 7 
   "periodStart": "2026-11-02",
   "periodEnd": "2026-11-09",
   "csv": "Restaurant ID,Restaurant name,...",
+  "runId": "fetch-1",
+  "source": "business-report",
+  "capturedAt": "2026-11-09T05:00:00.000Z"
+}
+```
+
+```json
+{
+  "outletId": "ck...",
+  "platform": "swiggy",
+  "report": "daily",
+  "format": "xlsx",
+  "periodStart": "2026-11-02",
+  "periodEnd": "2026-11-09",
+  "fileBase64": "...",
+  "rawSha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "runId": "fetch-1",
   "source": "business-report",
   "capturedAt": "2026-11-09T05:00:00.000Z"
