@@ -170,6 +170,28 @@ export function createPlatformAdminStore(db: PrismaClient) {
         return row ? present(row) : null;
       });
     },
+    async clearFetchHold(
+      restaurantId: string,
+      outletId: string,
+      platform: "zomato" | "swiggy",
+      audit: PlatformAdminAudit,
+    ): Promise<{ outletId: string; platform: "zomato" | "swiggy"; clearedAt: string } | null> {
+      return runAsPlatformAdmin(audit.adminUserId, async () => {
+        await db.adminAuditLog.create({ data: { ...audit, ip: audit.ip?.slice(0, 64) ?? null } });
+        const hold = await db.fetchHold.findFirst({
+          where: { restaurantId, outletId, platform, clearedAt: null },
+          select: { id: true },
+        });
+        if (!hold) return null;
+        const cleared = await db.fetchHold.update({
+          where: { id: hold.id },
+          data: { clearedAt: new Date(), clearedBy: audit.adminUserId },
+          select: { clearedAt: true },
+        });
+        if (!cleared.clearedAt) return null;
+        return { outletId, platform, clearedAt: cleared.clearedAt.toISOString() };
+      });
+    },
   };
 }
 

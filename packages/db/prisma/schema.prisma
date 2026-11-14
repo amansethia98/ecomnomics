@@ -2778,6 +2778,7 @@ model Restaurant {
   actions        Action[]
   tokens         AgentToken[]
   jobRuns        JobRun[]
+  fetchHolds     FetchHold[]
 
   @@unique([id, spaceId])
   @@map("restaurants")
@@ -2807,6 +2808,7 @@ model Outlet {
   reports             Report[]
   actions             Action[]
   jobRuns             JobRun[]
+  fetchHolds          FetchHold[]
 
   @@unique([id, spaceId])
   @@index([spaceId])
@@ -2861,8 +2863,10 @@ model MetricFetch {
   outlet                Outlet    @relation(fields: [outletId, spaceId], references: [id, spaceId], onDelete: Cascade)
   platform              String
   reportKind            String
-  /// stored, skipped, rejected_mismatch, needs_owner, or a log with no file:
-  /// signed_out, download_failed, ui_changed, local_mismatch, missing_platform_id.
+  /// stored, skipped, rejected_mismatch, needs_owner, parse_failed, or a log
+  /// with no file: signed_out, download_failed, ui_changed, local_mismatch,
+  /// missing_platform_id. Only rejected_mismatch and local_mismatch count
+  /// toward the hold.
   status                String
   requestedRestaurantId String?
   requestedName         String?
@@ -2898,6 +2902,24 @@ model MetricFetch {
   @@index([restaurantId, outletId, platform, requestedPeriodStart], map: "metric_fetches_owner_read_idx")
   @@index([restaurantId, outletId, platform, reportKind, requestedPeriodStart, rawSha256], map: "metric_fetches_raw_sha_idx")
   @@map("metric_fetches")
+}
+
+/// Pauses fetching for one outlet and one platform until a platform admin clears it.
+model FetchHold {
+  id           String    @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId      String
+  outletId     String
+  outlet       Outlet    @relation(fields: [outletId, spaceId], references: [id, spaceId], onDelete: Cascade)
+  platform     String
+  reason       String
+  createdAt    DateTime  @default(now())
+  clearedAt    DateTime?
+  clearedBy    String?
+
+  @@index([restaurantId, outletId, platform], map: "fetch_holds_outlet_idx")
+  @@map("fetch_holds")
 }
 
 /// A rebuilt figure compared with the platform's own figure. A failure never overwrites the stored value.

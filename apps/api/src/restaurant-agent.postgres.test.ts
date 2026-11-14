@@ -952,8 +952,14 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
       platforms: Array<{ platform: string; platformId: string | null; reason: string | null }>;
     };
     expect(otherBody.platforms).toEqual([
-      expect.objectContaining({ platform: "zomato", platformId: "z-2", reason: null }),
-      { platform: "swiggy", platformId: null, reason: "missing_platform_id", windows: [] },
+      expect.objectContaining({ platform: "zomato", platformId: "z-2", reason: null, held: false }),
+      {
+        platform: "swiggy",
+        platformId: null,
+        reason: "missing_platform_id",
+        held: false,
+        windows: [],
+      },
     ]);
     expect(JSON.stringify(otherBody)).not.toContain("z-1");
     expect(JSON.stringify(otherBody)).not.toContain("s-1");
@@ -965,8 +971,20 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
     );
     expect(await bare.json()).toMatchObject({
       platforms: [
-        { platform: "zomato", platformId: null, reason: "missing_platform_id", windows: [] },
-        { platform: "swiggy", platformId: null, reason: "missing_platform_id", windows: [] },
+        {
+          platform: "zomato",
+          platformId: null,
+          reason: "missing_platform_id",
+          held: false,
+          windows: [],
+        },
+        {
+          platform: "swiggy",
+          platformId: null,
+          reason: "missing_platform_id",
+          held: false,
+          windows: [],
+        },
       ],
     });
 
@@ -1297,7 +1315,13 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
       `/agent/v1/fetches?outletId=${kitchen.id}&since=2099-01-01T00:00:00.000Z`,
       tokenA,
     );
-    expect(await future.json()).toEqual({ fetches: [] });
+    expect(await future.json()).toEqual({
+      fetches: [],
+      holds: [
+        { platform: "zomato", held: false, reason: null, createdAt: null },
+        { platform: "swiggy", held: false, reason: null, createdAt: null },
+      ],
+    });
     const tooMany = await call("GET", `/agent/v1/fetches?outletId=${kitchen.id}&limit=201`, tokenA);
     expect(tooMany.status).toBe(400);
 
@@ -1402,5 +1426,291 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
         periodEnd: "2026-10-01",
       },
     ]);
+  });
+
+  async function restaurantA(): Promise<string> {
+    const parent = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.outlet.findFirst({ where: { id: outletA }, select: { restaurantId: true } }),
+    );
+    return parent?.restaurantId ?? "";
+  }
+
+  async function holdState(token: string, outletId: string, platform: string) {
+    const response = await call("GET", `/agent/v1/fetches?outletId=${outletId}`, token);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      holds: Array<{
+        platform: string;
+        held: boolean;
+        reason: string | null;
+        createdAt: string | null;
+      }>;
+    };
+    return body.holds.find((hold) => hold.platform === platform);
+  }
+
+  const sampleCsv = () =>
+    readFile(
+      new URL(
+        "../../../packages/contracts/fixtures/metrics/zomato_daily_sample.csv",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+
+  it("holds fetching after three identity mismatches and ignores attempt", async () => {
+    const outlet = await createOutlet(ownerDb, await restaurantA(), {
+      name: "Test Kitchen",
+      city: "Testcity",
+      zomatoResId: "900002",
+      swiggyRid: `hold-${suffix}`.slice(0, 64),
+    });
+    const csv = await sampleCsv();
+    const post = (periodStart: string, periodEnd: string, attempt?: number) =>
+      call("POST", "/agent/v1/metric-reports", tokenA, {
+        outletId: outlet.id,
+        platform: "zomato",
+        report: "daily",
+        periodStart,
+        periodEnd,
+        csv,
+        ...(attempt === undefined ? {} : { attempt }),
+        runId: `hold-${suffix}`,
+        source: "export",
+        capturedAt: "2026-11-12T05:00:00.000Z",
+      });
+
+    const first = await post("2026-09-01", "2026-09-08", 3);
+    expect(first.status).toBe(422);
+    expect(await first.json()).toMatchObject({
+      code: "file_identity",
+      status: "rejected_mismatch",
+    });
+    expect(await holdState(tokenA, outlet.id, "zomato")).toMatchObject({ held: false });
+
+    const second = await post("2026-09-01", "2026-09-08");
+    expect(second.status).toBe(422);
+    expect(await holdState(tokenA, outlet.id, "zomato")).toMatchObject({ held: false });
+
+    const stored = await post("2026-10-01", "2026-10-08");
+    expect(stored.status).toBe(200);
+    expect(await holdState(tokenA, outlet.id, "zomato")).toMatchObject({ held: false });
+
+    const third = await post("2026-09-01", "2026-09-08");
+    expect(third.status).toBe(422);
+    expect(await holdState(tokenA, outlet.id, "zomato")).toMatchObject({
+      held: true,
+      reason: "identity_mismatch",
+    });
+    expect((await holdState(tokenA, outlet.id, "zomato"))?.createdAt).toEqual(expect.any(String));
+    expect(await holdState(tokenA, outlet.id, "swiggy")).toMatchObject({ held: false });
+
+    const before = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricFetch.count({ where: { outletId: outlet.id } }),
+    );
+    const blocked = await post("2026-10-01", "2026-10-08");
+    expect(blocked.status).toBe(423);
+    expect(await blocked.json()).toMatchObject({ code: "fetch_held" });
+    const payout = await call("POST", "/agent/v1/payout-reports", tokenA, {
+      outletId: outlet.id,
+      platform: "zomato",
+      periodStart: "2026-10-26",
+      periodEnd: "2026-11-02",
+      fileBase64: Buffer.from("not a workbook").toString("base64"),
+      runId: `hold-payout-${suffix}`,
+      source: "payout-file",
+      capturedAt: "2026-11-12T05:00:00.000Z",
+    });
+    expect(payout.status).toBe(423);
+    const after = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricFetch.count({ where: { outletId: outlet.id } }),
+    );
+    expect(after).toBe(before);
+
+    const plan = await call(
+      "GET",
+      `/agent/v1/fetch-plan?outletId=${outlet.id}&date=2026-10-08`,
+      tokenA,
+    );
+    const planBody = (await plan.json()) as {
+      platforms: Array<{ platform: string; held: boolean; windows: unknown[] }>;
+    };
+    expect(planBody.platforms.find((item) => item.platform === "zomato")).toMatchObject({
+      held: true,
+      windows: [],
+    });
+    const swiggy = planBody.platforms.find((item) => item.platform === "swiggy");
+    expect(swiggy?.held).toBe(false);
+    expect(swiggy?.windows.length).toBeGreaterThan(0);
+
+    const foreignPlan = await call(
+      "GET",
+      `/agent/v1/fetch-plan?outletId=${outlet.id}&date=2026-10-08`,
+      tokenB,
+    );
+    expect(foreignPlan.status).toBe(422);
+    expect(await holdState(tokenB, outletB, "zomato")).toMatchObject({ held: false });
+    const sneak = await call("POST", "/agent/v1/metric-reports", tokenB, {
+      outletId: outlet.id,
+      platform: "zomato",
+      report: "daily",
+      periodStart: "2026-09-01",
+      periodEnd: "2026-09-08",
+      csv,
+      runId: `hold-foreign-${suffix}`,
+      source: "export",
+      capturedAt: "2026-11-12T05:00:00.000Z",
+    });
+    expect(sneak.status).toBe(422);
+    expect(await sneak.json()).toMatchObject({ code: "unknown_outlet" });
+    expect(
+      await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+        db.metricFetch.count({ where: { outletId: outlet.id } }),
+      ),
+    ).toBe(after);
+  });
+
+  it("does not hold three mismatches spread over more than 24 hours", async () => {
+    const outlet = await createOutlet(ownerDb, await restaurantA(), {
+      name: "Test Kitchen",
+      city: "Testcity",
+      zomatoResId: "900002",
+    });
+    const restaurantId = await restaurantA();
+    const ages = [25, 48];
+    await runAsSystem("old identity mismatches", () =>
+      ownerDb.metricFetch.createMany({
+        data: ages.map((hours, index) => {
+          const createdAt = new Date(Date.now() - hours * 60 * 60 * 1000);
+          return {
+            restaurantId,
+            spaceId: spaceA,
+            outletId: outlet.id,
+            platform: "zomato",
+            reportKind: "daily",
+            status: "rejected_mismatch",
+            requestedPeriodStart: new Date("2026-08-01T00:00:00.000Z"),
+            requestedPeriodEnd: new Date("2026-08-02T00:00:00.000Z"),
+            sha256: `${index + 1}`.repeat(64).slice(0, 64),
+            attemptCount: 1,
+            source: "export",
+            parserVersion: "2026-11-12.1",
+            runId: `aged-${suffix}-${index}`,
+            capturedAt: createdAt,
+            createdAt,
+          };
+        }),
+      }),
+    );
+    const csv = await sampleCsv();
+    const live = await call("POST", "/agent/v1/metric-reports", tokenA, {
+      outletId: outlet.id,
+      platform: "zomato",
+      report: "daily",
+      periodStart: "2026-09-01",
+      periodEnd: "2026-09-08",
+      csv,
+      attempt: 1,
+      runId: `aged-live-${suffix}`,
+      source: "export",
+      capturedAt: "2026-11-12T05:00:00.000Z",
+    });
+    expect(live.status).toBe(422);
+    expect(await live.json()).toMatchObject({ status: "rejected_mismatch" });
+    expect(await holdState(tokenA, outlet.id, "zomato")).toMatchObject({ held: false });
+  });
+
+  it("counts local_mismatch logs and does not count parse failures", async () => {
+    const restaurantId = await restaurantA();
+    const logged = await createOutlet(ownerDb, restaurantId, {
+      name: "Logged",
+      city: "Pune",
+      zomatoResId: "z-log",
+      swiggyRid: "s-log",
+    });
+    for (let index = 0; index < 3; index += 1) {
+      const response = await call("POST", "/agent/v1/fetches", tokenA, {
+        outletId: logged.id,
+        platform: "zomato",
+        report: "daily",
+        periodStart: "2026-10-01",
+        periodEnd: "2026-10-02",
+        runId: `local-${suffix}-${index}`,
+        status: "local_mismatch",
+        reason: "outlet_mismatch",
+      });
+      expect(response.status).toBe(201);
+    }
+    expect(await holdState(tokenA, logged.id, "zomato")).toMatchObject({
+      held: true,
+      reason: "identity_mismatch",
+    });
+    const blocked = await call("POST", "/agent/v1/metric-reports", tokenA, {
+      outletId: logged.id,
+      platform: "zomato",
+      report: "daily",
+      periodStart: "2026-10-01",
+      periodEnd: "2026-10-02",
+      csv: "not,a,report",
+      runId: `local-file-${suffix}`,
+      source: "export",
+      capturedAt: "2026-11-12T05:00:00.000Z",
+    });
+    expect(blocked.status).toBe(423);
+
+    const parsed = await createOutlet(ownerDb, restaurantId, {
+      name: "Parsed",
+      city: "Pune",
+      zomatoResId: "z-parse",
+      swiggyRid: "s-parse",
+    });
+    for (let index = 0; index < 3; index += 1) {
+      const response = await call("POST", "/agent/v1/metric-reports", tokenA, {
+        outletId: parsed.id,
+        platform: "zomato",
+        report: "daily",
+        periodStart: "2026-10-01",
+        periodEnd: "2026-10-02",
+        csv: "a,b,c\n1,2,3",
+        runId: `parse-${suffix}-${index}`,
+        source: "export",
+        capturedAt: "2026-11-12T05:00:00.000Z",
+      });
+      expect(response.status).toBe(422);
+      expect(await response.json()).toMatchObject({ status: "parse_failed" });
+    }
+    for (let index = 0; index < 3; index += 1) {
+      const response = await call("POST", "/agent/v1/fetches", tokenA, {
+        outletId: parsed.id,
+        platform: "swiggy",
+        report: "daily",
+        periodStart: "2026-10-01",
+        periodEnd: "2026-10-02",
+        runId: `other-${suffix}-${index}`,
+        status: "download_failed",
+        reason: "export_missing",
+      });
+      expect(response.status).toBe(201);
+    }
+    expect(await holdState(tokenA, parsed.id, "zomato")).toMatchObject({ held: false });
+    expect(await holdState(tokenA, parsed.id, "swiggy")).toMatchObject({ held: false });
+
+    const missing = await createOutlet(ownerDb, restaurantId, { name: "No id", city: "Pune" });
+    for (let index = 0; index < 3; index += 1) {
+      const response = await call("POST", "/agent/v1/metric-reports", tokenA, {
+        outletId: missing.id,
+        platform: "zomato",
+        report: "daily",
+        periodStart: "2026-10-01",
+        periodEnd: "2026-10-02",
+        csv: "a,b,c\n1,2,3",
+        runId: `missing-${suffix}-${index}`,
+        source: "export",
+        capturedAt: "2026-11-12T05:00:00.000Z",
+      });
+      expect(response.status).toBe(422);
+      expect(await response.json()).toMatchObject({ status: "missing_platform_id" });
+    }
+    expect(await holdState(tokenA, missing.id, "zomato")).toMatchObject({ held: false });
   });
 });

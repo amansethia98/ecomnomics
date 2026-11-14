@@ -28,6 +28,9 @@ function recordingStore() {
       audits.push(audit);
       return null;
     },
+    async clearFetchHold() {
+      return null;
+    },
   };
   return { store, audits };
 }
@@ -90,6 +93,9 @@ describe("platform admin routes", () => {
         throw new Error('relation "admin_audit_log" permission denied');
       },
       async readRestaurant() {
+        return null;
+      },
+      async clearFetchHold() {
         return null;
       },
     };

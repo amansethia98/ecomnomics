@@ -5,7 +5,6 @@ import {
   civilRangeBounds,
   comparePlatformValue,
   evaluateBusinessReport,
-  FILE_IDENTITY_ATTEMPT_LIMIT,
   indiaCivilDate,
   METRIC_PARSER_VERSION,
   missingPlatformIdReason,
@@ -15,13 +14,14 @@ import {
   utcMidnight,
 } from "@rakazo/contracts";
 import type { PrismaClient } from "./client.js";
+import { assertFetchOpen, noteIdentityMismatch } from "./fetch-holds.js";
 import type { Prisma } from "./generated/prisma/client.js";
 import type { RestaurantScope } from "./restaurant-agent.js";
 import { lockMetricWindow, metricWindowLockKey, RestaurantAgentError } from "./restaurant-agent.js";
 
 export interface IngestMetricReportResult {
   fetchId: string;
-  status: "stored" | "skipped" | "rejected_mismatch" | "needs_owner";
+  status: "stored" | "skipped" | "rejected_mismatch" | "parse_failed" | "missing_platform_id";
   reason: string | null;
   written: number;
   superseded: number;
@@ -44,6 +44,7 @@ export async function ingestBusinessReport(
   if (!outlet) {
     throw new RestaurantAgentError("unknown_outlet", 422, "Outlet is not part of this restaurant.");
   }
+  await assertFetchOpen(db, scope, input.outletId, input.platform);
   const restaurantId = input.platform === "zomato" ? outlet.zomatoResId : outlet.swiggyRid;
   const digest = sha256(input.csv);
   const requestedStart = utcMidnight(input.periodStart);
@@ -53,7 +54,7 @@ export async function ingestBusinessReport(
     const reason = missingPlatformIdReason(input.platform);
     const fetch = await db.metricFetch.create({
       data: fetchData(scope, input, {
-        status: "rejected_mismatch",
+        status: "missing_platform_id",
         digest,
         attempt: input.attempt ?? 1,
         reason,
@@ -68,7 +69,7 @@ export async function ingestBusinessReport(
     });
     return {
       fetchId: fetch.id,
-      status: "rejected_mismatch",
+      status: "missing_platform_id",
       reason,
       written: 0,
       superseded: 0,
@@ -89,23 +90,12 @@ export async function ingestBusinessReport(
     evaluation.ok && evaluation.warnings.length > 0 ? evaluation.warnings.join(" ") : null;
 
   if (!evaluation.ok) {
-    const prior = await db.metricFetch.count({
-      where: {
-        outletId: input.outletId,
-        platform: input.platform,
-        reportKind: input.report,
-        requestedPeriodStart: requestedStart,
-        requestedPeriodEnd: requestedEnd,
-        status: { in: ["rejected_mismatch", "needs_owner"] },
-      },
-    });
-    const attempt = input.attempt ?? prior + 1;
-    const status = attempt >= FILE_IDENTITY_ATTEMPT_LIMIT ? "needs_owner" : "rejected_mismatch";
+    const status = evaluation.identity ? "rejected_mismatch" : "parse_failed";
     const fetch = await db.metricFetch.create({
       data: fetchData(scope, input, {
         status,
         digest,
-        attempt,
+        attempt: input.attempt ?? 1,
         reason: evaluation.reason,
         requestedRestaurantId: restaurantId,
         requestedName: outlet.name,
@@ -116,6 +106,9 @@ export async function ingestBusinessReport(
         capturedAt,
       }),
     });
+    if (evaluation.identity) {
+      await noteIdentityMismatch(db, scope, input.outletId, input.platform);
+    }
     return {
       fetchId: fetch.id,
       status,

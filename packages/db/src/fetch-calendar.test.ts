@@ -244,13 +244,38 @@ describe("fetch calendar", () => {
   it("flags a missing platform id and does not invent windows", () => {
     const result = plan({ date: "2026-10-08", zomatoResId: "  ", swiggyRid: null });
     expect(result.platforms).toEqual([
-      { platform: "zomato", platformId: null, reason: "missing_platform_id", windows: [] },
-      { platform: "swiggy", platformId: null, reason: "missing_platform_id", windows: [] },
+      {
+        platform: "zomato",
+        platformId: null,
+        reason: "missing_platform_id",
+        held: false,
+        windows: [],
+      },
+      {
+        platform: "swiggy",
+        platformId: null,
+        reason: "missing_platform_id",
+        held: false,
+        windows: [],
+      },
     ]);
     const one = plan({ date: "2026-10-05", swiggyRid: " s-9 " });
     const swiggy = one.platforms.find((item) => item.platform === "swiggy");
     expect(swiggy?.platformId).toBe("s-9");
     expect(swiggy?.reason).toBeNull();
+    expect(swiggy?.held).toBe(false);
+    expect(swiggy?.windows.length).toBeGreaterThan(0);
+  });
+
+  it("returns no windows while a platform is held", () => {
+    const result = plan({
+      date: "2026-10-08",
+      held: new Set<"zomato" | "swiggy">(["zomato"]),
+    });
+    const zomato = result.platforms.find((item) => item.platform === "zomato");
+    expect(zomato).toMatchObject({ held: true, platformId: "z-1", windows: [] });
+    const swiggy = result.platforms.find((item) => item.platform === "swiggy");
+    expect(swiggy?.held).toBe(false);
     expect(swiggy?.windows.length).toBeGreaterThan(0);
   });
 

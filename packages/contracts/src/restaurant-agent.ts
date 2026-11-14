@@ -13,6 +13,7 @@ import {
 export type {
   CheckStoredFetchesInput,
   CheckStoredFetchesResponse,
+  FetchHoldState,
   FetchPlanPlatform,
   FetchPlanQuery,
   FetchPlanResponse,
@@ -333,6 +334,7 @@ export const IngestMetricReportSchema = z
     csv: z.string().min(1).max(1_500_000),
     /** Hash of the raw downloaded bytes. The server still hashes the csv it stores. */
     rawSha256: Sha256Schema.optional(),
+    /** Accepted for older clients. The server ignores it and counts mismatches itself. */
     attempt: z.number().int().positive().max(20).optional(),
     runId: z.string().trim().min(1).max(200),
     source: z.string().trim().min(1).max(200),
@@ -354,6 +356,7 @@ export const IngestPayoutReportSchema = z
     fileBase64: z.string().min(1).max(12_000_000),
     /** Hash of the raw downloaded bytes. The server still hashes the file it parses. */
     rawSha256: Sha256Schema.optional(),
+    /** Accepted for older clients. The server ignores it and counts mismatches itself. */
     attempt: z.number().int().positive().max(20).optional(),
     runId: z.string().trim().min(1).max(200),
     source: z.string().trim().min(1).max(200),

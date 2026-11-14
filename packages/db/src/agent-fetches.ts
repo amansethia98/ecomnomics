@@ -1,6 +1,7 @@
 import type {
   CheckStoredFetchesInput,
   CheckStoredFetchesResponse,
+  FetchHoldState,
   FetchPlanQuery,
   FetchPlanResponse,
   FetchReport,
@@ -21,6 +22,7 @@ import {
 } from "@rakazo/contracts";
 import type { PrismaClient } from "./client.js";
 import { buildFetchPlan } from "./fetch-calendar.js";
+import { noteIdentityMismatch } from "./fetch-holds.js";
 import type { Prisma } from "./generated/prisma/client.js";
 import type { RestaurantScope } from "./restaurant-agent.js";
 import { RestaurantAgentError } from "./restaurant-agent.js";
@@ -40,7 +42,7 @@ export async function readFetchPlan(
   const date = input.date ?? indiaCivilDate(new Date());
   const horizonStart = utcMidnight(addIsoDays(date, -FETCH_HORIZON_DAYS));
   const horizonEnd = utcMidnight(date);
-  const [facts, fetches, orders, cycles, banners] = await Promise.all([
+  const [facts, fetches, orders, cycles, banners, holds] = await Promise.all([
     coveredDays(db, scope, outlet.id, horizonStart, horizonEnd),
     db.metricFetch.findMany({
       where: {
@@ -94,7 +96,17 @@ export async function readFetchPlan(
       },
       select: { periodStart: true, periodEnd: true, value: true, valueBoolean: true },
     }),
+    db.fetchHold.findMany({
+      where: {
+        restaurantId: scope.restaurantId,
+        spaceId: scope.spaceId,
+        outletId: outlet.id,
+        clearedAt: null,
+      },
+      select: { platform: true },
+    }),
   ]);
+  const held = new Set(holds.flatMap((row) => (isPlatform(row.platform) ? [row.platform] : [])));
   return buildFetchPlan({
     outletId: outlet.id,
     zomatoResId: outlet.zomatoResId,
@@ -156,6 +168,7 @@ export async function readFetchPlan(
         },
       ];
     }),
+    held,
     cycles: cycles.flatMap((row) => {
       if (!isPlatform(row.platform)) return [];
       if (row.settlementStatus !== "pending" && row.settlementStatus !== "settled") return [];
@@ -246,29 +259,41 @@ export async function listMetricFetches(
   input: ListFetchesQuery,
 ): Promise<MetricFetchListResponse> {
   await loadOutlet(db, scope, input.outletId);
-  const rows = await db.metricFetch.findMany({
-    where: {
-      restaurantId: scope.restaurantId,
-      spaceId: scope.spaceId,
-      outletId: input.outletId,
-      platform: { in: [...PLATFORMS] },
-      ...(input.since ? { createdAt: { gte: new Date(input.since) } } : {}),
-    },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    take: input.limit,
-    select: {
-      id: true,
-      status: true,
-      platform: true,
-      reportKind: true,
-      requestedPeriodStart: true,
-      requestedPeriodEnd: true,
-      sha256: true,
-      reason: true,
-      createdAt: true,
-    },
-  });
+  const [rows, openHolds] = await Promise.all([
+    db.metricFetch.findMany({
+      where: {
+        restaurantId: scope.restaurantId,
+        spaceId: scope.spaceId,
+        outletId: input.outletId,
+        platform: { in: [...PLATFORMS] },
+        ...(input.since ? { createdAt: { gte: new Date(input.since) } } : {}),
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: input.limit,
+      select: {
+        id: true,
+        status: true,
+        platform: true,
+        reportKind: true,
+        requestedPeriodStart: true,
+        requestedPeriodEnd: true,
+        sha256: true,
+        reason: true,
+        createdAt: true,
+      },
+    }),
+    db.fetchHold.findMany({
+      where: {
+        restaurantId: scope.restaurantId,
+        spaceId: scope.spaceId,
+        outletId: input.outletId,
+        clearedAt: null,
+      },
+      select: { platform: true, reason: true, createdAt: true },
+    }),
+  ]);
   return {
+    holds: holdStates(openHolds),
     fetches: rows.flatMap((row) => {
       if (!isPlatform(row.platform) || !isReport(row.reportKind) || !isStatus(row.status)) {
         return [];
@@ -330,7 +355,24 @@ export async function logMetricFetch(
   if (!isLogStatus(fetch.status)) {
     throw new RestaurantAgentError("invalid_body", 400, "The fetch was not logged.");
   }
+  if (fetch.status === "local_mismatch") {
+    await noteIdentityMismatch(db, scope, outlet.id, input.platform);
+  }
   return { fetchId: fetch.id, status: fetch.status };
+}
+
+function holdStates(
+  rows: Array<{ platform: string; reason: string; createdAt: Date }>,
+): FetchHoldState[] {
+  return PLATFORMS.map((platform) => {
+    const hold = rows.find((row) => row.platform === platform);
+    return {
+      platform,
+      held: Boolean(hold),
+      reason: hold?.reason ?? null,
+      createdAt: hold?.createdAt.toISOString() ?? null,
+    };
+  });
 }
 
 async function loadOutlet(db: PrismaClient, scope: RestaurantScope, outletId: string) {

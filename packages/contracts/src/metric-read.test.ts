@@ -140,7 +140,13 @@ describe("business report parser", () => {
     const csv = fixture("swiggy_daily_sample.csv");
     const wrongId = evaluateBusinessReport(csv, { ...swiggyDaily, restaurantId: "900009" });
     expect(wrongId.ok).toBe(false);
-    if (!wrongId.ok) expect(wrongId.reason).toContain("900009");
+    if (!wrongId.ok) {
+      expect(wrongId.reason).toContain("900009");
+      expect(wrongId.identity).toBe(true);
+    }
+    const unreadable = evaluateBusinessReport("not a report", swiggyDaily);
+    expect(unreadable.ok).toBe(false);
+    if (!unreadable.ok) expect(unreadable.identity).toBe(false);
     const shifted = csv.replace("2nd Nov 2026", "1st Nov 2026");
     const wrongDates = evaluateBusinessReport(shifted, swiggyDaily);
     expect(wrongDates.ok).toBe(false);

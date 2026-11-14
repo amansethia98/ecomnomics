@@ -67,7 +67,49 @@ export function platformAdminRoutes(options: PlatformAdminRouteOptions) {
     );
   });
 
+  app.post("/admin/v1/restaurants/:restaurantId/fetch-holds", async (c) => {
+    const restaurantId = c.req.param("restaurantId");
+    const parsed = await clearBody(c);
+    if (!parsed)
+      return c.json({ error: "Send an outlet and a platform.", code: "invalid_body" }, 400);
+    const target = `/admin/v1/restaurants/${restaurantId}/fetch-holds`;
+    return readAdmin(
+      c,
+      options,
+      restaurantId,
+      "clear_fetch_hold",
+      target,
+      async (store, audit) => {
+        const cleared = await store.clearFetchHold(
+          restaurantId,
+          parsed.outletId,
+          parsed.platform,
+          audit,
+        );
+        return cleared;
+      },
+      "No hold is open for this outlet.",
+    );
+  });
+
   return app;
+}
+
+async function clearBody(
+  c: Context,
+): Promise<{ outletId: string; platform: "zomato" | "swiggy" } | null> {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return null;
+  }
+  if (!body || typeof body !== "object") return null;
+  const record = body as { outletId?: unknown; platform?: unknown };
+  const outletId = typeof record.outletId === "string" ? record.outletId.trim() : "";
+  if (!outletId || outletId.length > 200) return null;
+  if (record.platform !== "zomato" && record.platform !== "swiggy") return null;
+  return { outletId, platform: record.platform };
 }
 
 async function readAdmin(
@@ -85,7 +127,8 @@ async function readAdmin(
       target: string;
       ip: string | null;
     },
-  ) => Promise<{ restaurants?: unknown; restaurant?: unknown } | null>,
+  ) => Promise<unknown>,
+  missing = "Restaurant not found",
 ) {
   const store = options.store;
   if (!store)
@@ -98,7 +141,9 @@ async function readAdmin(
       target,
       ip: options.clientIp?.(c) ?? null,
     });
-    if (!body) return c.json({ error: "Restaurant not found", code: "not_found" }, 404);
+    if (body == null || typeof body !== "object") {
+      return c.json({ error: missing, code: "not_found" }, 404);
+    }
     return c.json(body);
   } catch (error) {
     getLogger().error("platform admin read failed", error);
