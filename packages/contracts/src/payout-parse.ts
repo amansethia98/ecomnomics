@@ -7,7 +7,7 @@ import type { ObservedReportIdentity } from "./metric-parse.js";
 import { costPaise, discountPaise, rupeesToPaise, signedPaise } from "./payout-money.js";
 import { openPayoutWorkbook } from "./payout-workbook.js";
 
-export const PAYOUT_PARSER_VERSION = "2026-11-12.payout.3";
+export const PAYOUT_PARSER_VERSION = "2026-11-14.payout.4";
 
 export interface PayoutOrderAmounts {
   grossSalesPaise: number;
@@ -212,7 +212,19 @@ function parseZomato(sheets: Map<string, string[][]>, salt: string | null): Payo
     const additions = signedPaise(cell(row, colIncludes(header.header, "net additions")));
     const cvParsed = rupeesToPaise(cell(row, colIncludes(header.header, "commissionable")));
     const cv = cvParsed == null ? Math.max(0, gross - discount) : Math.abs(cvParsed);
-    const recomputed = cv - commission - payment - taxes - tds - tcs - complaints + additions;
+    const gstCollected = costPaise(cell(row, colIncludes(header.header, "gst collected")));
+    // AJ is customer GST the restaurant still owes. The printed payout keeps it.
+    // A blank cell is collected minus the 9(5) amount the platform already paid.
+    const recomputed =
+      cv -
+      commission -
+      payment -
+      taxes -
+      tds -
+      tcs -
+      complaints +
+      additions +
+      restaurantGstPaise(header.header, row, gstCollected);
     const printed = signedPaise(cell(row, colIncludes(header.header, "order level payout")));
     const settlementDate = parseCivilDate(
       cell(row, colIncludes(header.header, "settlement date")),
@@ -241,7 +253,7 @@ function parseZomato(sheets: Map<string, string[][]>, salt: string | null): Payo
       tdsPaise: tds,
       tcsPaise: tcs,
       cvPaise: cv,
-      gstCollectedPaise: costPaise(cell(row, colIncludes(header.header, "gst collected"))),
+      gstCollectedPaise: gstCollected,
       complaintsCancellationChargesPaise: complaints,
       netPayoutPaise: printed,
       paidAmountPaise: orderPaid(header.header, row),
@@ -340,7 +352,13 @@ function parseSwiggy(sheets: Map<string, string[][]>, _salt: string | null): Pay
     );
     const cvParsed = rupeesToPaise(cell(row, colIncludes(header.header, "net bill")));
     const cv = cvParsed == null ? Math.max(0, gross - discount) : Math.abs(cvParsed);
-    const recomputed = cv - commission - platformFees - gstOnFees - tds - tcs - complaints;
+    const status = orderStatus(cell(row, col(header.header, "order status")));
+    const cancelledBy = blankToNull(cell(row, colIncludes(header.header, "cancelled by")));
+    // A customer cancellation settles without the complaint charge. The charge
+    // stays on the row. A restaurant cancellation still deducts it.
+    const payoutCharge =
+      status === "CANCELLED" && norm(cancelledBy ?? "").includes("customer") ? 0 : complaints;
+    const recomputed = cv - commission - platformFees - gstOnFees - tds - tcs - payoutCharge;
     const settlementDate = parseCivilDate(
       cell(row, colIncludes(header.header, "settlement date")),
       null,
@@ -348,9 +366,9 @@ function parseSwiggy(sheets: Map<string, string[][]>, _salt: string | null): Pay
     draft.push({
       platformOrderId,
       orderDate: parseCivilDate(cell(row, orderDateColumn(header.header)), null),
-      orderStatus: orderStatus(cell(row, col(header.header, "order status"))),
+      orderStatus: status,
       category: swiggyCategory(cell(row, colIncludes(header.header, "category"))),
-      cancelledBy: blankToNull(cell(row, colIncludes(header.header, "cancelled by"))),
+      cancelledBy,
       settlementStatus: inferSettlement(
         cell(row, colIncludes(header.header, "settlement status")),
         settlementDate,
@@ -1291,6 +1309,28 @@ function paymentFeeColumn(header: string[]): number | null {
     (label) =>
       label.includes("payment mechanism") && !label.includes("service") && !label.includes("tax"),
   );
+}
+
+function restaurantGstPaise(header: string[], row: string[], collected: number): number {
+  const onBehalf = costPaise(
+    cell(
+      row,
+      column(header, (label) => label.includes("gst") && label.includes("9(5)")),
+    ),
+  );
+  const listed = rupeesToPaise(
+    cell(
+      row,
+      column(
+        header,
+        (label) =>
+          label.includes("gst") &&
+          (label.includes("restaurant partner") ||
+            (label.includes("to be paid") && label.includes("govt"))),
+      ),
+    ),
+  );
+  return listed ?? collected - onBehalf;
 }
 
 function tcsColumns(header: string[]): number[] {

@@ -397,6 +397,84 @@ describe("payout workbooks", () => {
     if (!parsed.ok) return;
     expect(parsed.payout.adjustments.map((row) => row.invoiceId)).toEqual(["INV-1", "INV-1#2"]);
   });
+
+  it("adds restaurant GST when Zomato collected more than it paid under 9(5)", async () => {
+    const parsed = await parsePayoutWorkbook(await zomatoGstRows(), "zomato", SALT);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const payout = parsed.payout;
+    const row = (id: string) => {
+      const index = payout.orders.findIndex((order) => order.platformOrderId === id);
+      const order = payout.orders[index];
+      const check = payout.checks[index];
+      if (!order || check?.key !== "net_payout_paise") throw new Error(id);
+      return { order, check };
+    };
+
+    // TCS is filled, AJ is 5% of the TCS base, and the old rebuild (CV − TCS) is ₹6.70 low.
+    const tcs = row("9100001");
+    expect(tcs.order.tcsPaise).toBe(100);
+    expect(tcs.order.gstCollectedPaise).toBe(1000);
+    expect(Math.abs(19900 - tcs.order.netPayoutPaise)).toBeGreaterThan(100);
+    expect(tcs.order.netPayoutPaise).toBe(20570);
+    expect(tcs.order.recomputedNetPaise).toBe(20570);
+    expect(tcs.check.pass).toBe(true);
+    expect(tcs.check.tolerance).toBe(100);
+
+    const equal = row("9100002");
+    expect(equal.order.gstCollectedPaise).toBe(500);
+    expect(equal.order.recomputedNetPaise).toBe(10000);
+    expect(equal.order.netPayoutPaise).toBe(10000);
+    expect(equal.check.pass).toBe(true);
+
+    const small = row("9100003");
+    expect(Math.abs(10000 - small.order.netPayoutPaise)).toBeLessThanOrEqual(100);
+    expect(small.order.recomputedNetPaise).toBe(10040);
+    expect(small.check.pass).toBe(true);
+    expect(small.check.tolerance).toBe(100);
+
+    const blank = row("9100004");
+    expect(Math.abs(20000 - blank.order.netPayoutPaise)).toBeGreaterThan(100);
+    expect(blank.order.recomputedNetPaise).toBe(20670);
+    expect(blank.check.pass).toBe(true);
+  });
+
+  it("does not deduct a Swiggy complaint charge from a customer cancellation", async () => {
+    const parsed = await parsePayoutWorkbook(await swiggyCancelRows(), "swiggy", SALT);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const payout = parsed.payout;
+    const row = (id: string) => {
+      const index = payout.orders.findIndex((order) => order.platformOrderId === id);
+      const order = payout.orders[index];
+      const check = payout.checks[index];
+      if (!order || check?.key !== "net_payout_paise") throw new Error(id);
+      return { order, check };
+    };
+
+    const customer = row("9200001");
+    expect(customer.order.orderStatus).toBe("CANCELLED");
+    expect(customer.order.cancelledBy).toBe("CUSTOMER");
+    expect(customer.order.complaintsCancellationChargesPaise).toBe(940);
+    expect(customer.order.netPayoutPaise).toBe(0);
+    expect(customer.order.recomputedNetPaise).toBe(0);
+    expect(customer.check.pass).toBe(true);
+    expect(customer.check.tolerance).toBe(100);
+
+    const restaurant = row("9200002");
+    expect(restaurant.order.cancelledBy).toBe("RESTAURANT");
+    expect(restaurant.order.complaintsCancellationChargesPaise).toBe(940);
+    expect(restaurant.order.netPayoutPaise).toBe(-940);
+    expect(restaurant.order.recomputedNetPaise).toBe(-940);
+    expect(restaurant.check.pass).toBe(true);
+
+    const wrong = row("9200003");
+    expect(wrong.order.recomputedNetPaise).toBe(10000);
+    expect(wrong.order.netPayoutPaise).toBe(0);
+    expect(wrong.check.pass).toBe(false);
+    expect(wrong.check.gap).toBe(10000);
+    expect(wrong.check.tolerance).toBe(100);
+  });
 });
 
 const require = createRequire(import.meta.url);
@@ -445,6 +523,139 @@ function swiggyAnnexure(growthRows: unknown[][]): Promise<Uint8Array> {
   ]);
   for (const row of growthRows) growth.addRow(row);
   return book.xlsx.writeBuffer().then((buffer) => new Uint8Array(buffer));
+}
+
+function syntheticWorkbook(fill: (book: { addWorksheet(name: string): SyntheticSheet }) => void) {
+  const { Workbook } = require("exceljs") as {
+    Workbook: new () => {
+      addWorksheet(name: string): SyntheticSheet;
+      xlsx: { writeBuffer(): Promise<ArrayBuffer> };
+    };
+  };
+  const book = new Workbook();
+  fill(book);
+  return book.xlsx.writeBuffer().then((buffer) => new Uint8Array(buffer));
+}
+
+function zomatoGstRows(): Promise<Uint8Array> {
+  return syntheticWorkbook((book) => {
+    const summary = book.addWorksheet("Summary");
+    summary.addRow(["Restaurant ID", "900003"]);
+    summary.addRow(["Restaurant name", "Test Kitchen"]);
+    summary.addRow(["City", "Testcity"]);
+    summary.addRow(["26 October 2026 - 31 October 2026"]);
+    const orders = book.addWorksheet("Order Level");
+    orders.addRow([
+      "Order ID",
+      "Order Date",
+      "Order status",
+      "Commissionable value",
+      "Service fee",
+      "Payment mechanism fee",
+      "Taxes on service fees",
+      "TDS 194O",
+      "Applicable amount for TCS",
+      "Tax collected at source",
+      "TCS IGST",
+      "Total GST collected from customers",
+      "GST paid by Zomato on behalf of restaurant - under section 9(5)",
+      "GST to be paid by Restaurant partner to Govt.",
+      "Net Additions",
+      "Order level payout",
+      "Settlement status",
+    ]);
+    const line = (
+      id: string,
+      date: string,
+      cv: string,
+      tcsBase: string,
+      tcs: string,
+      gst: string,
+      gst95: string,
+      restaurantGst: string | null,
+      payout: string,
+    ) =>
+      orders.addRow([
+        id,
+        date,
+        "DELIVERED",
+        cv,
+        "0.00",
+        "0.00",
+        "0.00",
+        "0.00",
+        tcsBase,
+        tcs,
+        null,
+        gst,
+        gst95,
+        restaurantGst,
+        "0.00",
+        payout,
+        "settled",
+      ]);
+    // AJ = 5% of the TCS base. Printed payout is the old rebuild plus that gap.
+    line("9100001", "2026-10-26", "200.00", "134.00", "1.00", "10.00", "3.30", "6.70", "205.70");
+    line("9100002", "2026-10-27", "100.00", "0.00", "0.00", "5.00", "5.00", null, "100.00");
+    line("9100003", "2026-10-28", "100.00", "0.00", "0.00", "10.40", "10.00", null, "100.40");
+    line("9100004", "2026-10-31", "200.00", "0.00", "0.00", "10.00", "3.30", null, "206.70");
+  });
+}
+
+function swiggyCancelRows(): Promise<Uint8Array> {
+  return syntheticWorkbook((book) => {
+    const summary = book.addWorksheet("Summary");
+    for (const line of [
+      "Test Kitchen",
+      "Test Area",
+      "Testcity",
+      "Rest. ID - 900004",
+      "25 October - 31 October",
+    ]) {
+      summary.addRow([line]);
+    }
+    const orders = book.addWorksheet("Order Level");
+    orders.addRow([
+      "Order ID",
+      "Order Date",
+      "Order Status",
+      "Cancelled By",
+      "Item Total",
+      "Complaint & Cancellation Charges",
+      "Net Payout",
+      "Settlement Date",
+    ]);
+    orders.addRow([
+      "9200001",
+      "2026-10-25",
+      "cancelled",
+      "CUSTOMER",
+      "0.00",
+      "9.40",
+      "0.00",
+      "2026-11-03",
+    ]);
+    orders.addRow([
+      "9200002",
+      "2026-10-26",
+      "cancelled",
+      "RESTAURANT",
+      "0.00",
+      "9.40",
+      "-9.40",
+      "2026-11-03",
+    ]);
+    orders.addRow([
+      "9200003",
+      "2026-10-31",
+      "delivered",
+      "",
+      "100.00",
+      "0.00",
+      "0.00",
+      "2026-11-03",
+    ]);
+  });
 }
 
 function hash(id: string): string {
