@@ -35,7 +35,7 @@ function sha256(text: string): string {
 export async function ingestBusinessReport(
   db: PrismaClient,
   scope: RestaurantScope,
-  input: IngestMetricReportInput,
+  input: IngestMetricReportInput & { csv: string },
 ): Promise<IngestMetricReportResult> {
   const outlet = await db.outlet.findFirst({
     where: { id: input.outletId, restaurantId: scope.restaurantId, spaceId: scope.spaceId },

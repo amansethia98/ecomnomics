@@ -39,6 +39,11 @@
       "types": "./src/identity.ts",
       "development": "./src/identity.ts",
       "default": "./src/identity.ts"
+    },
+    "./swiggy-workbook": {
+      "types": "./src/swiggy-workbook.ts",
+      "development": "./src/swiggy-workbook.ts",
+      "default": "./src/swiggy-workbook.ts"
     }
   },
   "scripts": {

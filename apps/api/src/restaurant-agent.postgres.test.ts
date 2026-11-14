@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type { ObjectStorage } from "@rakazo/adapter-kit";
+import { writeSwiggyWorkbook } from "@rakazo/contracts/swiggy-workbook";
 import type { PrismaClient } from "@rakazo/db";
 import {
   createDb,
@@ -1937,4 +1938,268 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
       reason: "identity_mismatch",
     });
   });
+
+  it("stores a swiggy workbook as the same rows as its csv", async () => {
+    const csv = await readFile(
+      new URL(
+        "../../../packages/contracts/fixtures/metrics/swiggy_daily_sample.csv",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const rows = csv
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => line.split(","));
+    const bytes = writeSwiggyWorkbook(rows);
+    const csvOutlet = await createOutlet(ownerDb, await restaurantA(), {
+      name: "Test Kitchen",
+      city: "Testcity",
+      swiggyRid: "900001",
+    });
+    const sheetOutlet = await createOutlet(ownerDb, await restaurantA(), {
+      name: "Test Kitchen",
+      city: "Testcity",
+      swiggyRid: "900001",
+    });
+    const body = {
+      platform: "swiggy",
+      report: "daily",
+      periodStart: "2026-11-02",
+      periodEnd: "2026-11-09",
+      source: "business-report",
+      capturedAt: "2026-11-09T05:00:00.000Z",
+    };
+    const storedFiles = storage.objects.size;
+    const csvResponse = await call("POST", "/agent/v1/metric-reports", tokenA, {
+      ...body,
+      outletId: csvOutlet.id,
+      csv,
+      runId: `sheet-csv-${suffix}`,
+    });
+    const sheetResponse = await call("POST", "/agent/v1/metric-reports", tokenA, {
+      ...body,
+      outletId: sheetOutlet.id,
+      format: "xlsx",
+      fileBase64: Buffer.from(bytes).toString("base64"),
+      rawSha256: createHash("sha256").update(bytes).digest("hex"),
+      runId: `sheet-xlsx-${suffix}`,
+    });
+    expect(csvResponse.status).toBe(200);
+    expect(sheetResponse.status).toBe(200);
+    expect(await storedFacts(csvOutlet.id)).toEqual(await storedFacts(sheetOutlet.id));
+    expect((await storedFacts(sheetOutlet.id)).values.length).toBeGreaterThan(0);
+    expect(storage.objects.size).toBe(storedFiles);
+  });
+
+  it("stores a missing period from a workbook as a gap", async () => {
+    const outlet = await createOutlet(ownerDb, await restaurantA(), {
+      name: "Test Kitchen",
+      city: "Testcity",
+      swiggyRid: "900001",
+    });
+    const bytes = writeSwiggyWorkbook([
+      [
+        "Restaurant ID",
+        "Restaurant name",
+        "Area",
+        "City",
+        "Overview",
+        "Metric",
+        "1st Oct 2026",
+        "3rd Oct 2026",
+      ],
+      ["900001.0", "Test Kitchen", "Testarea", "Testcity", "SALES", "Delivered Orders", "4", "6"],
+    ]);
+    const response = await call("POST", "/agent/v1/metric-reports", tokenA, {
+      outletId: outlet.id,
+      platform: "swiggy",
+      report: "daily",
+      format: "xlsx",
+      periodStart: "2026-10-01",
+      periodEnd: "2026-10-04",
+      fileBase64: Buffer.from(bytes).toString("base64"),
+      rawSha256: createHash("sha256").update(bytes).digest("hex"),
+      runId: `sheet-gap-${suffix}`,
+      source: "business-report",
+      capturedAt: "2026-11-12T05:00:00.000Z",
+    });
+    expect(response.status).toBe(200);
+    const fetch = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricFetch.findFirst({
+        where: { outletId: outlet.id, runId: `sheet-gap-${suffix}` },
+        select: { missingPeriods: true, identityMismatch: true, status: true },
+      }),
+    );
+    expect(fetch).toMatchObject({
+      status: "stored",
+      missingPeriods: "2026-10-02/2026-10-03",
+      identityMismatch: null,
+    });
+    const absent = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricValue.count({
+        where: {
+          outletId: outlet.id,
+          periodStart: new Date("2026-10-02T00:00:00.000Z"),
+          supersededAt: null,
+        },
+      }),
+    );
+    expect(absent).toBe(0);
+    expect(await holdState(tokenA, outlet.id, "swiggy")).toMatchObject({ held: false });
+  });
+
+  it("rejects a workbook for the wrong outlet and counts it", async () => {
+    const outlet = await createOutlet(ownerDb, await restaurantA(), {
+      name: "Test Kitchen",
+      city: "Testcity",
+      swiggyRid: `other-${suffix}`.slice(0, 64),
+    });
+    const bytes = writeSwiggyWorkbook([
+      ["Restaurant ID", "Restaurant name", "Area", "City", "Overview", "Metric", "1st Oct 2026"],
+      ["900001.0", "Test Kitchen", "Testarea", "Testcity", "SALES", "Delivered Orders", "4"],
+    ]);
+    const post = (runId: string) =>
+      call("POST", "/agent/v1/metric-reports", tokenA, {
+        outletId: outlet.id,
+        platform: "swiggy",
+        report: "daily",
+        format: "xlsx",
+        periodStart: "2026-10-01",
+        periodEnd: "2026-10-02",
+        fileBase64: Buffer.from(bytes).toString("base64"),
+        rawSha256: createHash("sha256").update(bytes).digest("hex"),
+        runId,
+        source: "business-report",
+        capturedAt: "2026-11-12T05:00:00.000Z",
+      });
+    const first = await post(`sheet-wrong-${suffix}`);
+    expect(first.status).toBe(422);
+    expect(await first.json()).toMatchObject({
+      code: "file_identity",
+      status: "rejected_mismatch",
+    });
+    const counted = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricFetch.count({ where: { outletId: outlet.id, identityMismatch: true } }),
+    );
+    expect(counted).toBe(1);
+    expect(await holdState(tokenA, outlet.id, "swiggy")).toMatchObject({ held: false });
+    expect((await post(`sheet-wrong-2-${suffix}`)).status).toBe(422);
+    expect((await post(`sheet-wrong-3-${suffix}`)).status).toBe(422);
+    expect(await holdState(tokenA, outlet.id, "swiggy")).toMatchObject({
+      held: true,
+      reason: "identity_mismatch",
+    });
+    const before = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricFetch.count({ where: { outletId: outlet.id } }),
+    );
+    const held = await post(`sheet-wrong-4-${suffix}`);
+    expect(held.status).toBe(423);
+    expect(await held.json()).toMatchObject({ code: "fetch_held" });
+    const after = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricFetch.count({ where: { outletId: outlet.id } }),
+    );
+    expect(after).toBe(before);
+  });
+
+  it("rejects a workbook hash mismatch, a corrupt file, and an oversized file", async () => {
+    const outlet = await createOutlet(ownerDb, await restaurantA(), {
+      name: "Test Kitchen",
+      city: "Testcity",
+      swiggyRid: "900001",
+    });
+    const bytes = writeSwiggyWorkbook([
+      ["Restaurant ID", "Restaurant name", "Area", "City", "Overview", "Metric", "1st Oct 2026"],
+      ["900001.0", "Test Kitchen", "Testarea", "Testcity", "SALES", "Delivered Orders", "4"],
+    ]);
+    const post = (file: Uint8Array, rawSha256: string, runId: string) =>
+      call("POST", "/agent/v1/metric-reports", tokenA, {
+        outletId: outlet.id,
+        platform: "swiggy",
+        report: "daily",
+        format: "xlsx",
+        periodStart: "2026-10-01",
+        periodEnd: "2026-10-02",
+        fileBase64: Buffer.from(file).toString("base64"),
+        rawSha256,
+        runId,
+        source: "business-report",
+        capturedAt: "2026-11-12T05:00:00.000Z",
+      });
+    const mismatch = await post(bytes, "ab".repeat(32), `sheet-hash-${suffix}`);
+    expect(mismatch.status).toBe(400);
+    expect(await mismatch.json()).toMatchObject({
+      code: "raw_hash_mismatch",
+      error: "The file hash does not match the uploaded bytes.",
+    });
+    const corrupt = await post(
+      Buffer.from("this is not a workbook"),
+      createHash("sha256").update("this is not a workbook").digest("hex"),
+      `sheet-corrupt-${suffix}`,
+    );
+    expect(corrupt.status).toBe(400);
+    expect(await corrupt.json()).toMatchObject({
+      code: "invalid_workbook",
+      error: "This file is not a Swiggy workbook.",
+    });
+    const oversizedBytes = Buffer.alloc(10 * 1024 * 1024 + 1, 7);
+    const oversized = await post(
+      oversizedBytes,
+      createHash("sha256").update(oversizedBytes).digest("hex"),
+      `sheet-large-${suffix}`,
+    );
+    expect(oversized.status).toBe(413);
+    expect(await oversized.json()).toMatchObject({
+      code: "file_too_large",
+      error: "The workbook is larger than 10 MB.",
+    });
+    const stored = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricFetch.count({
+        where: {
+          outletId: outlet.id,
+          runId: {
+            in: [`sheet-hash-${suffix}`, `sheet-corrupt-${suffix}`, `sheet-large-${suffix}`],
+          },
+        },
+      }),
+    );
+    expect(stored).toBe(0);
+  });
+
+  async function storedFacts(outletId: string) {
+    return runAsTenant({ spaceId: spaceA, userId: userA }, async () => {
+      const values = await db.metricValue.findMany({
+        where: { outletId, supersededAt: null },
+        orderBy: [{ key: "asc" }, { periodStart: "asc" }, { rowRole: "asc" }],
+        select: { key: true, periodStart: true, periodEnd: true, value: true, rowRole: true },
+      });
+      const items = await db.platformWindowItem.findMany({
+        where: { outletId },
+        orderBy: [{ periodStart: "asc" }, { rank: "asc" }, { itemName: "asc" }],
+        select: {
+          periodStart: true,
+          periodEnd: true,
+          rank: true,
+          itemName: true,
+          revenuePaise: true,
+        },
+      });
+      return {
+        values: values.map((row) => ({
+          key: row.key,
+          periodStart: row.periodStart.toISOString(),
+          periodEnd: row.periodEnd.toISOString(),
+          value: row.value === null ? null : row.value.toString(),
+          rowRole: row.rowRole,
+        })),
+        items: items.map((row) => ({
+          periodStart: row.periodStart.toISOString(),
+          periodEnd: row.periodEnd.toISOString(),
+          rank: row.rank,
+          itemName: row.itemName,
+          revenuePaise: row.revenuePaise,
+        })),
+      };
+    });
+  }
 });

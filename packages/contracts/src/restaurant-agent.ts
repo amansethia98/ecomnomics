@@ -324,6 +324,9 @@ export type ReadMetricsQuery = z.infer<typeof ReadMetricsQuerySchema>;
 
 export const REPORT_KINDS = ["daily", "weekly", "monthly"] as const;
 
+/** Decoded size cap for a Swiggy business-report workbook. */
+export const MAX_SWIGGY_WORKBOOK_BYTES = 10 * 1024 * 1024;
+
 /** A business-report file. The server parses it and checks the outlet before storing anything. */
 export const IngestMetricReportSchema = z
   .object({
@@ -332,8 +335,12 @@ export const IngestMetricReportSchema = z
     report: z.enum(REPORT_KINDS),
     periodStart: IsoDate,
     periodEnd: IsoDate,
-    csv: z.string().min(1).max(1_500_000),
-    /** Hash of the raw downloaded bytes. The server still hashes the csv it stores. */
+    /** `csv` is the default. `xlsx` is a Swiggy workbook in `fileBase64`. */
+    format: z.enum(["csv", "xlsx"]).default("csv"),
+    csv: z.string().min(1).max(1_500_000).optional(),
+    /** Base64 of the raw workbook bytes. Only for `format: "xlsx"`. */
+    fileBase64: z.string().min(1).max(16_000_000).optional(),
+    /** Hash of the raw downloaded bytes. For a workbook it is checked against those bytes. */
     rawSha256: Sha256Schema.optional(),
     /** Accepted for older clients. The server ignores it and counts mismatches itself. */
     attempt: z.number().int().positive().max(20).optional(),
@@ -344,7 +351,17 @@ export const IngestMetricReportSchema = z
   .strict()
   .refine((value) => value.periodEnd > value.periodStart, {
     error: "periodEnd must be after periodStart",
-  });
+  })
+  .refine((value) => value.format !== "xlsx" || value.platform === "swiggy", {
+    error: "Only a Swiggy business report can be a workbook.",
+  })
+  .refine(
+    (value) =>
+      value.format === "xlsx"
+        ? value.fileBase64 !== undefined && value.rawSha256 !== undefined && value.csv === undefined
+        : value.csv !== undefined && value.fileBase64 === undefined,
+    { error: "Send the CSV, or the workbook and its hash." },
+  );
 export type IngestMetricReportInput = z.infer<typeof IngestMetricReportSchema>;
 
 /** A payout workbook, base64-encoded. The server parses it and checks the outlet before storing orders. */

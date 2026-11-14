@@ -1,4 +1,6 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import type { ObjectStorage } from "@rakazo/adapter-kit";
+import type { IngestMetricReportInput } from "@rakazo/contracts";
 import {
   CheckStoredFetchesSchema,
   CreateActionSchema,
@@ -9,6 +11,7 @@ import {
   IngestPayoutReportSchema,
   ListFetchesQuerySchema,
   LogFetchSchema,
+  MAX_SWIGGY_WORKBOOK_BYTES,
   METRIC_KEYS,
   OwnerMetricsQuerySchema,
   ownerMetricsErrorMessage,
@@ -17,6 +20,7 @@ import {
   unknownMetricKeyMessage,
   unknownMetricKeys,
 } from "@rakazo/contracts";
+import { swiggyWorkbookCsv } from "@rakazo/contracts/swiggy-workbook";
 import type { PrismaClient } from "@rakazo/db";
 import {
   actionFileForUpload,
@@ -51,7 +55,8 @@ import {
 } from "./restaurant-upload.js";
 
 const MAX_AGENT_JSON_BYTES = 1024 * 1024;
-const MAX_METRIC_REPORT_BYTES = 4 * 1024 * 1024;
+/** Room for a workbook just over the decoded cap, base64-encoded, plus the JSON envelope. */
+const MAX_METRIC_REPORT_BYTES = Math.ceil((MAX_SWIGGY_WORKBOOK_BYTES + 1024) / 3) * 4 + 16 * 1024;
 const MAX_PAYOUT_REPORT_BYTES = 12 * 1024 * 1024;
 
 type AgentEnv = { Variables: { restaurantId: string; spaceId: string; userId: string } };
@@ -219,7 +224,8 @@ export function restaurantAgentRoutes(options: RestaurantAgentRouteOptions) {
   app.post("/agent/v1/metric-reports", async (c) => {
     try {
       const input = IngestMetricReportSchema.parse(await readJson(c));
-      const result = await ingestBusinessReport(options.prisma, scopeOf(c), input);
+      const csv = csvForMetricReport(input);
+      const result = await ingestBusinessReport(options.prisma, scopeOf(c), { ...input, csv });
       const rejected = rejectedFile(c, result);
       if (rejected) return rejected;
       return c.json(result);
@@ -525,6 +531,46 @@ function isSchemaError(
   if (!(error instanceof Error) || error.name !== "ZodError") return false;
   const issues = (error as { issues?: unknown }).issues;
   return Array.isArray(issues);
+}
+
+function csvForMetricReport(input: IngestMetricReportInput): string {
+  if (input.format !== "xlsx") {
+    if (!input.csv) {
+      throw new RestaurantAgentError(
+        "invalid_body",
+        400,
+        "Send the CSV, or the workbook and its hash.",
+      );
+    }
+    return input.csv;
+  }
+  const fileBase64 = input.fileBase64;
+  const rawSha256 = input.rawSha256;
+  if (!fileBase64 || !rawSha256) {
+    throw new RestaurantAgentError(
+      "invalid_body",
+      400,
+      "Send the CSV, or the workbook and its hash.",
+    );
+  }
+  const bytes = Buffer.from(fileBase64, "base64");
+  if (bytes.length > MAX_SWIGGY_WORKBOOK_BYTES) {
+    throw new RestaurantAgentError("file_too_large", 413, "The workbook is larger than 10 MB.");
+  }
+  const actual = createHash("sha256").update(bytes).digest();
+  const expected = Buffer.from(rawSha256, "hex");
+  if (expected.length !== actual.length || !timingSafeEqual(actual, expected)) {
+    throw new RestaurantAgentError(
+      "raw_hash_mismatch",
+      400,
+      "The file hash does not match the uploaded bytes.",
+    );
+  }
+  const csv = swiggyWorkbookCsv(bytes);
+  if (!csv) {
+    throw new RestaurantAgentError("invalid_workbook", 400, "This file is not a Swiggy workbook.");
+  }
+  return csv;
 }
 
 function outletFailure(error: unknown): RestaurantAgentError | null {

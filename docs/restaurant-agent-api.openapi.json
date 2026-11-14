@@ -394,17 +394,38 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object"
+                "type": "object",
+                "properties": {
+                  "format": { "type": "string", "enum": ["csv", "xlsx"], "default": "csv" },
+                  "csv": {
+                    "type": "string",
+                    "description": "Business-report CSV. Required when format is csv."
+                  },
+                  "fileBase64": {
+                    "type": "string",
+                    "description": "Base64 of a Swiggy workbook. Required when format is xlsx. The file is not stored."
+                  },
+                  "rawSha256": {
+                    "type": "string",
+                    "description": "SHA-256 of the raw workbook bytes. Required when format is xlsx and checked against the decoded file."
+                  }
+                }
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "File stored, skipped as unchanged, or its platform checks recorded."
+            "description": "File stored, skipped as unchanged, or its platform checks recorded. A Swiggy workbook is read as text and then checked like a CSV."
+          },
+          "400": {
+            "description": "invalid_body, raw_hash_mismatch, or invalid_workbook. The workbook hash does not match the uploaded bytes, or the file is not a Swiggy workbook. Nothing is stored."
+          },
+          "413": {
+            "description": "file_too_large. The workbook is larger than 10 MB. Nothing is stored."
           },
           "422": {
-            "description": "file_identity. The platform outlet id does not match, a column was not requested, or the outlet has no platform id. Nothing from the file is stored. A requested period with no column is stored and stays missing. A different name or city is stored with a warning. Swiggy Daily is at most 7 days."
+            "description": "file_identity. The platform outlet id does not match, a column was not requested, or the outlet has no platform id. Nothing from the file is stored. A requested period with no column is stored and stays missing. A different name or city is stored with a warning. Swiggy Daily is at most 7 days. A workbook uses these same checks."
           }
         }
       }
