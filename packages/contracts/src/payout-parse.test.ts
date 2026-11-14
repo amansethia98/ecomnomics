@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHmac } from "node:crypto";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -363,7 +364,88 @@ describe("payout workbooks", () => {
       5000 + dayGross,
     );
   });
+
+  it("keeps two HyperBoost rows that have no invoice id", async () => {
+    const parsed = await parsePayoutWorkbook(
+      await swiggyAnnexure([
+        ["HyperBoost", 1800, 1800, "2026-10-25", "2026-10-31", ""],
+        ["HyperBoost", 900, 900, "2026-10-25", "2026-10-31", ""],
+      ]),
+      "swiggy",
+      SALT,
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(
+      parsed.payout.adjustments.map((row) => [row.type, row.invoiceId, row.amountPaise]),
+    ).toEqual([
+      ["HyperBoost", "growth#2", 180000],
+      ["HyperBoost", "growth#3", 90000],
+    ]);
+  });
+
+  it("splits two adjustments that repeat an invoice id", async () => {
+    const parsed = await parsePayoutWorkbook(
+      await swiggyAnnexure([
+        ["HyperBoost", 1800, 1800, "2026-10-25", "2026-10-31", "INV-1"],
+        ["HyperBoost", 900, 900, "2026-10-25", "2026-10-31", "INV-1"],
+      ]),
+      "swiggy",
+      SALT,
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.payout.adjustments.map((row) => row.invoiceId)).toEqual(["INV-1", "INV-1#2"]);
+  });
 });
+
+const require = createRequire(import.meta.url);
+
+interface SyntheticSheet {
+  addRow(values: unknown[]): void;
+}
+
+function swiggyAnnexure(growthRows: unknown[][]): Promise<Uint8Array> {
+  const { Workbook } = require("exceljs") as {
+    Workbook: new () => {
+      addWorksheet(name: string): SyntheticSheet;
+      xlsx: { writeBuffer(): Promise<ArrayBuffer> };
+    };
+  };
+  const book = new Workbook();
+  const summary = book.addWorksheet("Summary");
+  for (const line of [
+    "Test Kitchen",
+    "Test Area",
+    "Testcity",
+    "Rest. ID - 900001",
+    "25 October - 31 October",
+  ]) {
+    summary.addRow([line]);
+  }
+  const orders = book.addWorksheet("Order Level");
+  orders.addRow([
+    "Order ID",
+    "Order Date",
+    "Order Status",
+    "Item Total",
+    "Net Payout",
+    "Settlement Date",
+  ]);
+  orders.addRow(["100001", "2026-10-25", "Delivered", 100, 100, "2026-11-03"]);
+  orders.addRow(["100002", "2026-10-31", "Delivered", 80, 80, "2026-11-03"]);
+  const growth = book.addWorksheet("Growth Investments and Other De");
+  growth.addRow([
+    "Adjustment Type",
+    "Total Amount",
+    "Settled Amount",
+    "Period From",
+    "Period To",
+    "Invoice Number",
+  ]);
+  for (const row of growthRows) growth.addRow(row);
+  return book.xlsx.writeBuffer().then((buffer) => new Uint8Array(buffer));
+}
 
 function hash(id: string): string {
   return createHmac("sha256", SALT).update(id).digest("hex");

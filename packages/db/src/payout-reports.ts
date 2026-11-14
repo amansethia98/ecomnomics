@@ -10,8 +10,17 @@ import type {
 import type { PrismaClient } from "./client.js";
 import { assertFetchOpen, noteIdentityMismatch } from "./fetch-holds.js";
 import type { Prisma } from "./generated/prisma/client.js";
+import { isUniqueViolation } from "./prisma-errors.js";
 import type { RestaurantScope } from "./restaurant-agent.js";
 import { lockMetricWindow, RestaurantAgentError } from "./restaurant-agent.js";
+
+const SHARED_ADJUSTMENT_KEY =
+  "This payout could not be stored because two adjustment rows share a key.";
+
+/** A unique-index failure from adjustment rows, as a client-facing parse failure. */
+export function payoutAdjustmentKeyFailure(error: unknown): string | null {
+  return isUniqueViolation(error) ? SHARED_ADJUSTMENT_KEY : null;
+}
 
 const MAX_PAYOUT_BYTES = 8 * 1024 * 1024;
 
@@ -84,7 +93,12 @@ export async function ingestPayoutReport(
   }
 
   const salt = options.salt === undefined ? customerHashSalt() : options.salt;
-  const parsed = await payoutFile.parsePayoutWorkbook(input.file, input.platform, salt);
+  let parsed: Awaited<ReturnType<typeof payoutFile.parsePayoutWorkbook>>;
+  try {
+    parsed = await payoutFile.parsePayoutWorkbook(input.file, input.platform, salt);
+  } catch {
+    parsed = { ok: false, reason: "The file is not a payout workbook.", observed: null };
+  }
   if (!parsed.ok) {
     const fetch = await db.metricFetch.create({
       data: fetchData(scope, input, {
@@ -127,65 +141,88 @@ export async function ingestPayoutReport(
 
   const payout = parsed.payout;
   await retain(options.retention, digest, input.file, base.parserVersion);
-  const stored = await db.$transaction(async (tx) => {
-    await lockMetricWindow(tx, `payout\t${input.outletId}\t${input.platform}`);
-    const duplicate = await tx.metricFetch.findFirst({
-      where: {
-        outletId: input.outletId,
-        platform: input.platform,
-        reportKind: "payout",
-        sha256: digest,
-        parserVersion: base.parserVersion,
-        requestedPeriodStart: requestedStart,
-        requestedPeriodEnd: requestedEnd,
-        status: "stored",
-      },
-      select: { id: true },
-    });
-    if (duplicate) {
+  let stored: {
+    fetchId: string;
+    skipped: boolean;
+    orders?: number;
+    adjustments?: number;
+    superseded?: number;
+  };
+  try {
+    stored = await db.$transaction(async (tx) => {
+      await lockMetricWindow(tx, `payout\t${input.outletId}\t${input.platform}`);
+      const duplicate = await tx.metricFetch.findFirst({
+        where: {
+          outletId: input.outletId,
+          platform: input.platform,
+          reportKind: "payout",
+          sha256: digest,
+          parserVersion: base.parserVersion,
+          requestedPeriodStart: requestedStart,
+          requestedPeriodEnd: requestedEnd,
+          status: "stored",
+        },
+        select: { id: true },
+      });
+      if (duplicate) {
+        const fetch = await tx.metricFetch.create({
+          data: fetchData(scope, input, {
+            ...base,
+            status: "skipped",
+            digest,
+            attempt: input.attempt ?? 1,
+            reason: "This file was already stored.",
+            observed: payout.observed,
+          }),
+        });
+        return { fetchId: fetch.id, skipped: true as const };
+      }
       const fetch = await tx.metricFetch.create({
         data: fetchData(scope, input, {
           ...base,
-          status: "skipped",
+          status: "stored",
           digest,
           attempt: input.attempt ?? 1,
-          reason: "This file was already stored.",
+          reason: warnings.length > 0 ? warnings.join(" ") : null,
           observed: payout.observed,
         }),
       });
-      return { fetchId: fetch.id, skipped: true as const };
-    }
-    const fetch = await tx.metricFetch.create({
+      const written = await replaceCycle(tx, scope, input, payout, fetch.id);
+      await tx.metricCheck.createMany({
+        data: payout.checks.map((check) => ({
+          restaurantId: scope.restaurantId,
+          spaceId: scope.spaceId,
+          outletId: input.outletId,
+          platform: input.platform,
+          key: check.key,
+          periodStart: utcMidnight(payout.cycleStart),
+          periodEnd: utcMidnight(payout.cycleEnd),
+          rebuiltValue: check.rebuiltValue,
+          platformValue: check.platformValue,
+          gap: check.gap,
+          tolerance: check.tolerance,
+          pass: check.pass,
+          fetchId: fetch.id,
+          checkedAt: capturedAt,
+        })),
+      });
+      return { fetchId: fetch.id, skipped: false as const, ...written };
+    });
+  } catch (error) {
+    const reason = payoutAdjustmentKeyFailure(error);
+    if (!reason) throw error;
+    const fetch = await db.metricFetch.create({
       data: fetchData(scope, input, {
         ...base,
-        status: "stored",
+        status: "parse_failed",
         digest,
         attempt: input.attempt ?? 1,
-        reason: warnings.length > 0 ? warnings.join(" ") : null,
+        reason,
         observed: payout.observed,
       }),
     });
-    const written = await replaceCycle(tx, scope, input, payout, fetch.id);
-    await tx.metricCheck.createMany({
-      data: payout.checks.map((check) => ({
-        restaurantId: scope.restaurantId,
-        spaceId: scope.spaceId,
-        outletId: input.outletId,
-        platform: input.platform,
-        key: check.key,
-        periodStart: utcMidnight(payout.cycleStart),
-        periodEnd: utcMidnight(payout.cycleEnd),
-        rebuiltValue: check.rebuiltValue,
-        platformValue: check.platformValue,
-        gap: check.gap,
-        tolerance: check.tolerance,
-        pass: check.pass,
-        fetchId: fetch.id,
-        checkedAt: capturedAt,
-      })),
-    });
-    return { fetchId: fetch.id, skipped: false as const, ...written };
-  });
+    return emptyResult(fetch.id, "parse_failed", reason);
+  }
 
   if (stored.skipped) {
     return {
@@ -203,9 +240,9 @@ export async function ingestPayoutReport(
     fetchId: stored.fetchId,
     status: "stored",
     reason: warnings.length > 0 ? warnings.join(" ") : null,
-    orders: stored.orders,
-    adjustments: stored.adjustments,
-    superseded: stored.superseded,
+    orders: stored.orders ?? 0,
+    adjustments: stored.adjustments ?? 0,
+    superseded: stored.superseded ?? 0,
     checks: payout.checks,
     warnings,
   };

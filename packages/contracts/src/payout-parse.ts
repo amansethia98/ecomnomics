@@ -566,11 +566,34 @@ function countCheck(key: string, rebuilt: number, platformValue: number): Payout
   return { key, rebuiltValue: rebuilt, platformValue, gap, tolerance: 0, pass: gap === 0 };
 }
 
+function stampAdjustmentKeys(
+  rows: Array<ParsedAdjustment & { sourceRow: number }>,
+  sheet: string,
+): ParsedAdjustment[] {
+  const seen = new Map<string, number>();
+  return rows.map((row) => {
+    const invoice = row.invoiceId.trim();
+    const slot = invoice || `${sheet}#${row.sourceRow}`;
+    const count = (seen.get(`${row.type}\0${slot}`) ?? 0) + 1;
+    seen.set(`${row.type}\0${slot}`, count);
+    const invoiceId = invoice && count === 1 ? invoice : count === 1 ? slot : `${slot}#${count}`;
+    return {
+      type: row.type,
+      invoiceId,
+      periodFrom: row.periodFrom,
+      periodTo: row.periodTo,
+      amountPaise: row.amountPaise,
+      bookedCycle: row.bookedCycle,
+    };
+  });
+}
+
 function zomatoAdjustments(rows: string[][]): ParsedAdjustment[] {
   let section = "";
   let header: string[] | null = null;
-  const found: ParsedAdjustment[] = [];
-  for (const row of rows) {
+  const found: Array<ParsedAdjustment & { sourceRow: number }> = [];
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index] ?? [];
     const joined = row.map(norm).filter(Boolean).join(" ");
     if (/^[a-d]\)/.test(joined) || joined.startsWith("section ")) {
       section = joined;
@@ -599,9 +622,10 @@ function zomatoAdjustments(rows: string[][]): ParsedAdjustment[] {
       periodTo: period.end,
       amountPaise: amount,
       bookedCycle: "",
+      sourceRow: index + 1,
     });
   }
-  return found;
+  return stampAdjustmentKeys(found, "addition deductions");
 }
 
 function zomatoTotals(rows: string[][]): ParsedCycleTotals {
@@ -672,8 +696,9 @@ function swiggyGrowthAdjustments(
   period: { start: string; end: string },
 ): ParsedAdjustment[] {
   let header: string[] | null = null;
-  const found: ParsedAdjustment[] = [];
-  for (const row of rows) {
+  const found: Array<ParsedAdjustment & { sourceRow: number }> = [];
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index] ?? [];
     if (
       col(row, "period from") != null &&
       (col(row, "adjustment type") != null || col(row, "type") != null)
@@ -698,9 +723,10 @@ function swiggyGrowthAdjustments(
       periodTo: to ? addIsoDays(to, 1) : period.end,
       amountPaise: amount,
       bookedCycle: "",
+      sourceRow: index + 1,
     });
   }
-  return found.length > 0 ? found : swiggyAdjustments(rows, period);
+  return found.length > 0 ? stampAdjustmentKeys(found, "growth") : swiggyAdjustments(rows, period);
 }
 
 function swiggyAdjustments(
@@ -713,8 +739,9 @@ function swiggyAdjustments(
   const codeCol = Math.max(0, labelCol - 1);
   const totalCol = col(header.header, "total") ?? header.header.length - 1;
   let section = "";
-  const found: ParsedAdjustment[] = [];
-  for (const row of rows.slice(header.index + 1)) {
+  const found: Array<ParsedAdjustment & { sourceRow: number }> = [];
+  for (let index = header.index + 1; index < rows.length; index += 1) {
+    const row = rows[index] ?? [];
     const code = cell(row, codeCol).trim();
     const label = cell(row, labelCol).trim();
     if (!label) continue;
@@ -731,9 +758,10 @@ function swiggyAdjustments(
       periodTo: period.end,
       amountPaise: amount,
       bookedCycle: "",
+      sourceRow: index + 1,
     });
   }
-  return found;
+  return stampAdjustmentKeys(found, "payout breakup");
 }
 
 function swiggyTotals(rows: string[][]): ParsedCycleTotals {
