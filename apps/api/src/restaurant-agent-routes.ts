@@ -1,10 +1,14 @@
 import type { ObjectStorage } from "@rakazo/adapter-kit";
 import {
+  CheckStoredFetchesSchema,
   CreateActionSchema,
   CreateJobRunSchema,
   CreateReportSchema,
+  FetchPlanQuerySchema,
   IngestMetricReportSchema,
   IngestPayoutReportSchema,
+  ListFetchesQuerySchema,
+  LogFetchSchema,
   METRIC_KEYS,
   OwnerMetricsQuerySchema,
   ownerMetricsErrorMessage,
@@ -17,13 +21,17 @@ import type { PrismaClient } from "@rakazo/db";
 import {
   actionFileForUpload,
   authenticateAgentToken,
+  checkStoredFetches,
   createAction,
   createReport,
   ingestBusinessReport,
   ingestPayoutReport,
+  listMetricFetches,
+  logMetricFetch,
   markActionFileUploaded,
   markReportFileUploaded,
   RestaurantAgentError,
+  readFetchPlan,
   readOwnerMetrics,
   readRestaurant,
   reportFileForUpload,
@@ -72,6 +80,8 @@ export function restaurantAgentRoutes(options: RestaurantAgentRouteOptions) {
   app.use("/agent/v1/reports/:reportId/files/:name", fileLimit);
   app.use("/agent/v1/actions/:actionId/files/:name", fileLimit);
   app.use("/agent/v1/metrics", jsonLimit);
+  app.use("/agent/v1/fetches/check", jsonLimit);
+  app.use("/agent/v1/fetches", jsonLimit);
   app.use(
     "/agent/v1/metric-reports",
     requestBodyLimit(MAX_METRIC_REPORT_BYTES, "Request body is too large.", "invalid_body"),
@@ -101,6 +111,49 @@ export function restaurantAgentRoutes(options: RestaurantAgentRouteOptions) {
   app.get("/agent/v1/restaurant", async (c) => {
     try {
       return c.json(await readRestaurant(options.prisma, scopeOf(c)));
+    } catch (error) {
+      return agentFailure(c, error);
+    }
+  });
+
+  app.get("/agent/v1/fetch-plan", async (c) => {
+    try {
+      const input = FetchPlanQuerySchema.parse({
+        outletId: c.req.query("outletId") ?? "",
+        ...(c.req.query("date") ? { date: c.req.query("date") } : {}),
+      });
+      return c.json(await readFetchPlan(options.prisma, scopeOf(c), input));
+    } catch (error) {
+      return agentFailure(c, error);
+    }
+  });
+
+  app.get("/agent/v1/fetches", async (c) => {
+    try {
+      const input = ListFetchesQuerySchema.parse({
+        outletId: c.req.query("outletId") ?? "",
+        ...(c.req.query("since") ? { since: c.req.query("since") } : {}),
+        ...(c.req.query("limit") !== undefined ? { limit: c.req.query("limit") } : {}),
+      });
+      return c.json(await listMetricFetches(options.prisma, scopeOf(c), input));
+    } catch (error) {
+      return agentFailure(c, error);
+    }
+  });
+
+  app.post("/agent/v1/fetches/check", async (c) => {
+    try {
+      const input = CheckStoredFetchesSchema.parse(await readJson(c));
+      return c.json(await checkStoredFetches(options.prisma, scopeOf(c), input));
+    } catch (error) {
+      return agentFailure(c, error);
+    }
+  });
+
+  app.post("/agent/v1/fetches", async (c) => {
+    try {
+      const input = LogFetchSchema.parse(await readJson(c));
+      return c.json(await logMetricFetch(options.prisma, scopeOf(c), input), 201);
     } catch (error) {
       return agentFailure(c, error);
     }

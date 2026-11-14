@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { Sha256Schema } from "./agent-fetches.js";
 import { commandVariableName } from "./bot-secrets.js";
 import type { MetricKey } from "./metric-dictionary.js";
 import {
@@ -9,6 +10,36 @@ import {
   requireMetric,
 } from "./metric-dictionary.js";
 
+export type {
+  CheckStoredFetchesInput,
+  CheckStoredFetchesResponse,
+  FetchPlanPlatform,
+  FetchPlanQuery,
+  FetchPlanResponse,
+  FetchPlanWindow,
+  FetchReport,
+  FetchStatus,
+  FetchWindowReason,
+  ListFetchesQuery,
+  LogFetchInput,
+  MetricFetchListItem,
+  MetricFetchListResponse,
+} from "./agent-fetches.js";
+export {
+  CheckStoredFetchesSchema,
+  FETCH_BACKFILL_NIGHT_DAYS,
+  FETCH_DAILY_DAYS,
+  FETCH_HORIZON_DAYS,
+  FETCH_REPORTS,
+  FETCH_STATUSES,
+  FETCH_SWIGGY_CHUNK_DAYS,
+  FETCH_WINDOW_REASONS,
+  FETCH_ZOMATO_CHUNK_DAYS,
+  FetchPlanQuerySchema,
+  ListFetchesQuerySchema,
+  LOG_FETCH_STATUSES,
+  LogFetchSchema,
+} from "./agent-fetches.js";
 export {
   addIsoDays,
   civilDayBounds,
@@ -16,6 +47,7 @@ export {
   daysBetween,
   indiaCivilDate,
   isoWeekday,
+  nextMonth,
   utcMidnight,
 } from "./metric-dates.js";
 export type {
@@ -63,6 +95,7 @@ export {
   evaluateBusinessReport,
   expectedPeriods,
   missingPlatformIdReason,
+  parsePeriodLabel,
   reportGranularity,
 } from "./metric-parse.js";
 export type {
@@ -298,6 +331,8 @@ export const IngestMetricReportSchema = z
     periodStart: IsoDate,
     periodEnd: IsoDate,
     csv: z.string().min(1).max(1_500_000),
+    /** Hash of the raw downloaded bytes. The server still hashes the csv it stores. */
+    rawSha256: Sha256Schema.optional(),
     attempt: z.number().int().positive().max(20).optional(),
     runId: z.string().trim().min(1).max(200),
     source: z.string().trim().min(1).max(200),
@@ -317,6 +352,8 @@ export const IngestPayoutReportSchema = z
     periodStart: IsoDate,
     periodEnd: IsoDate,
     fileBase64: z.string().min(1).max(12_000_000),
+    /** Hash of the raw downloaded bytes. The server still hashes the file it parses. */
+    rawSha256: Sha256Schema.optional(),
     attempt: z.number().int().positive().max(20).optional(),
     runId: z.string().trim().min(1).max(200),
     source: z.string().trim().min(1).max(200),

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type { ObjectStorage } from "@rakazo/adapter-kit";
 import type { PrismaClient } from "@rakazo/db";
@@ -876,5 +877,470 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
       if (previousSalt === undefined) delete process.env.CUSTOMER_HASH_SALT;
       else process.env.CUSTOMER_HASH_SALT = previousSalt;
     }
+  });
+
+  it("plans windows for this restaurant and refuses another outlet", async () => {
+    expect((await routes.request("/agent/v1/fetch-plan?outletId=missing")).status).toBe(401);
+    expect((await routes.request("/agent/v1/fetches?outletId=missing")).status).toBe(401);
+    for (const [method, path, body] of [
+      ["GET", `/agent/v1/fetch-plan?outletId=missing-outlet`, undefined],
+      ["GET", `/agent/v1/fetches?outletId=missing-outlet`, undefined],
+      [
+        "POST",
+        "/agent/v1/fetches/check",
+        {
+          outletId: "missing-outlet",
+          platform: "zomato",
+          files: [
+            {
+              sha256: "a".repeat(64),
+              report: "daily",
+              periodStart: "2026-10-01",
+              periodEnd: "2026-10-08",
+              parserVersion: "2026-11-12.1",
+            },
+          ],
+        },
+      ],
+      [
+        "POST",
+        "/agent/v1/fetches",
+        {
+          outletId: "missing-outlet",
+          platform: "zomato",
+          report: "daily",
+          periodStart: "2026-10-01",
+          periodEnd: "2026-10-08",
+          runId: "run-missing",
+          status: "signed_out",
+          reason: "session_expired",
+        },
+      ],
+    ] as const) {
+      const response = await call(method, path, tokenA, body);
+      expect(response.status).toBe(422);
+      expect(await response.json()).toEqual({
+        error: "Outlet is not part of this restaurant.",
+        code: "unknown_outlet",
+      });
+    }
+
+    const foreign = await call("POST", "/agent/v1/fetches", tokenB, {
+      outletId: outletA,
+      platform: "zomato",
+      report: "daily",
+      periodStart: "2026-10-01",
+      periodEnd: "2026-10-08",
+      runId: "run-foreign",
+      status: "signed_out",
+      reason: "session_expired",
+    });
+    expect(foreign.status).toBe(422);
+    expect(
+      await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+        db.metricFetch.count({ where: { outletId: outletA, runId: "run-foreign" } }),
+      ),
+    ).toBe(0);
+
+    const other = await call(
+      "GET",
+      `/agent/v1/fetch-plan?outletId=${outletB}&date=2026-11-16`,
+      tokenB,
+    );
+    expect(other.status).toBe(200);
+    const otherBody = (await other.json()) as {
+      platforms: Array<{ platform: string; platformId: string | null; reason: string | null }>;
+    };
+    expect(otherBody.platforms).toEqual([
+      expect.objectContaining({ platform: "zomato", platformId: "z-2", reason: null }),
+      { platform: "swiggy", platformId: null, reason: "missing_platform_id", windows: [] },
+    ]);
+    expect(JSON.stringify(otherBody)).not.toContain("z-1");
+    expect(JSON.stringify(otherBody)).not.toContain("s-1");
+
+    const bare = await call(
+      "GET",
+      `/agent/v1/fetch-plan?outletId=${bareOutlet}&date=2026-11-16`,
+      tokenA,
+    );
+    expect(await bare.json()).toMatchObject({
+      platforms: [
+        { platform: "zomato", platformId: null, reason: "missing_platform_id", windows: [] },
+        { platform: "swiggy", platformId: null, reason: "missing_platform_id", windows: [] },
+      ],
+    });
+
+    const invalid = await call(
+      "GET",
+      `/agent/v1/fetch-plan?outletId=${outletA}&date=2026-02-31`,
+      tokenA,
+    );
+    expect(invalid.status).toBe(400);
+
+    const windows = async (date: string, platform: string, report: string) => {
+      const response = await call(
+        "GET",
+        `/agent/v1/fetch-plan?outletId=${outletA}&date=${date}`,
+        tokenA,
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        platforms: Array<{
+          platform: string;
+          windows: Array<{ report: string; periodStart: string; periodEnd: string }>;
+        }>;
+      };
+      return body.platforms
+        .find((item) => item.platform === platform)
+        ?.windows.filter((window) => window.report === report);
+    };
+    expect(await windows("2026-11-16", "zomato", "weekly")).toEqual([
+      expect.objectContaining({ periodStart: "2026-11-09", periodEnd: "2026-11-16" }),
+    ]);
+    expect(await windows("2026-11-16", "swiggy", "weekly")).toEqual([]);
+    expect(await windows("2026-11-17", "swiggy", "weekly")).toEqual([
+      expect.objectContaining({ periodStart: "2026-11-08", periodEnd: "2026-11-15" }),
+    ]);
+    expect(await windows("2026-11-17", "zomato", "weekly")).toEqual([]);
+  });
+
+  it("matches a raw hash, logs a fetch with no file, and hides secrets", async () => {
+    const parent = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.outlet.findFirst({ where: { id: outletA }, select: { restaurantId: true } }),
+    );
+    const restaurantId = parent?.restaurantId ?? "";
+    const kitchen = await createOutlet(ownerDb, restaurantId, {
+      name: "Test Kitchen",
+      city: "Testcity",
+      zomatoResId: "900002",
+      swiggyRid: "900001",
+    });
+    const otherParent = await runAsTenant(
+      { spaceId: `m0-b-${suffix}`, userId: `m0-user-b-${suffix}` },
+      () => db.outlet.findFirst({ where: { id: outletB }, select: { restaurantId: true } }),
+    );
+    await runAsSystem("fetch plan cycles", async () => {
+      await ownerDb.payoutCycle.create({
+        data: {
+          restaurantId,
+          spaceId: spaceA,
+          outletId: kitchen.id,
+          platform: "zomato",
+          cycleId: `open-${suffix}`,
+          cycleStart: new Date("2026-10-05T00:00:00.000Z"),
+          cycleEnd: new Date("2026-10-12T00:00:00.000Z"),
+          settlementStatus: "pending",
+          utrLast4: "9999",
+        },
+      });
+      await ownerDb.payoutCycle.create({
+        data: {
+          restaurantId,
+          spaceId: spaceA,
+          outletId: kitchen.id,
+          platform: "zomato",
+          cycleId: `pending-${suffix}`,
+          cycleStart: new Date("2026-08-10T00:00:00.000Z"),
+          cycleEnd: new Date("2026-08-17T00:00:00.000Z"),
+          settlementStatus: "pending",
+          utrLast4: "9999",
+        },
+      });
+    });
+
+    const csv = await readFile(
+      new URL(
+        "../../../packages/contracts/fixtures/metrics/zomato_daily_sample.csv",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const contentHash = createHash("sha256").update(csv).digest("hex");
+    const rawHash = "ab".repeat(32);
+    const ingested = await call("POST", "/agent/v1/metric-reports", tokenA, {
+      outletId: kitchen.id,
+      platform: "zomato",
+      report: "daily",
+      periodStart: "2026-10-01",
+      periodEnd: "2026-10-08",
+      csv,
+      rawSha256: rawHash,
+      runId: `metrics-${suffix}`,
+      source: "export",
+      capturedAt: "2026-11-12T05:00:00.000Z",
+    });
+    expect(ingested.status).toBe(200);
+    const stored = (await ingested.json()) as { fetchId: string; status: string };
+    expect(stored.status).toBe("stored");
+    const storedRow = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricFetch.findFirst({
+        where: { id: stored.fetchId },
+        select: { sha256: true, rawSha256: true, parserVersion: true },
+      }),
+    );
+    expect(storedRow).toMatchObject({ sha256: contentHash, rawSha256: rawHash });
+
+    const payoutFile = Buffer.from(
+      await readFile(
+        new URL("../../../packages/contracts/fixtures/payouts/zomato-900002.xlsx", import.meta.url),
+      ),
+    );
+    const payoutRaw = "cd".repeat(32);
+    const payout = await call("POST", "/agent/v1/payout-reports", tokenA, {
+      outletId: kitchen.id,
+      platform: "zomato",
+      periodStart: "2026-10-26",
+      periodEnd: "2026-11-02",
+      fileBase64: payoutFile.toString("base64"),
+      rawSha256: payoutRaw,
+      runId: `payout-raw-${suffix}`,
+      source: "payout-file",
+      capturedAt: "2026-11-12T05:00:00.000Z",
+    });
+    expect(payout.status).toBe(200);
+    const payoutRow = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricFetch.findFirst({
+        where: { outletId: kitchen.id, reportKind: "payout", rawSha256: payoutRaw },
+        select: { rawSha256: true, sha256: true, parserVersion: true },
+      }),
+    );
+    expect(payoutRow?.rawSha256).toBe(payoutRaw);
+    expect(payoutRow?.sha256).toBe(createHash("sha256").update(payoutFile).digest("hex"));
+
+    const foreign = await runAsSystem("foreign fetch", () =>
+      ownerDb.metricFetch.create({
+        data: {
+          restaurantId: otherParent?.restaurantId ?? "",
+          spaceId: `m0-b-${suffix}`,
+          outletId: outletB,
+          platform: "zomato",
+          reportKind: "daily",
+          status: "stored",
+          requestedPeriodStart: new Date("2026-10-01T00:00:00.000Z"),
+          requestedPeriodEnd: new Date("2026-10-08T00:00:00.000Z"),
+          sha256: contentHash,
+          rawSha256: rawHash,
+          attemptCount: 1,
+          source: "export",
+          parserVersion: storedRow?.parserVersion ?? "2026-11-12.1",
+          runId: `foreign-${suffix}`,
+          capturedAt: new Date("2026-11-12T05:00:00.000Z"),
+        },
+        select: { id: true },
+      }),
+    );
+    const checked = await call("POST", "/agent/v1/fetches/check", tokenA, {
+      outletId: kitchen.id,
+      platform: "zomato",
+      files: [
+        {
+          sha256: "b".repeat(64),
+          rawSha256: rawHash,
+          report: "daily",
+          periodStart: "2026-10-01",
+          periodEnd: "2026-10-08",
+          parserVersion: storedRow?.parserVersion,
+        },
+        {
+          sha256: contentHash,
+          rawSha256: "c".repeat(64),
+          report: "daily",
+          periodStart: "2026-10-01",
+          periodEnd: "2026-10-08",
+          parserVersion: storedRow?.parserVersion,
+        },
+        {
+          sha256: contentHash,
+          rawSha256: rawHash,
+          report: "daily",
+          periodStart: "2026-10-02",
+          periodEnd: "2026-10-08",
+          parserVersion: storedRow?.parserVersion,
+        },
+        {
+          sha256: contentHash,
+          report: "daily",
+          periodStart: "2026-10-01",
+          periodEnd: "2026-10-08",
+          parserVersion: "other",
+        },
+      ],
+    });
+    expect(checked.status).toBe(200);
+    const checks = (await checked.json()) as {
+      files: Array<{ stored: boolean; fetchId: string | null }>;
+    };
+    expect(checks.files.map((file) => file.stored)).toEqual([true, true, false, false]);
+    expect(checks.files[0]?.fetchId).toBe(stored.fetchId);
+    expect(checks.files[1]?.fetchId).toBe(stored.fetchId);
+    expect(checks.files.map((file) => file.fetchId)).not.toContain(foreign.id);
+    const hidden = await call("POST", "/agent/v1/fetches/check", tokenA, {
+      outletId: outletB,
+      platform: "zomato",
+      files: [
+        {
+          sha256: contentHash,
+          rawSha256: rawHash,
+          report: "daily",
+          periodStart: "2026-10-01",
+          periodEnd: "2026-10-08",
+          parserVersion: storedRow?.parserVersion,
+        },
+      ],
+    });
+    expect(hidden.status).toBe(422);
+
+    await runAsSystem("fetch list fixtures", async () => {
+      await ownerDb.metricFetch.create({
+        data: {
+          restaurantId,
+          spaceId: spaceA,
+          outletId: kitchen.id,
+          platform: "zomato",
+          reportKind: "daily",
+          status: "rejected_mismatch",
+          requestedPeriodStart: new Date("2026-09-01T00:00:00.000Z"),
+          requestedPeriodEnd: new Date("2026-09-02T00:00:00.000Z"),
+          sha256: "d".repeat(64),
+          attemptCount: 1,
+          source: "export",
+          parserVersion: "2026-11-12.1",
+          reason: "The file said OTP 123456 and password hunter2",
+          runId: `reject-${suffix}`,
+          capturedAt: new Date("2026-09-02T00:00:00.000Z"),
+        },
+      });
+      await ownerDb.metricFetch.create({
+        data: {
+          restaurantId,
+          spaceId: spaceA,
+          outletId: kitchen.id,
+          platform: "zomato",
+          reportKind: "weekly",
+          status: "stored",
+          requestedPeriodStart: new Date("2026-08-01T00:00:00.000Z"),
+          requestedPeriodEnd: new Date("2026-08-08T00:00:00.000Z"),
+          sha256: "e".repeat(64),
+          attemptCount: 1,
+          source: "export",
+          parserVersion: "2026-11-12.1",
+          reason: "Rounded a rupee.",
+          runId: `warn-${suffix}`,
+          capturedAt: new Date("2026-08-08T00:00:00.000Z"),
+        },
+      });
+    });
+
+    const logged = await call("POST", "/agent/v1/fetches", tokenA, {
+      outletId: kitchen.id,
+      platform: "swiggy",
+      report: "daily",
+      periodStart: "2026-11-01",
+      periodEnd: "2026-11-08",
+      runId: `log-${suffix}`,
+      status: "download_failed",
+      reason: "export_missing",
+    });
+    expect(logged.status).toBe(201);
+    const loggedBody = (await logged.json()) as { fetchId: string; status: string };
+    expect(loggedBody.status).toBe("download_failed");
+
+    const prose = await call("POST", "/agent/v1/fetches", tokenA, {
+      outletId: kitchen.id,
+      platform: "swiggy",
+      report: "daily",
+      periodStart: "2026-11-01",
+      periodEnd: "2026-11-08",
+      runId: `log-prose-${suffix}`,
+      status: "signed_out",
+      reason: "Signed out OTP 123456",
+    });
+    expect(prose.status).toBe(400);
+    expect(JSON.stringify(await prose.json())).not.toContain("123456");
+
+    const listed = await call("GET", `/agent/v1/fetches?outletId=${kitchen.id}&limit=50`, tokenA);
+    expect(listed.status).toBe(200);
+    const list = (await listed.json()) as {
+      fetches: Array<{
+        fetchId: string;
+        status: string;
+        reason: string | null;
+        warnings: string[];
+        sha256: string | null;
+        report: string;
+        rejectedMismatch: boolean;
+      }>;
+    };
+    expect(list.fetches[0]?.fetchId).toBe(loggedBody.fetchId);
+    expect(list.fetches[0]).toMatchObject({
+      status: "download_failed",
+      reason: "export_missing",
+      warnings: [],
+      sha256: null,
+      report: "daily",
+    });
+    const rejected = list.fetches.find((row) => row.status === "rejected_mismatch");
+    expect(rejected).toMatchObject({ rejectedMismatch: true, reason: null, warnings: [] });
+    const warned = list.fetches.find((row) => row.report === "weekly" && row.status === "stored");
+    expect(warned?.warnings).toEqual(["Rounded a rupee."]);
+    const dumped = JSON.stringify(list);
+    expect(dumped).not.toContain("123456");
+    expect(dumped).not.toContain("hunter2");
+    expect(dumped).not.toContain("9999");
+
+    const newest = await call("GET", `/agent/v1/fetches?outletId=${kitchen.id}&limit=1`, tokenA);
+    const newestBody = (await newest.json()) as { fetches: Array<{ fetchId: string }> };
+    expect(newestBody.fetches).toHaveLength(1);
+    expect(newestBody.fetches[0]?.fetchId).toBe(loggedBody.fetchId);
+    const future = await call(
+      "GET",
+      `/agent/v1/fetches?outletId=${kitchen.id}&since=2099-01-01T00:00:00.000Z`,
+      tokenA,
+    );
+    expect(await future.json()).toEqual({ fetches: [] });
+    const tooMany = await call("GET", `/agent/v1/fetches?outletId=${kitchen.id}&limit=201`, tokenA);
+    expect(tooMany.status).toBe(400);
+
+    const plan = await call(
+      "GET",
+      `/agent/v1/fetch-plan?outletId=${kitchen.id}&date=2026-10-08`,
+      tokenA,
+    );
+    const planBody = (await plan.json()) as {
+      platforms: Array<{
+        platform: string;
+        platformId: string | null;
+        windows: Array<{
+          report: string;
+          reasons: string[];
+          periodStart: string;
+          periodEnd: string;
+        }>;
+      }>;
+    };
+    const zomato = planBody.platforms.find((item) => item.platform === "zomato");
+    expect(zomato?.platformId).toBe("900002");
+    const payouts = zomato?.windows.filter((window) => window.report === "payout") ?? [];
+    expect(payouts).toContainEqual({
+      report: "payout",
+      reasons: ["pending"],
+      periodStart: "2026-08-10",
+      periodEnd: "2026-08-17",
+    });
+    expect(payouts.some((window) => window.periodStart === "2026-10-05")).toBe(false);
+    expect(JSON.stringify(planBody)).not.toContain("9999");
+    const friday = await call(
+      "GET",
+      `/agent/v1/fetch-plan?outletId=${kitchen.id}&date=2026-10-09`,
+      tokenA,
+    );
+    const fridayBody = (await friday.json()) as {
+      platforms: Array<{ windows: Array<{ report: string }> }>;
+    };
+    expect(
+      fridayBody.platforms.every((item) =>
+        item.windows.every((window) => window.report !== "payout"),
+      ),
+    ).toBe(true);
   });
 });

@@ -34,6 +34,11 @@
       "types": "./src/payout.ts",
       "development": "./src/payout.ts",
       "default": "./src/payout.ts"
+    },
+    "./identity": {
+      "types": "./src/identity.ts",
+      "development": "./src/identity.ts",
+      "default": "./src/identity.ts"
     }
   },
   "scripts": {
