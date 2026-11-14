@@ -1343,4 +1343,64 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
       ),
     ).toBe(true);
   });
+
+  it("keeps daily gaps open when only a monthly report is stored", async () => {
+    const parent = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.outlet.findFirst({ where: { id: outletA }, select: { restaurantId: true } }),
+    );
+    const restaurantId = parent?.restaurantId ?? "";
+    const row = (platform: string, reportKind: string, from: string, to: string, sha: string) => ({
+      restaurantId,
+      spaceId: spaceA,
+      outletId: outletA,
+      platform,
+      reportKind,
+      status: "stored",
+      requestedPeriodStart: new Date(`${from}T00:00:00.000Z`),
+      requestedPeriodEnd: new Date(`${to}T00:00:00.000Z`),
+      sha256: sha,
+      attemptCount: 1,
+      source: "export",
+      parserVersion: "2026-11-12.1",
+      runId: `cover-${suffix}`,
+      capturedAt: new Date("2026-10-08T00:00:00.000Z"),
+    });
+    await runAsSystem("daily coverage fixtures", () =>
+      ownerDb.metricFetch.createMany({
+        data: [
+          row("zomato", "daily", "2026-07-10", "2026-09-01", "1".repeat(64)),
+          row("swiggy", "daily", "2026-07-10", "2026-09-01", "2".repeat(64)),
+          row("zomato", "monthly", "2026-09-01", "2026-10-01", "3".repeat(64)),
+        ],
+      }),
+    );
+    const response = await call(
+      "GET",
+      `/agent/v1/fetch-plan?outletId=${outletA}&date=2026-10-08`,
+      tokenA,
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      platforms: Array<{
+        platform: string;
+        windows: Array<{
+          report: string;
+          reasons: string[];
+          periodStart: string;
+          periodEnd: string;
+        }>;
+      }>;
+    };
+    const backfill = body.platforms
+      .find((item) => item.platform === "zomato")
+      ?.windows.filter((window) => window.reasons.includes("backfill"));
+    expect(backfill).toEqual([
+      {
+        report: "daily",
+        reasons: ["backfill"],
+        periodStart: "2026-09-01",
+        periodEnd: "2026-10-01",
+      },
+    ]);
+  });
 });

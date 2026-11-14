@@ -48,6 +48,8 @@ export async function readFetchPlan(
         spaceId: scope.spaceId,
         outletId: outlet.id,
         platform: { in: [...PLATFORMS] },
+        // A weekly, monthly, or payout file does not fill the daily series.
+        reportKind: "daily",
         status: "stored",
         requestedPeriodStart: { lt: horizonEnd },
         requestedPeriodEnd: { gt: horizonStart },
