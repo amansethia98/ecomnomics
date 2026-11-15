@@ -118,7 +118,7 @@ async function exhaustRelabelAttempts(
     const findingId = findingIdFromSource(row.source);
     if (!findingId) return [];
     const key = `${row.outletId}\t${findingId}\t${row.periodStart.toISOString()}`;
-    return (nights.get(key)?.size ?? 0 >= RELABEL_ATTEMPT_LIMIT) ? [row.id] : [];
+    return (nights.get(key)?.size ?? 0) >= RELABEL_ATTEMPT_LIMIT ? [row.id] : [];
   });
   if (ids.length === 0) return;
   await db.metricValue.updateMany({

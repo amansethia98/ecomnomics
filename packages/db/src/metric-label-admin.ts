@@ -367,7 +367,7 @@ export async function rejectLabelFinding(
     });
     return { ok: true, value: { findingId, status: "rejected_ignored", registryVersion: version } };
   }
-  const version = await registryVersion(db);
+  let version = await registryVersion(db);
   await db.metricLabelFinding.update({
     where: { id: findingId },
     data: { status: "metric_removed", resolvedAt: new Date(), resolvedBy: actor },
@@ -384,6 +384,9 @@ export async function rejectLabelFinding(
         where: { id: finding.slotId },
         data: { retiredFrom: new Date(`${start}T00:00:00.000Z`) },
       });
+      // The label book is cached by registry version. Retiring a slot has to
+      // change that version or a warm process keeps parsing the old slot.
+      version = await bumpRegistry(db);
     }
     await db.metricValue.updateMany({
       where: { source: `pending_label:${findingId}`, state: "pending_label", supersededAt: null },

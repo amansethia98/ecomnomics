@@ -2565,6 +2565,9 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
       return rejectLabelFinding(db, finding.id, `admin-${suffix}`, "ignore_label");
     });
     expect(ignored).toMatchObject({ ok: true, value: { status: "rejected_ignored" } });
+    const versionBefore = await runAsSystem("registry before a retirement", () =>
+      db.metricLabelRegistry.findUnique({ where: { id: "global" } }),
+    );
     const removed = await runAsSystem("retire a metric", async () => {
       const finding = await db.metricLabelFinding.create({
         data: {
@@ -2598,15 +2601,40 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
           capturedAt: new Date("2026-08-02T00:00:00.000Z"),
         },
       });
+      await db.metricLabelObservation.create({
+        data: {
+          findingId: finding.id,
+          restaurantId: await restaurantA(),
+          spaceId: spaceA,
+          outletId: outlet.id,
+          platform: "swiggy",
+          reportKind: "daily",
+          periods: "2026-08-01",
+          evidence: {},
+        },
+      });
       return rejectLabelFinding(db, finding.id, `admin-${suffix}`, "metric_removed");
     });
-    expect(removed).toMatchObject({ ok: true, value: { status: "metric_removed" } });
+    expect(removed).toMatchObject({
+      ok: true,
+      value: {
+        status: "metric_removed",
+        registryVersion: (versionBefore?.version ?? 1) + 1,
+      },
+    });
     const retired = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
       db.metricValue.findFirst({
         where: { outletId: outlet.id, key: "impressions", supersededAt: null },
       }),
     );
     expect(retired?.state).toBe("label_unrecoverable");
+    const slot = await runAsSystem("retired slot", () =>
+      db.metricLabelSlot.findUnique({
+        where: { id: "swiggy.business.CONVERSION_FUNNEL.impressions" },
+        select: { retiredFrom: true },
+      }),
+    );
+    expect(slot?.retiredFrom).not.toBeNull();
   });
 
   it("stops retrying after three nights and after fourteen days in two outlets", async () => {
@@ -2724,6 +2752,23 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
           capturedAt: new Date("2026-07-02T00:00:00.000Z"),
         },
       });
+      await db.metricValue.create({
+        data: {
+          restaurantId,
+          spaceId: spaceA,
+          outletId: outlet.id,
+          platform: "swiggy",
+          granularity: "day",
+          periodStart: new Date("2026-07-02T00:00:00.000Z"),
+          periodEnd: new Date("2026-07-03T00:00:00.000Z"),
+          key: "delivered_orders",
+          state: "pending_label",
+          value: 4,
+          runId: `nights-open-${suffix}`,
+          source: `pending_label:${finding.id}`,
+          capturedAt: new Date("2026-07-03T00:00:00.000Z"),
+        },
+      });
       for (const night of ["2026-07-02", "2026-07-03", "2026-07-04"]) {
         await db.metricRelabelAttempt.create({
           data: {
@@ -2738,6 +2783,18 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
           },
         });
       }
+      await db.metricRelabelAttempt.create({
+        data: {
+          restaurantId,
+          spaceId: spaceA,
+          outletId: outlet.id,
+          platform: "swiggy",
+          findingId: finding.id,
+          periodStart: new Date("2026-07-02T00:00:00.000Z"),
+          night: "2026-07-02",
+          outcome: "failed",
+        },
+      });
     });
     const metrics = await call(
       "GET",
@@ -2749,6 +2806,17 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
       values: Array<{ status: string; value: number | null }>;
     };
     expect(body.values[0]).toMatchObject({ status: "not_available", value: null });
+    const later = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricValue.findFirst({
+        where: {
+          outletId: outlet.id,
+          key: "delivered_orders",
+          periodStart: new Date("2026-07-02T00:00:00.000Z"),
+          supersededAt: null,
+        },
+      }),
+    );
+    expect(later?.state).toBe("pending_label");
   });
 
   it("marks a total partial while some days are still updating", async () => {

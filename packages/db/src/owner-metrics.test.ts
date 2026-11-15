@@ -50,6 +50,7 @@ function order(overrides: Partial<OwnerOrderFact> = {}): OwnerOrderFact {
     complaintsCancellationChargesPaise: 0,
     netPayoutPaise: 800,
     paidAmountPaise: null,
+    pendingFields: [],
     ...overrides,
   };
 }
@@ -645,5 +646,63 @@ describe("owner metrics read", () => {
       facts: [day(north.id, 80), day(south.id, 90)],
     });
     expect(result.values.find((value) => value.key === "online_pct")?.value).toBe(85);
+  });
+
+  it("leaves a pending payout amount out of the total and marks the day updating", () => {
+    const result = read({
+      query: query({
+        keys: ["commission_paise"],
+        platform: "swiggy",
+        from: "2026-01-01",
+        to: "2026-01-03",
+      }),
+      orders: [
+        order({
+          platform: "swiggy",
+          orderDate: "2026-01-01",
+          commissionPaise: 0,
+          pendingFields: ["commissionPaise"],
+        }),
+        order({ platform: "swiggy", orderDate: "2026-01-02", commissionPaise: 50 }),
+      ],
+    });
+    expect(result.values.find((value) => value.key === "commission_paise")).toMatchObject({
+      status: "updating",
+      value: 50,
+      updatingDates: ["2026-01-01"],
+    });
+  });
+
+  it("marks a derived total updating when one of its inputs is still pending", () => {
+    const day = (date: string, key: string, value: number | null, state?: "pending_label") => ({
+      outletId: north.id,
+      platform: "swiggy" as const,
+      key,
+      date,
+      value,
+      valueBoolean: null,
+      state,
+      granularity: "day",
+      periodEnd: date === "2026-01-01" ? "2026-01-02" : "2026-01-03",
+    });
+    const result = read({
+      query: query({
+        keys: ["gross_aov_paise"],
+        platform: "swiggy",
+        from: "2026-01-01",
+        to: "2026-01-03",
+      }),
+      facts: [
+        day("2026-01-01", "gross_sales_paise", 1000),
+        day("2026-01-01", "delivered_orders", 2),
+        day("2026-01-02", "gross_sales_paise", 1000),
+        day("2026-01-02", "delivered_orders", null, "pending_label"),
+      ],
+    });
+    expect(result.values.find((value) => value.key === "gross_aov_paise")).toMatchObject({
+      status: "updating",
+      value: 500,
+      updatingDates: ["2026-01-02"],
+    });
   });
 });

@@ -147,6 +147,7 @@ export async function readOwnerMetrics(
         complaintsCancellationChargesPaise: true,
         netPayoutPaise: true,
         paidAmountPaise: true,
+        pendingFields: true,
       },
     }),
     db.payoutAdjustment.findMany({
@@ -334,6 +335,7 @@ function orderFact(row: {
   complaintsCancellationChargesPaise: number | null;
   netPayoutPaise: number | null;
   paidAmountPaise: number | null;
+  pendingFields: string[];
 }): OwnerOrderFact {
   return {
     outletId: row.outletId,
@@ -356,6 +358,7 @@ function orderFact(row: {
     complaintsCancellationChargesPaise: paid(row.complaintsCancellationChargesPaise),
     netPayoutPaise: paid(row.netPayoutPaise),
     paidAmountPaise: row.paidAmountPaise,
+    pendingFields: row.pendingFields,
   };
 }
 

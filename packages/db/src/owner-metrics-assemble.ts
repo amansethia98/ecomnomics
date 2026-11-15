@@ -44,6 +44,22 @@ const NO_FULL_COVERAGE = "No outlet has data for every day in this range.";
 const NO_OUTLETS = "This restaurant has no outlets.";
 const LIKE_FOR_LIKE_NOTE = "The total uses only outlets with data on every day.";
 
+const ORDER_AMOUNT_FIELD = {
+  gross_sales_paise: "grossSalesPaise",
+  discount_paise: "discountPaise",
+  cv_paise: "cvPaise",
+  commission_paise: "commissionPaise",
+  platform_fees_paise: "platformFeesPaise",
+  taxes_paise: "taxesPaise",
+  tds_paise: "tdsPaise",
+  tcs_paise: "tcsPaise",
+  gst_collected_paise: "gstCollectedPaise",
+  complaints_cancellation_charges_paise: "complaintsCancellationChargesPaise",
+  net_payout_paise: "netPayoutPaise",
+} as const;
+
+const GST_COMPONENT_FIELDS = ["commissionPaise", "platformFeesPaise", "taxesPaise"] as const;
+
 const ORDER_SUM_KEYS = [
   "gross_sales_paise",
   "discount_paise",
@@ -130,6 +146,8 @@ export interface OwnerOrderFact {
   complaintsCancellationChargesPaise: number;
   netPayoutPaise: number;
   paidAmountPaise: number | null;
+  /** Amount columns whose label is still pending. Those numbers are not real zeros. */
+  pendingFields: readonly string[];
 }
 
 export interface OwnerAdjustmentFact {
@@ -728,6 +746,7 @@ function prepareOrderFacts(
     const [platform, date] = slot.slice(splitAt + 1).split("|") as [MetricPlatform, string];
     const rows = outletFacts(outletId);
     for (const key of ORDER_SUM_KEYS) {
+      if (ordersPending(orders, key)) continue;
       rows.set(slotOf(platform, date, key), sumOrderKey(orders, key));
     }
   }
@@ -787,6 +806,7 @@ function prepareSettlementFacts(
   for (const [slot, orders] of grouped) {
     const [platform, date] = slot.split("|") as [MetricPlatform, string];
     for (const key of ORDER_SUM_KEYS) {
+      if (ordersPending(orders, key)) continue;
       byPlatform
         .get(platform)
         ?.push(toRollup(platform, key, date, addIsoDays(date, 1), sumOrderKey(orders, key), "day"));
@@ -1010,10 +1030,11 @@ function commissionGst(
     );
   });
   const fees = orders.reduce(
-    (total, order) => total + order.commissionPaise + order.platformFeesPaise,
+    (total, order) =>
+      total + knownAmount(order, "commissionPaise") + knownAmount(order, "platformFeesPaise"),
     0,
   );
-  const taxes = orders.reduce((total, order) => total + order.taxesPaise, 0);
+  const taxes = orders.reduce((total, order) => total + knownAmount(order, "taxesPaise"), 0);
   return okValue(
     "commission_pg_gst_paise",
     platform,
@@ -1107,14 +1128,50 @@ function labelDates(
 ): { updating: string[]; unrecoverable: string[] } {
   const updating = new Set<string>();
   const unrecoverable = new Set<string>();
+  const watched = keysBehind(key);
   for (const fact of input.facts) {
-    if (fact.key !== key || !included.has(fact.outletId) || fact.granularity !== "day") continue;
+    if (!watched.has(fact.key) || !included.has(fact.outletId) || fact.granularity !== "day")
+      continue;
     if (platform !== "all" && fact.platform !== platform) continue;
     if (fact.date < from || fact.date >= to) continue;
     if (fact.state === "pending_label") updating.add(fact.date);
     if (fact.state === "label_unrecoverable") unrecoverable.add(fact.date);
   }
+  const fields = pendingFieldsFor(key);
+  for (const order of input.orders) {
+    if (!included.has(order.outletId)) continue;
+    if (platform !== "all" && order.platform !== platform) continue;
+    const date = input.query.basis === "settlement_date" ? order.settlementDate : order.orderDate;
+    if (!date || date < from || date >= to) continue;
+    if (input.query.basis === "settlement_date" && order.settlementStatus !== "settled") continue;
+    if (fields.some((field) => order.pendingFields.includes(field))) updating.add(date);
+  }
   return { updating: [...updating].sort(), unrecoverable: [...unrecoverable].sort() };
+}
+
+function pendingFieldsFor(key: string): readonly string[] {
+  const fields = new Set<string>();
+  for (const part of keysBehind(key)) {
+    if (part === "commission_pg_gst_paise") {
+      for (const field of GST_COMPONENT_FIELDS) fields.add(field);
+    }
+    const field = ORDER_AMOUNT_FIELD[part as keyof typeof ORDER_AMOUNT_FIELD];
+    if (field) fields.add(field);
+  }
+  return [...fields];
+}
+
+function ordersPending(orders: readonly OwnerOrderFact[], key: string): boolean {
+  const field = ORDER_AMOUNT_FIELD[key as keyof typeof ORDER_AMOUNT_FIELD];
+  if (!field) return false;
+  return orders.some((order) => order.pendingFields.includes(field));
+}
+
+function knownAmount(
+  order: OwnerOrderFact,
+  field: (typeof ORDER_AMOUNT_FIELD)[keyof typeof ORDER_AMOUNT_FIELD],
+): number {
+  return order.pendingFields.includes(field) ? 0 : order[field];
 }
 
 function windowTotal(
@@ -1259,8 +1316,8 @@ function categoriesIn(
     const category = categoryLabel(order.category);
     const group = groups.get(category) ?? { orders: 0, grossSalesPaise: 0, netPayoutPaise: 0 };
     group.orders += 1;
-    group.grossSalesPaise += order.grossSalesPaise;
-    group.netPayoutPaise += order.netPayoutPaise;
+    group.grossSalesPaise += knownAmount(order, "grossSalesPaise");
+    group.netPayoutPaise += knownAmount(order, "netPayoutPaise");
     groups.set(category, group);
   }
   return [...groups.entries()]
@@ -1478,20 +1535,7 @@ function sumOrderKey(
   key: (typeof ORDER_SUM_KEYS)[number],
 ): number {
   if (key === "payout_orders") return orders.length;
-  const field = {
-    gross_sales_paise: "grossSalesPaise",
-    discount_paise: "discountPaise",
-    cv_paise: "cvPaise",
-    commission_paise: "commissionPaise",
-    platform_fees_paise: "platformFeesPaise",
-    taxes_paise: "taxesPaise",
-    tds_paise: "tdsPaise",
-    tcs_paise: "tcsPaise",
-    gst_collected_paise: "gstCollectedPaise",
-    complaints_cancellation_charges_paise: "complaintsCancellationChargesPaise",
-    net_payout_paise: "netPayoutPaise",
-  } as const;
-  const name = field[key as keyof typeof field];
+  const name = ORDER_AMOUNT_FIELD[key as keyof typeof ORDER_AMOUNT_FIELD];
   return orders.reduce((total, order) => total + order[name], 0);
 }
 
