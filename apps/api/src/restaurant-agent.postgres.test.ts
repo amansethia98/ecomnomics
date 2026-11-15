@@ -2202,4 +2202,166 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
       };
     });
   }
+
+  it("stores one pending rename for two outlets and does not add an alias", async () => {
+    const csv = (
+      await readFile(
+        new URL(
+          "../../../packages/contracts/fixtures/metrics/swiggy_daily_sample.csv",
+          import.meta.url,
+        ),
+        "utf8",
+      )
+    )
+      .replaceAll("Carts Builds", "Cart Builds")
+      .replace("Menu to Cart,19.51%", "Menu to Cart,33.87%");
+    const aliasesBefore = await runAsSystem("count aliases before a rename", () =>
+      db.metricLabelAlias.count(),
+    );
+    const restaurantId = await restaurantA();
+    const outlets: Array<{ outletId: string; response: Response }> = [];
+    for (const run of ["rename-a", "rename-b"]) {
+      const outlet = await createOutlet(ownerDb, restaurantId, {
+        name: "Test Kitchen",
+        city: "Testcity",
+        swiggyRid: "900001",
+      });
+      const response = await call("POST", "/agent/v1/metric-reports", tokenA, {
+        outletId: outlet.id,
+        platform: "swiggy",
+        report: "daily",
+        periodStart: "2026-11-02",
+        periodEnd: "2026-11-09",
+        csv,
+        runId: `${run}-${suffix}`,
+        source: "export",
+        capturedAt: "2026-11-09T05:00:00.000Z",
+      });
+      outlets.push({ outletId: outlet.id, response });
+    }
+    const firstOutlet = outlets[0];
+    const secondOutlet = outlets[1];
+    if (!firstOutlet || !secondOutlet) throw new Error("The rename outlets were not created.");
+    const first = (await firstOutlet.response.json()) as {
+      labels: {
+        pendingSlots: number;
+        findings: Array<{ findingId: string; kind: string; status: string }>;
+      };
+    };
+    const second = (await secondOutlet.response.json()) as {
+      labels: { findings: Array<{ findingId: string; status: string }> };
+    };
+    expect(firstOutlet.response.status).toBe(200);
+    expect(secondOutlet.response.status).toBe(200);
+    expect(first.labels.pendingSlots).toBeGreaterThan(0);
+    expect(first.labels.findings).toEqual([
+      expect.objectContaining({ kind: "metric_label_change", status: "open" }),
+    ]);
+    const findingId = first.labels.findings[0]?.findingId ?? "";
+    expect(second.labels.findings).toEqual([
+      expect.objectContaining({ findingId, status: "open" }),
+    ]);
+    const finding = await runAsSystem("read the shared rename", () =>
+      db.metricLabelFinding.findUnique({
+        where: { id: findingId },
+        include: { observations: true },
+      }),
+    );
+    expect(finding?.outletsAffected).toBe(2);
+    expect(finding?.occurrences).toBe(2);
+    expect(finding?.observations).toHaveLength(2);
+    const evidence = finding?.evidence as { wouldApply?: boolean } | undefined;
+    expect(evidence?.wouldApply).toBe(true);
+    expect(await runAsSystem("aliases stay unchanged", () => db.metricLabelAlias.count())).toBe(
+      aliasesBefore,
+    );
+    const hidden = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricLabelFinding.findMany({ where: { id: finding?.id } }),
+    );
+    expect(hidden).toEqual([]);
+    const pending = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricValue.findMany({
+        where: { outletId: firstOutlet.outletId, key: "cart_builds", supersededAt: null },
+      }),
+    );
+    expect(pending.length).toBeGreaterThan(0);
+    expect(pending.every((row) => row.state === "pending_label" && row.value == null)).toBe(true);
+    expect(pending.every((row) => row.source.startsWith("pending_label:"))).toBe(true);
+  });
+
+  it("does not replace a stored metric with a pending rename", async () => {
+    const original = await readFile(
+      new URL(
+        "../../../packages/contracts/fixtures/metrics/swiggy_daily_sample.csv",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const outlet = await createOutlet(ownerDb, await restaurantA(), {
+      name: "Test Kitchen",
+      city: "Testcity",
+      swiggyRid: "900001",
+    });
+    const post = (csv: string, runId: string) =>
+      call("POST", "/agent/v1/metric-reports", tokenA, {
+        outletId: outlet.id,
+        platform: "swiggy",
+        report: "daily",
+        periodStart: "2026-11-02",
+        periodEnd: "2026-11-09",
+        csv,
+        runId: `${runId}-${suffix}`,
+        source: "export",
+        capturedAt: "2026-11-09T05:00:00.000Z",
+      });
+    expect((await post(original, "real-carts")).status).toBe(200);
+    const renamed = await post(original.replaceAll("Carts Builds", "Cart Builds"), "pending-carts");
+    expect(renamed.status).toBe(200);
+    const rows = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricValue.findMany({
+        where: { outletId: outlet.id, key: "cart_builds", supersededAt: null },
+      }),
+    );
+    expect(rows.some((row) => row.value?.toString() === "146" && row.state === "ok")).toBe(true);
+    expect(rows.every((row) => row.state === "ok" && row.value != null)).toBe(true);
+  });
+
+  it("rejects a layout change without counting it toward the identity hold", async () => {
+    const outlet = await createOutlet(ownerDb, await restaurantA(), {
+      name: "Test Kitchen",
+      city: "Testcity",
+      swiggyRid: "900001",
+    });
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const response = await call("POST", "/agent/v1/metric-reports", tokenA, {
+        outletId: outlet.id,
+        platform: "swiggy",
+        report: "daily",
+        periodStart: "2026-11-02",
+        periodEnd: "2026-11-09",
+        csv: "not a report",
+        runId: `layout-${attempt}-${suffix}`,
+        source: "export",
+        capturedAt: "2026-11-09T05:00:00.000Z",
+      });
+      expect(response.status).toBe(422);
+      expect(await response.json()).toMatchObject({
+        code: "layout_changed",
+        status: "parse_failed",
+      });
+    }
+    expect(await holdState(tokenA, outlet.id, "swiggy")).toMatchObject({ held: false });
+    const fetches = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricFetch.findMany({ where: { outletId: outlet.id } }),
+    );
+    expect(fetches).toHaveLength(5);
+    expect(
+      fetches.every((row) => row.identityMismatch === false && row.reason === "layout_changed"),
+    ).toBe(true);
+    expect(
+      await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+        db.metricValue.count({ where: { outletId: outlet.id } }),
+      ),
+    ).toBe(0);
+  });
 });

@@ -514,12 +514,14 @@ function rejectedFile(
   ) {
     return null;
   }
+  const layout = "layoutChanged" in result && result.layoutChanged === true;
   return c.json(
     {
       error: result.reason ?? "The file does not match the requested outlet.",
-      code: "file_identity",
+      code: layout ? "layout_changed" : "file_identity",
       fetchId: result.fetchId,
       status: result.status,
+      ...("labels" in result && result.labels ? { labels: result.labels } : {}),
     },
     422,
   );

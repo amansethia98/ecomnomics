@@ -2779,6 +2779,7 @@ model Restaurant {
   tokens         AgentToken[]
   jobRuns        JobRun[]
   fetchHolds     FetchHold[]
+  labelObservations MetricLabelObservation[]
 
   @@unique([id, spaceId])
   @@map("restaurants")
@@ -2809,6 +2810,7 @@ model Outlet {
   actions             Action[]
   jobRuns             JobRun[]
   fetchHolds          FetchHold[]
+  labelObservations   MetricLabelObservation[]
 
   @@unique([id, spaceId])
   @@index([spaceId])
@@ -2830,6 +2832,8 @@ model MetricValue {
   key          String
   /// Missing is null, never a guessed zero. Boolean keys use valueBoolean instead.
   value        Decimal?   @db.Decimal(20, 4)
+  /// ok is a real figure. pending_label is an absent metric and must not replace ok.
+  state        String     @default("ok")
   valueBoolean Boolean?
   runId        String
   source       String
@@ -2902,6 +2906,7 @@ model MetricFetch {
   payoutOrders          PayoutOrder[]
   payoutAdjustments     PayoutAdjustment[]
   payoutCycles          PayoutCycle[]
+  labelObservations     MetricLabelObservation[]
 
   @@index([spaceId, createdAt], map: "metric_fetches_space_idx")
   @@index([outletId, platform, requestedPeriodStart], map: "metric_fetches_window_idx")
@@ -3278,6 +3283,7 @@ model MetricLabelSlot {
   allowAutoApply Boolean
   collect        String
   aliases        MetricLabelAlias[]
+  findings       MetricLabelFinding[]
 
   @@unique([platform, reportKind, section, slotKey])
   @@map("metric_label_slots")
@@ -3312,4 +3318,58 @@ model MetricLabelRegistry {
   updatedAt DateTime @updatedAt @default(now())
 
   @@map("metric_label_registry")
+}
+
+/// One open rename or layout alert. Global: tenants cannot read it.
+model MetricLabelFinding {
+  id               String   @id @default(cuid())
+  kind             String
+  platform         String
+  family           String
+  reportKind       String
+  section          String
+  slotId           String?
+  slot             MetricLabelSlot? @relation(fields: [slotId], references: [id])
+  oldLabel         String
+  candidateLabel   String?
+  candidateNorm    String?
+  evidence         Json
+  confidence       String
+  firstSeenAt      DateTime @default(now())
+  lastSeenAt       DateTime @default(now())
+  occurrences      Int      @default(1)
+  outletsAffected  Int      @default(0)
+  daysAffected     Int      @default(0)
+  status           String   @default("open")
+  resolvedAt       DateTime?
+  resolvedBy       String?
+  aliasId          String?
+  observations     MetricLabelObservation[]
+
+  @@index([status, platform, kind], map: "metric_label_findings_status_idx")
+  @@map("metric_label_findings")
+}
+
+/// Which restaurant saw a label finding. Tenant-scoped, like fetch holds.
+model MetricLabelObservation {
+  id           String   @id @default(cuid())
+  findingId    String
+  finding      MetricLabelFinding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId      String
+  outletId     String
+  outlet       Outlet @relation(fields: [outletId, spaceId], references: [id, spaceId], onDelete: Cascade)
+  platform     String
+  fetchId      String?
+  fetch        MetricFetch? @relation(fields: [fetchId], references: [id], onDelete: SetNull)
+  reportKind   String
+  periods      String
+  rowIndex     Int?
+  evidence     Json
+  createdAt    DateTime @default(now())
+
+  @@index([spaceId], map: "metric_label_observations_space_idx")
+  @@index([findingId], map: "metric_label_observations_finding_idx")
+  @@map("metric_label_observations")
 }

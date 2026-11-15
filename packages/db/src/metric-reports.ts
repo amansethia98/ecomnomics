@@ -16,6 +16,8 @@ import {
 import type { PrismaClient } from "./client.js";
 import { assertFetchOpen, noteIdentityMismatch } from "./fetch-holds.js";
 import type { Prisma } from "./generated/prisma/client.js";
+import type { RecordedLabelFinding } from "./metric-label-findings.js";
+import { recordLabelFindings } from "./metric-label-findings.js";
 import { loadLabelBook } from "./metric-labels.js";
 import type { RestaurantScope } from "./restaurant-agent.js";
 import { lockMetricWindow, metricWindowLockKey, RestaurantAgentError } from "./restaurant-agent.js";
@@ -27,6 +29,11 @@ export interface IngestMetricReportResult {
   written: number;
   superseded: number;
   checks: number;
+  layoutChanged?: boolean;
+  labels?: {
+    pendingSlots: number;
+    findings: Array<{ findingId: string; slotId: string; kind: string; status: string }>;
+  };
 }
 
 function sha256(text: string): string {
@@ -101,7 +108,7 @@ export async function ingestBusinessReport(
         status,
         digest,
         attempt: input.attempt ?? 1,
-        reason: evaluation.reason,
+        reason: evaluation.layout ? "layout_changed" : evaluation.reason,
         requestedRestaurantId: restaurantId,
         requestedName: outlet.name,
         requestedCity: outlet.city,
@@ -109,19 +116,34 @@ export async function ingestBusinessReport(
         requestedEnd,
         observed,
         capturedAt,
-        identityMismatch: evaluation.identity,
+        identityMismatch: evaluation.layout ? false : evaluation.identity,
       }),
     });
     if (evaluation.identity) {
       await noteIdentityMismatch(db, scope, input.outletId, input.platform);
     }
+    const findings = evaluation.layout
+      ? await db.$transaction((tx) =>
+          recordLabelFindings(tx, {
+            findings: evaluation.labelDetection?.findings ?? [
+              layoutFinding(input.platform, input.report),
+            ],
+            restaurantId: scope.restaurantId,
+            spaceId: scope.spaceId,
+            outletId: input.outletId,
+            fetchId: fetch.id,
+            periods: [],
+          }),
+        )
+      : [];
     return {
       fetchId: fetch.id,
       status,
-      reason: evaluation.reason,
+      reason: evaluation.layout ? "layout_changed" : evaluation.reason,
       written: 0,
       superseded: 0,
       checks: 0,
+      ...(evaluation.layout ? { layoutChanged: true, labels: labelSummary(0, findings) } : {}),
     };
   }
 
@@ -219,7 +241,7 @@ export async function ingestBusinessReport(
     const duplicateIds: string[] = [];
     const seen = new Set<string>();
     for (const row of existing) {
-      const item = {
+      const item: StoredWindowRow = {
         id: row.id,
         key: row.key,
         periodStart: indiaCivilDate(row.periodStart),
@@ -227,6 +249,12 @@ export async function ingestBusinessReport(
         rowRole: row.rowRole === "platform_check" ? ("platform_check" as const) : ("fact" as const),
         value: row.value == null ? null : Number(row.value.toString()),
         source: row.source,
+        state:
+          row.state === "pending_label"
+            ? "pending_label"
+            : row.state === "label_unrecoverable"
+              ? "label_unrecoverable"
+              : "ok",
       };
       const slot = `${item.periodStart}\t${item.periodEnd}\t${item.key}\t${item.rowRole}`;
       if (seen.has(slot)) {
@@ -236,6 +264,25 @@ export async function ingestBusinessReport(
       seen.add(slot);
       mapped.push(item);
     }
+    const labelFindings = evaluation.labelDetection
+      ? await recordLabelFindings(tx, {
+          findings: evaluation.labelDetection.findings,
+          restaurantId: scope.restaurantId,
+          spaceId: scope.spaceId,
+          outletId: input.outletId,
+          fetchId: fetch.id,
+          periods: [...new Set(evaluation.rows.map((row) => row.periodStart))],
+        })
+      : [];
+    const findingFor = new Map(labelFindings.map((finding) => [finding.slotId, finding.findingId]));
+    const periodIndex = new Map(
+      evaluation.observed.periods.map((period, index) => [period.start, index]),
+    );
+    const pendingSource = new Map<string, string>();
+    for (const item of evaluation.labelDetection?.pending ?? []) {
+      const findingId = findingFor.get(item.slotId);
+      if (item.key && findingId) pendingSource.set(`${item.key}\t${item.periodIndex}`, findingId);
+    }
     const plan = planReplaceWindow(
       mapped,
       evaluation.rows.map((row) => ({
@@ -244,7 +291,11 @@ export async function ingestBusinessReport(
         periodEnd: row.periodEnd,
         rowRole: row.rowRole,
         value: row.value,
-        source: row.source,
+        state: row.state,
+        source:
+          row.state === "pending_label"
+            ? `pending_label:${pendingSource.get(`${row.key}\t${periodIndex.get(row.periodStart)}`) ?? "absent"}`
+            : row.source,
       })),
     );
     const supersedeIds = [...plan.supersedeIds, ...duplicateIds];
@@ -267,6 +318,7 @@ export async function ingestBusinessReport(
           key: row.key,
           rowRole: row.rowRole,
           value: row.value,
+          state: row.state ?? "ok",
           runId: input.runId,
           source: row.source,
           capturedAt,
@@ -291,11 +343,15 @@ export async function ingestBusinessReport(
       });
     }
     const checks = await writeChecks(tx, scope, input, fetch.id, capturedAt, evaluation);
+    const pendingSlots = new Set(
+      evaluation.rows.filter((row) => row.state === "pending_label").map((row) => row.key),
+    ).size;
     return {
       fetchId: fetch.id,
       written: plan.inserts.length,
       superseded: supersedeIds.length,
       checks,
+      labels: labelSummary(pendingSlots, labelFindings),
     };
   });
   return { ...result, status: "stored", reason: warning };
@@ -358,7 +414,7 @@ async function writeChecks(
         rebuilt.get(row.key) ?? null,
         row.value,
       );
-      if (comparison.action !== "check") continue;
+      if (comparison.action !== "check" || row.state === "pending_label") continue;
       data.push({
         restaurantId: scope.restaurantId,
         spaceId: scope.spaceId,
@@ -382,6 +438,68 @@ async function writeChecks(
     }
   }
   return written;
+}
+
+function labelSummary(pendingSlots: number, findings: RecordedLabelFinding[]) {
+  return {
+    pendingSlots,
+    findings: findings.map((finding) => ({
+      findingId: finding.findingId,
+      slotId: finding.slotId,
+      kind: finding.kind,
+      status: finding.status,
+    })),
+  };
+}
+
+function layoutFinding(platform: "swiggy" | "zomato", report: string) {
+  return {
+    kind: "layout_change" as const,
+    platform,
+    family: "business" as const,
+    reportKind: report,
+    section: "",
+    slotId: "",
+    oldLabel: "",
+    candidateLabel: null,
+    candidateNorm: null,
+    summable: false,
+    allowAutoApply: false,
+    rowIndex: null,
+    pendingPeriods: [],
+    evidence: {
+      similarity: { jaccard: 0, editRatio: 0 },
+      position: {
+        rowIndex: null,
+        neighboursBefore: null,
+        neighboursAfter: null,
+        sameNeighbours: false,
+      },
+      unitMatch: false,
+      kindMatch: false,
+      valueEvidence: { method: "none" as const, count: 0, min: null, max: null, median: null },
+      contradictions: [],
+    },
+    ruleInput: {
+      absentInSection: 0,
+      unknownInSection: 0,
+      samePlace: false,
+      unitMatch: false,
+      kindMatch: false,
+      nameSimilar: false,
+      aliasCollision: false,
+      otherFinding: false,
+      relationPass: false,
+      continuityPass: false,
+      summable: false,
+      outlets: 0,
+      files: 0,
+      nights: 0,
+      contradiction: false,
+      allowAutoApply: false,
+      switchOn: false,
+    },
+  };
 }
 
 function fetchData(

@@ -314,6 +314,22 @@ describe("replace window", () => {
     expect(dropped.inserts[0]?.source).toBe("missing");
   });
 
+  it("does not let a pending label replace a real value", () => {
+    const pending = planReplaceWindow(
+      [prior],
+      [{ ...prior, value: null, state: "pending_label", source: "pending_label" }],
+    );
+    expect(pending.unchanged).toBe(1);
+    expect(pending.inserts).toHaveLength(0);
+    expect(pending.supersedeIds).toHaveLength(0);
+    const restored = planReplaceWindow(
+      [{ ...prior, value: null, state: "pending_label", source: "pending_label" }],
+      [{ ...prior, value: 10, state: "ok" }],
+    );
+    expect(restored.inserts[0]?.value).toBe(10);
+    expect(restored.inserts[0]?.state).toBe("ok");
+  });
+
   it("supersedes a changed value and does not treat a platform check as the same slot", () => {
     const changed = planReplaceWindow([prior], [{ ...prior, value: 12 }]);
     expect(changed.supersedeIds).toEqual(["row-1"]);

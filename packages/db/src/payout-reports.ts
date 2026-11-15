@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import type { IngestPayoutReportInput } from "@rakazo/contracts";
-import { checkObservedIdentity, missingPlatformIdReason, utcMidnight } from "@rakazo/contracts";
+import {
+  checkObservedIdentity,
+  layoutChangeFinding,
+  missingPlatformIdReason,
+  utcMidnight,
+} from "@rakazo/contracts";
 import type {
   ParsedPayoutFile,
   ParsedPayoutOrder,
@@ -10,6 +15,8 @@ import type {
 import type { PrismaClient } from "./client.js";
 import { assertFetchOpen, noteIdentityMismatch } from "./fetch-holds.js";
 import type { Prisma } from "./generated/prisma/client.js";
+import type { RecordedLabelFinding } from "./metric-label-findings.js";
+import { recordLabelFindings } from "./metric-label-findings.js";
 import { loadLabelBook } from "./metric-labels.js";
 import { isUniqueViolation } from "./prisma-errors.js";
 import type { RestaurantScope } from "./restaurant-agent.js";
@@ -44,6 +51,11 @@ export interface IngestPayoutReportResult {
   superseded: number;
   checks: PayoutCheck[];
   warnings: string[];
+  layoutChanged?: boolean;
+  labels?: {
+    pendingSlots: number;
+    findings: Array<{ findingId: string; slotId: string; kind: string; status: string }>;
+  };
 }
 
 export async function ingestPayoutReport(
@@ -112,11 +124,30 @@ export async function ingestPayoutReport(
         status: "parse_failed",
         digest,
         attempt: input.attempt ?? 1,
-        reason: parsed.reason,
+        reason: parsed.layout ? "layout_changed" : parsed.reason,
         observed: parsed.observed,
+        identityMismatch: parsed.layout ? false : undefined,
       }),
     });
-    return emptyResult(fetch.id, "parse_failed", parsed.reason);
+    const recorded = parsed.layout
+      ? await db.$transaction((tx) =>
+          recordLabelFindings(tx, {
+            findings:
+              parsed.labelFindings && parsed.labelFindings.length > 0
+                ? parsed.labelFindings
+                : [layoutChangeFinding(input.platform, "payout", "payout")],
+            restaurantId: scope.restaurantId,
+            spaceId: scope.spaceId,
+            outletId: input.outletId,
+            fetchId: fetch.id,
+            periods: parsed.observed?.periods.map((period) => period.start) ?? [],
+          }),
+        )
+      : [];
+    return {
+      ...emptyResult(fetch.id, "parse_failed", parsed.layout ? "layout_changed" : parsed.reason),
+      ...(parsed.layout ? { layoutChanged: true as const, labels: labelSummary(0, recorded) } : {}),
+    };
   }
 
   const identity = checkObservedIdentity(parsed.payout.observed, {
@@ -153,6 +184,7 @@ export async function ingestPayoutReport(
     orders?: number;
     adjustments?: number;
     superseded?: number;
+    labelFindings?: RecordedLabelFinding[];
   };
   try {
     stored = await db.$transaction(async (tx) => {
@@ -194,25 +226,37 @@ export async function ingestPayoutReport(
         }),
       });
       const written = await replaceCycle(tx, scope, input, payout, fetch.id);
-      await tx.metricCheck.createMany({
-        data: payout.checks.map((check) => ({
-          restaurantId: scope.restaurantId,
-          spaceId: scope.spaceId,
-          outletId: input.outletId,
-          platform: input.platform,
-          key: check.key,
-          periodStart: utcMidnight(payout.cycleStart),
-          periodEnd: utcMidnight(payout.cycleEnd),
-          rebuiltValue: check.rebuiltValue,
-          platformValue: check.platformValue,
-          gap: check.gap,
-          tolerance: check.tolerance,
-          pass: check.pass,
-          fetchId: fetch.id,
-          checkedAt: capturedAt,
-        })),
-      });
-      return { fetchId: fetch.id, skipped: false as const, ...written };
+      if (payout.checks.length > 0) {
+        await tx.metricCheck.createMany({
+          data: payout.checks.map((check) => ({
+            restaurantId: scope.restaurantId,
+            spaceId: scope.spaceId,
+            outletId: input.outletId,
+            platform: input.platform,
+            key: check.key,
+            periodStart: utcMidnight(payout.cycleStart),
+            periodEnd: utcMidnight(payout.cycleEnd),
+            rebuiltValue: check.rebuiltValue,
+            platformValue: check.platformValue,
+            gap: check.gap,
+            tolerance: check.tolerance,
+            pass: check.pass,
+            fetchId: fetch.id,
+            checkedAt: capturedAt,
+          })),
+        });
+      }
+      const labelFindings = payout.labelFindings?.length
+        ? await recordLabelFindings(tx, {
+            findings: payout.labelFindings,
+            restaurantId: scope.restaurantId,
+            spaceId: scope.spaceId,
+            outletId: input.outletId,
+            fetchId: fetch.id,
+            periods: [payout.cycleStart],
+          })
+        : [];
+      return { fetchId: fetch.id, skipped: false as const, ...written, labelFindings };
     });
   } catch (error) {
     const reason = payoutAdjustmentKeyFailure(error);
@@ -251,6 +295,19 @@ export async function ingestPayoutReport(
     superseded: stored.superseded ?? 0,
     checks: payout.checks,
     warnings,
+    labels: labelSummary(payout.skippedChecks?.length ?? 0, stored.labelFindings ?? []),
+  };
+}
+
+function labelSummary(pendingSlots: number, findings: RecordedLabelFinding[]) {
+  return {
+    pendingSlots,
+    findings: findings.map((finding) => ({
+      findingId: finding.findingId,
+      slotId: finding.slotId,
+      kind: finding.kind,
+      status: finding.status,
+    })),
   };
 }
 

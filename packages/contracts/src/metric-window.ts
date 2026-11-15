@@ -7,6 +7,7 @@ export interface WindowWrite {
   rowRole: "fact" | "platform_check";
   value: number | null;
   source: string;
+  state?: "ok" | "pending_label" | "label_unrecoverable";
 }
 
 export interface StoredWindowRow extends WindowWrite {
@@ -23,9 +24,14 @@ function slot(row: WindowWrite): string {
   return `${row.periodStart}\t${row.periodEnd}\t${row.key}\t${row.rowRole}`;
 }
 
-function sameValue(left: number | null, right: number | null): boolean {
-  if (left == null || right == null) return left == null && right == null;
-  return Math.abs(left - right) < 0.00005;
+function rowState(row: WindowWrite): string {
+  return row.state ?? "ok";
+}
+
+function sameValue(left: WindowWrite, right: WindowWrite): boolean {
+  if (rowState(left) !== rowState(right)) return false;
+  if (left.value == null || right.value == null) return left.value == null && right.value == null;
+  return Math.abs(left.value - right.value) < 0.00005;
 }
 
 /**
@@ -48,7 +54,16 @@ export function planReplaceWindow(
     if (seen.has(key)) continue;
     seen.add(key);
     const prior = existingBySlot.get(key);
-    if (prior && sameValue(prior.value, row.value)) {
+    if (
+      prior &&
+      rowState(prior) === "ok" &&
+      prior.value != null &&
+      rowState(row) === "pending_label"
+    ) {
+      unchanged += 1;
+      continue;
+    }
+    if (prior && sameValue(prior, row)) {
       unchanged += 1;
       continue;
     }
