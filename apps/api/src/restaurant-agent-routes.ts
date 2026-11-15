@@ -9,10 +9,14 @@ import {
   FetchPlanQuerySchema,
   IngestMetricReportSchema,
   IngestPayoutReportSchema,
+  indiaCivilDate,
+  isIsoDate,
   ListFetchesQuerySchema,
   LogFetchSchema,
   MAX_SWIGGY_WORKBOOK_BYTES,
   METRIC_KEYS,
+  OpsDeliveryRequestSchema,
+  OpsRunRequestSchema,
   OwnerMetricsQuerySchema,
   ownerMetricsErrorMessage,
   PatchActionSchema,
@@ -31,16 +35,20 @@ import {
   ingestBusinessReport,
   ingestPayoutReport,
   listMetricFetches,
+  listOpsAlerts,
   logMetricFetch,
   markActionFileUploaded,
   markReportFileUploaded,
   RestaurantAgentError,
   readFetchPlan,
   readLabelSummary,
+  readOpsReport,
   readOwnerMetrics,
   readRestaurant,
+  recordOpsDelivery,
   reportFileForUpload,
   runAsTenant,
+  runDailyOps,
   transitionAction,
   upsertJobRun,
   upsertMetrics,
@@ -100,6 +108,8 @@ export function restaurantAgentRoutes(options: RestaurantAgentRouteOptions) {
   app.use("/agent/v1/actions", jsonLimit);
   app.use("/agent/v1/actions/:actionId", jsonLimit);
   app.use("/agent/v1/runs", jsonLimit);
+  app.use("/agent/v1/ops/runs", jsonLimit);
+  app.use("/agent/v1/ops/reports/:reportId/deliveries", jsonLimit);
 
   app.use("/agent/v1/*", async (c, next) => {
     try {
@@ -343,6 +353,67 @@ export function restaurantAgentRoutes(options: RestaurantAgentRouteOptions) {
       const input = CreateJobRunSchema.parse(await readJson(c));
       const run = await upsertJobRun(options.prisma, scopeOf(c), input);
       return c.json(run);
+    } catch (error) {
+      return agentFailure(c, error);
+    }
+  });
+
+  app.post("/agent/v1/ops/runs", async (c) => {
+    try {
+      const input = OpsRunRequestSchema.parse(await readJson(c));
+      if (input.kind !== "daily") {
+        return agentError(
+          c,
+          400,
+          "not_available",
+          "Only the daily brief is available in this release.",
+        );
+      }
+      if (!input.date || !isIsoDate(input.date)) {
+        return agentError(c, 400, "invalid_body", "date must be YYYY-MM-DD.");
+      }
+      if (input.date >= indiaCivilDate(new Date())) {
+        return agentError(c, 409, "not_finished", "That day is not finished.");
+      }
+      return c.json(
+        await runDailyOps(options.prisma, scopeOf(c), { date: input.date, runId: input.runId }),
+      );
+    } catch (error) {
+      return agentFailure(c, error);
+    }
+  });
+
+  app.get("/agent/v1/ops/reports/:reportId/workbook", (c) => {
+    return agentError(c, 404, "not_available", "This report has no workbook.");
+  });
+
+  app.get("/agent/v1/ops/reports/:reportId", async (c) => {
+    try {
+      return c.json(await readOpsReport(options.prisma, scopeOf(c), c.req.param("reportId")));
+    } catch (error) {
+      return agentFailure(c, error);
+    }
+  });
+
+  app.post("/agent/v1/ops/reports/:reportId/deliveries", async (c) => {
+    try {
+      const input = OpsDeliveryRequestSchema.parse(await readJson(c));
+      await recordOpsDelivery(options.prisma, scopeOf(c), c.req.param("reportId"), input);
+      return c.json({ ok: true }, 201);
+    } catch (error) {
+      return agentFailure(c, error);
+    }
+  });
+
+  app.get("/agent/v1/ops/alerts", async (c) => {
+    try {
+      return c.json(
+        await listOpsAlerts(options.prisma, scopeOf(c), {
+          ...(c.req.query("status") ? { status: c.req.query("status") } : {}),
+          ...(c.req.query("severity") ? { severity: c.req.query("severity") } : {}),
+          ...(c.req.query("outletId") ? { outletId: c.req.query("outletId") } : {}),
+        }),
+      );
     } catch (error) {
       return agentFailure(c, error);
     }
