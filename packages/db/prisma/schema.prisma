@@ -3009,6 +3009,8 @@ model PayoutOrder {
   tcsPaise         Int         @map("tcs_paise")
   cvPaise          Int         @map("cv_paise")
   gstCollectedPaise Int        @map("gst_collected_paise")
+  /// GST Swiggy deducted on this order. Null when the annexure has no GST Deduction column or the cell is blank.
+  gstDeductionPaise Int?       @map("gst_deduction_paise")
   complaintsCancellationChargesPaise Int @map("complaints_cancellation_charges_paise")
   netPayoutPaise   Int         @map("net_payout_paise")
   /// Bank paid amount for this order. Null when the file has no per-order settled amount.

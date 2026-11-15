@@ -459,6 +459,7 @@ describe("payout workbooks", () => {
     expect(customer.order.cancelledBy).toBe("CUSTOMER");
     expect(customer.order.cvPaise).toBe(18800);
     expect(customer.order.gstCollectedPaise).toBe(940);
+    expect(customer.order.gstDeductionPaise).toBe(0);
     expect(customer.order.complaintsCancellationChargesPaise).toBe(19740);
     expect(customer.order.netPayoutPaise).toBe(0);
     expect(customer.order.recomputedNetPaise).toBe(0);
@@ -476,12 +477,14 @@ describe("payout workbooks", () => {
     const delivered = row("9200004");
     expect(delivered.order.orderStatus).toBe("DELIVERED");
     expect(delivered.order.gstCollectedPaise).toBe(500);
+    expect(delivered.order.gstDeductionPaise).toBe(500);
     expect(delivered.order.recomputedNetPaise).toBe(10000);
     expect(delivered.order.netPayoutPaise).toBe(10000);
     expect(delivered.check.pass).toBe(true);
 
     const blankDeduction = row("9200005");
     expect(blankDeduction.order.gstCollectedPaise).toBe(1250);
+    expect(blankDeduction.order.gstDeductionPaise).toBeNull();
     expect(blankDeduction.order.recomputedNetPaise).toBe(25000);
     expect(blankDeduction.order.recomputedNetPaise).not.toBe(26250);
     expect(blankDeduction.check.pass).toBe(true);
@@ -514,6 +517,7 @@ describe("payout workbooks", () => {
     const order = parsed.payout.orders.find((row) => row.platformOrderId === "9200006");
     const check = parsed.payout.checks.find((row) => row.key === "net_payout_paise");
     expect(order?.gstCollectedPaise).toBe(1250);
+    expect(order?.gstDeductionPaise).toBeNull();
     expect(order?.recomputedNetPaise).toBe(25000);
     expect(order?.recomputedNetPaise).not.toBe(26250);
     expect(order?.netPayoutPaise).toBe(25000);

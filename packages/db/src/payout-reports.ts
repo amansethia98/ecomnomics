@@ -403,6 +403,7 @@ function sameOrder(
     tcsPaise: number;
     cvPaise: number;
     gstCollectedPaise: number;
+    gstDeductionPaise: number | null;
     complaintsCancellationChargesPaise: number;
     netPayoutPaise: number;
     paidAmountPaise: number | null;
@@ -436,6 +437,7 @@ function sameOrder(
     current.tcsPaise === order.tcsPaise &&
     current.cvPaise === order.cvPaise &&
     current.gstCollectedPaise === order.gstCollectedPaise &&
+    current.gstDeductionPaise === order.gstDeductionPaise &&
     current.complaintsCancellationChargesPaise === order.complaintsCancellationChargesPaise &&
     current.netPayoutPaise === order.netPayoutPaise &&
     current.paidAmountPaise === order.paidAmountPaise &&
@@ -477,6 +479,7 @@ function orderInput(
     tcsPaise: order.tcsPaise,
     cvPaise: order.cvPaise,
     gstCollectedPaise: order.gstCollectedPaise,
+    gstDeductionPaise: order.gstDeductionPaise,
     complaintsCancellationChargesPaise: order.complaintsCancellationChargesPaise,
     netPayoutPaise: order.netPayoutPaise,
     paidAmountPaise: order.paidAmountPaise,
