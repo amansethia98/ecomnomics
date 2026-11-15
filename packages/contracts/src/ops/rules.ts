@@ -93,6 +93,7 @@ export function evaluateDaily(input: DailyEvaluationInput): DailyEvaluation {
         mode: mode.mode,
         ingest: mode.ingest,
         retryable: mode.retryable,
+        gap: mode.gap,
         lagBanner: current?.lagBanner ?? false,
         salesPaise: mode.mode === "ready" ? pointValue(current, SALES_KEY[platform]) : null,
         baselineSalesPaise: baseline?.value ?? null,
@@ -748,13 +749,24 @@ function appMode(
   mode: DailyAppSnapshot["mode"];
   ingest: DailyAppSnapshot["ingest"];
   retryable: boolean;
+  gap: boolean;
   blocker: Omit<DailyBlocker, "outletId" | "dates"> | null;
 } {
+  if (day?.gap && !day.stored && !day.ingest) {
+    return {
+      mode: "lag_missing",
+      ingest: null,
+      retryable: true,
+      gap: true,
+      blocker: { platform, code: "lag_missing", retryable: true },
+    };
+  }
   if (blankDay(platform, day)) {
     return {
       mode: "lag_missing",
       ingest: null,
       retryable: true,
+      gap: false,
       blocker: { platform, code: "lag_missing", retryable: true },
     };
   }
@@ -768,6 +780,7 @@ function appMode(
         code: ingestBlockerCode(day.ingest.code),
         retryable: day.ingest.retryable,
       },
+      gap: false,
     };
   }
   if (!day?.stored) {
@@ -776,6 +789,7 @@ function appMode(
         mode: "lag_missing",
         ingest: null,
         retryable: true,
+        gap: false,
         blocker: { platform, code: "lag_missing", retryable: true },
       };
     }
@@ -783,10 +797,11 @@ function appMode(
       mode: "failed",
       ingest: null,
       retryable: true,
+      gap: false,
       blocker: { platform, code: "days_missing", retryable: true },
     };
   }
-  return { mode: "ready", ingest: null, retryable: false, blocker: null };
+  return { mode: "ready", ingest: null, retryable: false, gap: false, blocker: null };
 }
 
 function absentApp(platform: OpsPlatform): DailyAppSnapshot {
@@ -795,6 +810,7 @@ function absentApp(platform: OpsPlatform): DailyAppSnapshot {
     mode: "absent",
     ingest: null,
     retryable: false,
+    gap: false,
     lagBanner: false,
     salesPaise: null,
     baselineSalesPaise: null,
@@ -831,6 +847,7 @@ export function rollupDailyApps(snapshots: DailySnapshot[]): DailyAppSnapshot[] 
       mode: "ready",
       ingest: null,
       retryable: false,
+      gap: false,
       lagBanner: ready.some((app) => app.lagBanner),
       salesPaise: sumPresent(ready.map((app) => app.salesPaise)),
       baselineSalesPaise: sumPresent(ready.map((app) => app.baselineSalesPaise)),

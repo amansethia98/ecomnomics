@@ -81,11 +81,13 @@ export function viewFromDaily(input: {
   const connected = apps.filter((app) => app.mode !== "absent");
   const ready = connected.filter((app) => app.mode === "ready");
   const failed = connected.filter((app) => app.mode === "failed" || app.mode === "lag_missing");
-  const noData = connected.length === 0 || (ready.length === 0 && failed.length > 0);
+  const recordedGap = connected.some((app) => app.gap);
+  const noData =
+    connected.length === 0 || (ready.length === 0 && failed.length > 0 && !recordedGap);
   const lagOnly =
     findings.length === 0 &&
     ready.some((app) => app.platform === "zomato") &&
-    apps.some((app) => app.platform === "swiggy" && app.mode === "lag_missing") &&
+    apps.some((app) => app.platform === "swiggy" && app.mode === "lag_missing" && !app.gap) &&
     !apps.some((app) => app.mode === "failed");
   const zomato = sumApp(input.evaluation, "zomato");
   const swiggy = sumApp(input.evaluation, "swiggy");
@@ -210,7 +212,11 @@ function notesFor(evaluation: DailyEvaluation): string[] {
         `${appLabel(app.platform)}: not updated this morning (${INGEST_NOTE[app.ingest]}).`,
       );
     }
-    if (app.mode === "lag_missing") {
+    if (app.gap) {
+      notes.push(
+        `${appLabel(app.platform)}'s figures for ${formatCivilDay(evaluation.date)} aren't in yet; we'll check them tomorrow.`,
+      );
+    } else if (app.mode === "lag_missing" && app.platform === "swiggy") {
       notes.push(
         `Swiggy's figures for ${formatCivilDay(evaluation.date)} aren't in yet (Swiggy can take up to 48 hours); we'll check them tomorrow.`,
       );

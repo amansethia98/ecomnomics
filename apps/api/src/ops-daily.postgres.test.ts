@@ -434,6 +434,165 @@ describePostgres("daily ops brief (PostgreSQL)", () => {
     expect(opened).toBe(alerts.alerts.length);
   });
 
+  it("shows a server gap as not in yet, then compares once the day arrives", async () => {
+    await runAsSystem("ops gap fixture", async () => {
+      await seedDay(restaurantA, spaceA, outletA, "2026-01-02", 1_000_000, 700_000, 20);
+      await seedDay(restaurantA, spaceA, outletA, "2026-01-09", 1_000_000, 700_000, 20);
+      await seedDay(restaurantA, spaceA, outletA, "2026-01-03", 1_070_000, 700_000, 20);
+    });
+    await runAsSystem("ops gap delayed", () =>
+      ownerDb.metricValue.create({
+        data: {
+          restaurantId: restaurantA,
+          spaceId: spaceA,
+          outletId: outletA,
+          platform: "zomato",
+          granularity: "day",
+          periodStart: new Date("2026-01-09T00:00:00.000Z"),
+          periodEnd: new Date("2026-01-10T00:00:00.000Z"),
+          key: "delayed_orders_kpt10",
+          value: 4,
+          runId: "ops-gap",
+          source: "fixture",
+          capturedAt: new Date("2026-01-10T00:18:00.000Z"),
+        },
+      }),
+    );
+    const opened = await call(agent, "POST", "/agent/v1/ops/runs", tokenA, {
+      kind: "daily",
+      date: "2026-01-09",
+      runId: "gap-open",
+    });
+    expect(opened.status).toBe(200);
+    await runAsSystem("ops gap day", async () => {
+      await ownerDb.metricValue.create({
+        data: {
+          restaurantId: restaurantA,
+          spaceId: spaceA,
+          outletId: outletA,
+          platform: "swiggy",
+          granularity: "day",
+          periodStart: new Date("2026-01-10T00:00:00.000Z"),
+          periodEnd: new Date("2026-01-11T00:00:00.000Z"),
+          key: "swiggy_net_sales_paise",
+          value: 720_000,
+          runId: "ops-gap",
+          source: "fixture",
+          capturedAt: new Date("2026-01-11T00:18:00.000Z"),
+        },
+      });
+      await ownerDb.metricValue.create({
+        data: {
+          restaurantId: restaurantA,
+          spaceId: spaceA,
+          outletId: outletA,
+          platform: "swiggy",
+          granularity: "day",
+          periodStart: new Date("2026-01-10T00:00:00.000Z"),
+          periodEnd: new Date("2026-01-11T00:00:00.000Z"),
+          key: "delivered_orders",
+          value: 20,
+          runId: "ops-gap",
+          source: "fixture",
+          capturedAt: new Date("2026-01-11T00:18:00.000Z"),
+        },
+      });
+      await ownerDb.metricFetch.create({
+        data: {
+          restaurantId: restaurantA,
+          spaceId: spaceA,
+          outletId: outletA,
+          platform: "zomato",
+          reportKind: "daily",
+          status: "stored",
+          requestedPeriodStart: new Date("2026-01-10T00:00:00.000Z"),
+          requestedPeriodEnd: new Date("2026-01-11T00:00:00.000Z"),
+          missingPeriods: "2026-01-10/2026-01-11",
+          attemptCount: 1,
+          source: "fixture",
+          parserVersion: "test",
+          runId: "ops-gap",
+          capturedAt: new Date("2026-01-11T00:18:00.000Z"),
+        },
+      });
+    });
+    const waiting = await call(agent, "POST", "/agent/v1/ops/runs", tokenA, {
+      kind: "daily",
+      date: "2026-01-10",
+      runId: "gap-wait",
+    });
+    expect(waiting.status).toBe(200);
+    const waitingBody = (await waiting.json()) as {
+      message: { text: string };
+      readiness: { ready: boolean; blockers: Array<{ platform: string; code: string }> };
+    };
+    expect(waitingBody.readiness.ready).toBe(true);
+    expect(waitingBody.message.text).toContain("aren't in yet");
+    expect(waitingBody.message.text).toContain("Zomato");
+    expect(waitingBody.message.text).not.toContain("not updated this morning");
+    expect(waitingBody.message.text).not.toContain("sales down");
+    expect(
+      waitingBody.readiness.blockers
+        .filter((blocker) => blocker.platform === "zomato")
+        .map((blocker) => blocker.code),
+    ).toEqual(["lag_missing"]);
+    const frozen = await runAsSystem("ops gap freeze", () =>
+      ownerDb.opsAlert.findFirst({
+        where: {
+          restaurantId: restaurantA,
+          dedupeKey: `daily:d_delayed:${outletA}:zomato`,
+        },
+      }),
+    );
+    expect(frozen?.status).toBe("open");
+    expect(frozen?.occurrences).toBe(1);
+    expect(frozen?.resolvedAt).toBeNull();
+
+    await runAsSystem("ops gap filled", async () => {
+      for (const [key, value] of [
+        ["ops_sales_paise", 400_000],
+        ["delivered_orders", 20],
+      ] as const) {
+        await ownerDb.metricValue.create({
+          data: {
+            restaurantId: restaurantA,
+            spaceId: spaceA,
+            outletId: outletA,
+            platform: "zomato",
+            granularity: "day",
+            periodStart: new Date("2026-01-10T00:00:00.000Z"),
+            periodEnd: new Date("2026-01-11T00:00:00.000Z"),
+            key,
+            value,
+            runId: "ops-gap-filled",
+            source: "fixture",
+            capturedAt: new Date("2026-01-11T02:18:00.000Z"),
+          },
+        });
+      }
+    });
+    const filled = await call(agent, "POST", "/agent/v1/ops/runs", tokenA, {
+      kind: "daily",
+      date: "2026-01-10",
+      runId: "gap-filled",
+    });
+    expect(filled.status).toBe(200);
+    const filledText = ((await filled.json()) as { message: { text: string } }).message.text;
+    expect(filledText).toContain("Zomato sales down");
+    expect(filledText).not.toContain("aren't in yet");
+    expect(filledText).not.toContain("not updated this morning");
+    const still = await runAsSystem("ops gap still frozen", () =>
+      ownerDb.opsAlert.findFirst({
+        where: {
+          restaurantId: restaurantA,
+          dedupeKey: `daily:d_delayed:${outletA}:zomato`,
+        },
+      }),
+    );
+    expect(still?.occurrences).toBe(1);
+    expect(still?.status).toBe("open");
+  });
+
   it("rejects a weekly run, a bad date, and a day that is not finished", async () => {
     expect(
       (

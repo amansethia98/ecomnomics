@@ -347,6 +347,45 @@ describe("daily thresholds", () => {
     expect(closed.findings.some((finding) => finding.code === "d_zero_orders")).toBe(true);
   });
 
+  it("keeps a recorded gap as not in yet, then compares once the day is stored", () => {
+    const waiting = run([
+      day("zomato", DATE, {}, { gap: true, stored: false }),
+      day("zomato", WEEK, { ops_sales_paise: point(1_070_000), delivered_orders: point(20) }),
+      day("swiggy", DATE, { swiggy_net_sales_paise: point(720_000), delivered_orders: point(20) }),
+      day("swiggy", WEEK, { swiggy_net_sales_paise: point(700_000), delivered_orders: point(20) }),
+    ]);
+    expect(waiting.findings.some((finding) => finding.platform === "zomato")).toBe(false);
+    expect(waiting.findings.some((finding) => finding.code === "d_sales_drop")).toBe(false);
+    expect(waiting.snapshots[0]?.apps.find((app) => app.platform === "zomato")).toMatchObject({
+      mode: "lag_missing",
+      gap: true,
+      ingest: null,
+    });
+    expect(waiting.frozenScopes).toContainEqual({ outletId: OUTLET.id, platform: "zomato" });
+    const quiet = composeDailyBrief(
+      viewFromDaily({ restaurantName: "Sample Kitchen", evaluation: waiting }),
+    ).text;
+    expect(quiet).toContain("Zomato's figures for Sat 14 Nov aren't in yet");
+    expect(quiet).not.toContain("not updated this morning");
+    expect(quiet).not.toContain("sales down");
+
+    const arrived = run([
+      day("zomato", DATE, { ops_sales_paise: point(400_000), delivered_orders: point(20) }),
+      day("zomato", WEEK, { ops_sales_paise: point(1_070_000), delivered_orders: point(20) }),
+      day("swiggy", DATE, { swiggy_net_sales_paise: point(720_000), delivered_orders: point(20) }),
+      day("swiggy", WEEK, { swiggy_net_sales_paise: point(700_000), delivered_orders: point(20) }),
+    ]);
+    expect(
+      arrived.findings.some(
+        (finding) => finding.code === "d_sales_drop" && finding.platform === "zomato",
+      ),
+    ).toBe(true);
+    expect(
+      composeDailyBrief(viewFromDaily({ restaurantName: "Sample Kitchen", evaluation: arrived }))
+        .text,
+    ).not.toContain("aren't in yet");
+  });
+
   it("freezes an app that failed to ingest and does not retry a held fetch", () => {
     const held = run([
       day("swiggy", DATE, {}, { stored: false, ingest: { code: "fetch_held", retryable: false } }),

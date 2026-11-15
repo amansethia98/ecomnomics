@@ -43,6 +43,7 @@ import {
 } from "@rakazo/contracts";
 import type { PrismaClient } from "./client.js";
 import type { Prisma } from "./generated/prisma/client.js";
+import { parseMissingPeriods } from "./owner-metrics-assemble.js";
 import type { RestaurantScope } from "./restaurant-agent.js";
 import { RestaurantAgentError } from "./restaurant-agent.js";
 import { runAsSystem, runAsTenant } from "./row-security.js";
@@ -592,6 +593,7 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
         date: iso,
         stored: false,
         lagBanner: false,
+        gap: false,
         ingest: null,
         metrics: {},
       };
@@ -626,13 +628,20 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
   const live = new Set([date, addIsoDays(date, -1)]);
   let dataAsOf: Date | null = null;
   for (const fetch of fetches) {
-    if (!covers(fetch, date) && !live.has(indiaCivilDate(fetch.requestedPeriodStart))) continue;
+    const touchesLive = [...live].some((iso) => inRequestedWindow(fetch, iso));
+    if (!touchesLive && !covers(fetch, date)) continue;
     for (const iso of live) {
-      if (!covers(fetch, iso)) continue;
+      if (!inRequestedWindow(fetch, iso)) continue;
       const current = slot(fetch.outletId, fetch.platform, iso);
       if (!current) continue;
+      if (fetch.status === "stored" && listedGap(fetch.missingPeriods, iso)) {
+        if (!current.stored) current.gap = true;
+        continue;
+      }
+      if (!covers(fetch, iso)) continue;
       if (fetch.status === "stored") {
         current.stored = true;
+        current.gap = false;
         current.ingest = null;
         if (iso === date && (!dataAsOf || fetch.capturedAt > dataAsOf)) dataAsOf = fetch.capturedAt;
       } else if (!current.stored && FAILURES.has(fetch.status)) {
@@ -644,7 +653,8 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
   for (const hold of holds) {
     for (const iso of live) {
       const current = slot(hold.outletId, hold.platform, iso);
-      if (!current || current.stored) continue;
+      // A stored file that left the day out is waiting on the next file, not a held login.
+      if (!current || current.stored || current.gap) continue;
       current.ingest = { code: "fetch_held", retryable: false };
     }
   }
@@ -663,6 +673,20 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
   };
 }
 
+function inRequestedWindow(
+  fetch: { requestedPeriodStart: Date; requestedPeriodEnd: Date },
+  iso: string,
+): boolean {
+  const start = indiaCivilDate(fetch.requestedPeriodStart);
+  const end = indiaCivilDate(fetch.requestedPeriodEnd);
+  return iso >= start && iso < end;
+}
+
+/** A stored report left this civil date out. The period end is exclusive. */
+function listedGap(encoded: string | null, iso: string): boolean {
+  return parseMissingPeriods(encoded).some((period) => iso >= period.start && iso < period.end);
+}
+
 function covers(
   fetch: {
     requestedPeriodStart: Date;
@@ -671,10 +695,8 @@ function covers(
   },
   iso: string,
 ): boolean {
-  const start = indiaCivilDate(fetch.requestedPeriodStart);
-  const end = indiaCivilDate(fetch.requestedPeriodEnd);
-  if (iso < start || iso >= end) return false;
-  return !fetch.missingPeriods?.includes(iso);
+  if (!inRequestedWindow(fetch, iso)) return false;
+  return !listedGap(fetch.missingPeriods, iso);
 }
 
 function calloutDedupeKeys(findings: DailyFinding[]): Set<string> {

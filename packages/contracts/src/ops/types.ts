@@ -143,6 +143,8 @@ export interface OpsAppDay {
   date: string;
   stored: boolean;
   lagBanner: boolean;
+  /** The server stored a fetch and listed this date as a gap. The file left the day out. */
+  gap?: boolean;
   ingest: { code: OpsIngestCode; retryable: boolean } | null;
   metrics: Partial<Record<string, OpsMetricPoint>>;
 }
@@ -229,6 +231,8 @@ export interface DailyAppSnapshot {
   mode: "ready" | "lag_missing" | "failed" | "absent";
   ingest: OpsIngestCode | null;
   retryable: boolean;
+  /** A stored fetch listed this day as a gap. It is waiting, not a failed download. */
+  gap: boolean;
   lagBanner: boolean;
   salesPaise: number | null;
   baselineSalesPaise: number | null;
