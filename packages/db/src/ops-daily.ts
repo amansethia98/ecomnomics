@@ -12,6 +12,7 @@ import type {
   OpsIngestCode,
   OpsPlatform,
   OpsReport,
+  OpsRulesOverride,
   OpsRunResult,
   OpsStatus,
 } from "@rakazo/contracts";
@@ -23,6 +24,7 @@ import {
   civilRangeBounds,
   combinedDaySales,
   composeDailyBrief,
+  DEFAULT_OPS_RULES_CONFIG,
   dailyFix,
   dismissAlert,
   displayFindings,
@@ -32,6 +34,7 @@ import {
   nextReportDelivery,
   ongoingLine,
   resolvedLine,
+  resolveOpsRulesConfig,
   rollupDailyApps,
   snoozeAlert,
   utcMidnight,
@@ -82,18 +85,30 @@ interface StoredPayload {
   blockers: DailyBlocker[];
   restaurant: OpsBlock | null;
   outlets: Array<OpsBlock & { outletId: string; name: string }>;
+  configVersion?: string;
 }
 
 /** Compute yesterday's brief, upsert alerts, and store the report. Idempotent per date. */
 export async function runDailyOps(
   db: PrismaClient,
   scope: RestaurantScope,
-  input: { date: string; runId: string },
+  input: { date: string; runId: string; rules?: OpsRulesOverride | null },
 ): Promise<OpsRunResult> {
+  const config = resolveOpsRulesConfig(input.rules);
   const loaded = await loadDaily(db, scope, input.date);
   const previousDate = addIsoDays(input.date, -1);
-  const earlier = evaluateDaily({ date: previousDate, outlets: loaded.outlets, days: loaded.days });
-  const current = evaluateDaily({ date: input.date, outlets: loaded.outlets, days: loaded.days });
+  const earlier = evaluateDaily({
+    date: previousDate,
+    outlets: loaded.outlets,
+    days: loaded.days,
+    config,
+  });
+  const current = evaluateDaily({
+    date: input.date,
+    outlets: loaded.outlets,
+    days: loaded.days,
+    config,
+  });
   return db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`ops-daily:${scope.restaurantId}`}, 0))::text AS "lock"`;
     const existing = await tx.opsAlert.findMany({
@@ -107,6 +122,7 @@ export async function runDailyOps(
       holds: earlier.holds,
       frozenScopes: earlier.frozenScopes,
       existing: alerts,
+      config,
     });
     alerts = earlierStep.alerts;
     const step = applyDailyAlerts({
@@ -116,6 +132,7 @@ export async function runDailyOps(
       holds: current.holds,
       frozenScopes: current.frozenScopes,
       existing: alerts,
+      config,
     });
     const catchUp = earlier.findings
       .filter((finding) => earlierStep.notify.includes(finding.dedupeKey))
@@ -147,7 +164,7 @@ export async function runDailyOps(
       week,
     });
     const brief = composeDailyBrief(view);
-    const payload = payloadOf(current);
+    const payload = { ...payloadOf(current), configVersion: config.configVersion };
     const nonce = `daily_brief-${input.date}`;
     const prior = await tx.report.findUnique({
       where: { reportNonce: { restaurantId: scope.restaurantId, clientNonce: nonce } },
@@ -200,6 +217,7 @@ export async function runDailyOps(
       [...earlierStep.events, ...step.events],
       report.id,
       input.date,
+      config.configVersion,
     );
     return {
       reportId: report.id,
@@ -475,9 +493,12 @@ async function changeAlert(
     });
     if (!row) throw new RestaurantAgentError("not_found", 404, "Alert not found.");
     const next = change(toAlertState(row));
+    const configVersion =
+      (row.evidence as { configVersion?: string } | null)?.configVersion ??
+      DEFAULT_OPS_RULES_CONFIG.configVersion;
     await db.opsAlert.update({
       where: { id: row.id },
-      data: alertWrite(next.alert),
+      data: alertWrite(next.alert, configVersion),
     });
     await db.opsAlertEvent.create({
       data: {
@@ -886,7 +907,7 @@ function visible(alert: AlertState, today: string): boolean {
   return alert.severity === "act_now";
 }
 
-function alertWrite(alert: AlertState): Prisma.OpsAlertUpdateInput {
+function alertWrite(alert: AlertState, configVersion: string): Prisma.OpsAlertUpdateInput {
   return {
     severity: alert.severity,
     status: alert.status,
@@ -902,7 +923,11 @@ function alertWrite(alert: AlertState): Prisma.OpsAlertUpdateInput {
     lastValue: alert.lastValue,
     threshold: alert.threshold,
     baselineValue: alert.baselineValue,
-    evidence: { cells: alert.evidence, book: alert.book } as unknown as Prisma.InputJsonValue,
+    evidence: {
+      cells: alert.evidence,
+      book: alert.book,
+      configVersion,
+    } as unknown as Prisma.InputJsonValue,
     fixKey: alert.fixKey,
     text: alert.text,
     lastNotifiedAt: alert.lastNotifiedAt ? utcMidnight(alert.lastNotifiedAt) : null,
@@ -920,6 +945,7 @@ async function writeAlerts(
   }>,
   reportId: string,
   date: string,
+  configVersion: string,
 ) {
   const ids = new Map<string, string>();
   for (const alert of alerts) {
@@ -934,13 +960,16 @@ async function writeAlerts(
           ruleCode: alert.ruleCode,
           family: alert.family,
           dedupeKey: alert.dedupeKey,
-          ...alertWrite(alert),
+          ...alertWrite(alert, configVersion),
           firstSeenDate: utcMidnight(alert.firstSeenDate || date),
         } as Prisma.OpsAlertUncheckedCreateInput,
       });
       ids.set(alert.dedupeKey, created.id);
     } else {
-      await tx.opsAlert.update({ where: { id: alert.id }, data: alertWrite(alert) });
+      await tx.opsAlert.update({
+        where: { id: alert.id },
+        data: alertWrite(alert, configVersion),
+      });
       ids.set(alert.dedupeKey, alert.id);
     }
   }

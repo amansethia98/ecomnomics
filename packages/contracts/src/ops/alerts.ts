@@ -1,3 +1,5 @@
+import type { OpsRulesConfig } from "./config.js";
+import { DEFAULT_OPS_RULES_CONFIG } from "./config.js";
 import { addDays, isoDayDiff } from "./format.js";
 import type {
   AlertEventDraft,
@@ -9,13 +11,6 @@ import type {
   DailyHold,
   OpsAlertSeverity,
   OpsScopePlatform,
-} from "./types.js";
-import {
-  BACK_AGAIN_DAYS,
-  CLEAR_RESOLVE_DAYS,
-  REOPEN_DAYS,
-  STALE_DAYS,
-  WATCH_ESCALATE_DAYS,
 } from "./types.js";
 
 export function blankAlert(input: {
@@ -72,8 +67,10 @@ export function stepAlert(
     outletId: string | null;
     platform: OpsScopePlatform;
     outcome: AlertOutcome;
+    config?: OpsRulesConfig;
   },
 ): AlertTransition {
+  const config = input.config ?? DEFAULT_OPS_RULES_CONFIG;
   if (!existing) {
     if (input.outcome.kind !== "fire") return ignore(null);
     return openNew(input.date, input, input.outcome);
@@ -88,9 +85,9 @@ export function stepAlert(
   if (existing.book.frozenOn === input.date && input.outcome.kind === "frozen")
     return ignore(existing);
   if (existing.status === "resolved") return reopen(existing, input);
-  if (input.outcome.kind === "fire") return fireOpen(existing, input.date, input.outcome);
-  if (input.outcome.kind === "clear") return clearOpen(existing, input.date);
-  return freezeOpen(existing, input.date);
+  if (input.outcome.kind === "fire") return fireOpen(existing, input.date, input.outcome, config);
+  if (input.outcome.kind === "clear") return clearOpen(existing, input.date, config);
+  return freezeOpen(existing, input.date, config);
 }
 
 export function applyDailyAlerts(input: {
@@ -100,6 +97,7 @@ export function applyDailyAlerts(input: {
   holds: DailyHold[];
   frozenScopes: Array<{ outletId: string; platform: OpsScopePlatform }>;
   existing: AlertState[];
+  config?: OpsRulesConfig;
 }): {
   alerts: AlertState[];
   events: Array<{ dedupeKey: string; event: AlertEventDraft }>;
@@ -155,6 +153,7 @@ export function applyDailyAlerts(input: {
           evidence: finding.evidence,
           provisional: finding.provisional,
         },
+        config: input.config,
       }),
     );
   }
@@ -172,6 +171,7 @@ export function applyDailyAlerts(input: {
         outletId: clear.outletId,
         platform: clear.platform,
         outcome: { kind: "clear" },
+        config: input.config,
       }),
     );
   }
@@ -189,6 +189,7 @@ export function applyDailyAlerts(input: {
         outletId: hold.outletId,
         platform: hold.platform,
         outcome: { kind: "frozen" },
+        config: input.config,
       }),
     );
   }
@@ -208,6 +209,7 @@ export function applyDailyAlerts(input: {
         outletId: alert.outletId,
         platform: alert.platform,
         outcome: { kind: "frozen" },
+        config: input.config,
       }),
     );
   }
@@ -284,6 +286,7 @@ function fireOpen(
   existing: AlertState,
   date: string,
   outcome: Extract<AlertOutcome, { kind: "fire" }>,
+  config: OpsRulesConfig,
 ): AlertTransition {
   const continued = existing.clearDays === 0 && existing.book.ruleSeverity != null;
   const consecutive = continued ? existing.consecutiveDays + 1 : 1;
@@ -295,7 +298,7 @@ function fireOpen(
   if (
     existing.severity === "watch" &&
     outcome.severity === "watch" &&
-    consecutive >= WATCH_ESCALATE_DAYS
+    consecutive >= config.lifecycle.watchEscalateDays.value
   ) {
     severity = "act_now";
     watchLevelDays = 0;
@@ -305,7 +308,7 @@ function fireOpen(
   } else if (existing.severity === "act_now" && outcome.severity === "watch") {
     const previousWatch = existing.book.ruleSeverity === "watch";
     watchLevelDays = previousWatch ? (existing.book.watchLevelDays ?? 0) + 1 : 1;
-    if (watchLevelDays >= 2) {
+    if (watchLevelDays >= config.lifecycle.watchDeescalateDays.value) {
       severity = "watch";
       events.push({ kind: "deescalated", severity, value: outcome.value, businessDate: date });
     } else {
@@ -396,10 +399,10 @@ function restate(
   };
 }
 
-function clearOpen(existing: AlertState, date: string): AlertTransition {
+function clearOpen(existing: AlertState, date: string, config: OpsRulesConfig): AlertTransition {
   if (existing.book.evaluatedOn === date) return ignore(existing);
   const clearDays = existing.clearDays + 1;
-  const resolved = clearDays >= CLEAR_RESOLVE_DAYS;
+  const resolved = clearDays >= config.lifecycle.clearResolveDays.value;
   const alert: AlertState = {
     ...existing,
     clearDays,
@@ -430,9 +433,9 @@ function clearOpen(existing: AlertState, date: string): AlertTransition {
   };
 }
 
-function freezeOpen(existing: AlertState, date: string): AlertTransition {
+function freezeOpen(existing: AlertState, date: string, config: OpsRulesConfig): AlertTransition {
   const last = existing.book.lastEvaluableDate ?? existing.lastSeenDate;
-  const stale = last.length > 0 && isoDayDiff(last, date) >= STALE_DAYS;
+  const stale = last.length > 0 && isoDayDiff(last, date) >= config.lifecycle.staleDays.value;
   if (stale) {
     return {
       action: "update",
@@ -474,17 +477,21 @@ function reopen(
     outletId: string | null;
     platform: OpsScopePlatform;
     outcome: AlertOutcome;
+    config?: OpsRulesConfig;
   },
 ): AlertTransition {
   if (input.outcome.kind !== "fire") return ignore(existing);
+  const config = input.config ?? DEFAULT_OPS_RULES_CONFIG;
   const resolvedOn = existing.resolvedAt ?? existing.lastSeenDate;
   const age = isoDayDiff(resolvedOn, input.date);
-  if (existing.resolvedReason === "owner_dismissed" && age < REOPEN_DAYS) return ignore(existing);
-  if (age >= REOPEN_DAYS) return openNew(input.date, input, input.outcome);
+  if (existing.resolvedReason === "owner_dismissed" && age < config.lifecycle.reopenDays.value) {
+    return ignore(existing);
+  }
+  if (age >= config.lifecycle.reopenDays.value) return openNew(input.date, input, input.outcome);
   const sinceNotify = existing.lastNotifiedAt
     ? isoDayDiff(existing.lastNotifiedAt, input.date)
-    : BACK_AGAIN_DAYS;
-  const notify = sinceNotify >= BACK_AGAIN_DAYS;
+    : config.lifecycle.backAgainDays.value;
+  const notify = sinceNotify >= config.lifecycle.backAgainDays.value;
   const alert: AlertState = {
     ...applyFire(existing, input.date, input.outcome, false),
     status: "open",

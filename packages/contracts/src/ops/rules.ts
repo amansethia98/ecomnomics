@@ -1,4 +1,6 @@
 import { metricDefinition } from "../metric-dictionary.js";
+import type { OpsRulesConfig } from "./config.js";
+import { DEFAULT_OPS_RULES_CONFIG } from "./config.js";
 import { addDays, formatPct1, formatRupees, formatWeekdayName, pctChange } from "./format.js";
 import type {
   DailyAppSnapshot,
@@ -25,12 +27,12 @@ import {
   dailyDedupeKey,
   dailyFix,
   ingestBlockerCode,
-  RATE_MIN_DELIVERED,
-  RATE_MIN_NUMERATOR,
   ruleFamily,
-  SALES_BASELINE_PAISE,
-  ZERO_BASELINE_DELIVERED,
 } from "./types.js";
+
+function rulesOf(input: DailyEvaluationInput): OpsRulesConfig {
+  return input.config ?? DEFAULT_OPS_RULES_CONFIG;
+}
 
 const DELAYED_KEY: Record<OpsPlatform, string> = {
   zomato: "delayed_orders_kpt10",
@@ -85,7 +87,7 @@ export function evaluateDaily(input: DailyEvaluationInput): DailyEvaluation {
         if (mode.blocker)
           blockers.push({ outletId: outlet.id, ...mode.blocker, dates: [input.date] });
       }
-      const baseline = salesBaseline(input.days, outlet.id, platform, input.date);
+      const baseline = salesBaseline(input.days, outlet.id, platform, input.date, rulesOf(input));
       apps.push({
         platform,
         mode: mode.mode,
@@ -220,8 +222,9 @@ function evaluateCombinedSales(
     return;
   }
   const current = combinedNetSales(zomatoSales, swiggySales);
-  const zBase = salesBaseline(input.days, outlet.id, "zomato", input.date);
-  const sBase = salesBaseline(input.days, outlet.id, "swiggy", input.date);
+  const config = rulesOf(input);
+  const zBase = salesBaseline(input.days, outlet.id, "zomato", input.date, config);
+  const sBase = salesBaseline(input.days, outlet.id, "swiggy", input.date, config);
   if (!zBase || !sBase) {
     holds.push({
       code: "d_sales_drop",
@@ -238,7 +241,7 @@ function evaluateCombinedSales(
     outlet,
     "combined",
     "d_sales_drop",
-    salesDecision(current, baseline, zBase.date, "combined", provisional, input.date),
+    salesDecision(current, baseline, zBase.date, "combined", provisional, input.date, config),
     findings,
     clears,
     holds,
@@ -255,7 +258,8 @@ function salesDrop(
   if (pointState(day, SALES_KEY[platform]) === "updating")
     return { kind: "hold", reason: "updating" };
   if (current == null) return { kind: "hold", reason: "missing" };
-  const baseline = salesBaseline(input.days, outletId, platform, input.date);
+  const config = rulesOf(input);
+  const baseline = salesBaseline(input.days, outletId, platform, input.date, config);
   if (!baseline) return { kind: "hold", reason: "guard" };
   return salesDecision(
     current,
@@ -264,6 +268,7 @@ function salesDrop(
     platform,
     Boolean(day?.lagBanner),
     input.date,
+    config,
   );
 }
 
@@ -274,12 +279,15 @@ function salesDecision(
   platform: OpsScopePlatform,
   lagBanner: boolean,
   date: string,
+  config: OpsRulesConfig,
 ): RuleDecision {
-  if (baseline < SALES_BASELINE_PAISE) return { kind: "hold", reason: "guard" };
+  const watchAbove = config.salesDrop.watchAbovePct.value;
+  const actAbove = config.salesDrop.actNowAbovePct.value;
+  if (baseline < config.guards.salesBaselinePaise.value) return { kind: "hold", reason: "guard" };
   const drop = ((baseline - current) / baseline) * 100;
   let severity: OpsAlertSeverity | null = null;
-  if (drop > 40) severity = "act_now";
-  else if (drop > 25) severity = "watch";
+  if (drop > actAbove) severity = "act_now";
+  else if (drop > watchAbove) severity = "watch";
   if (!severity) return { kind: "clear" };
   const provisional = lagBanner && (platform === "swiggy" || platform === "combined");
   if (provisional && severity === "act_now") severity = "watch";
@@ -288,7 +296,7 @@ function salesDecision(
     kind: "fire",
     severity,
     value: drop,
-    threshold: severity === "act_now" ? 40 : 25,
+    threshold: severity === "act_now" ? actAbove : watchAbove,
     baselineValue: baseline,
     baselineDate,
     text,
@@ -319,7 +327,7 @@ function zeroOrders(
   const delivered = pointValue(day, "delivered_orders");
   if (delivered == null || !day?.stored) return { kind: "hold", reason: "missing" };
   const baseline = countBaseline(input.days, outletId, platform, input.date, "delivered_orders");
-  if (!baseline || baseline.value < ZERO_BASELINE_DELIVERED)
+  if (!baseline || baseline.value < rulesOf(input).guards.zeroOrdersBaselineDelivered.value)
     return { kind: "hold", reason: "guard" };
   if (delivered !== 0) return { kind: "clear" };
   const provisional = Boolean(day.lagBanner);
@@ -354,16 +362,19 @@ function delayed(
   day: OpsAppDay | undefined,
 ): RuleDecision {
   const key = DELAYED_KEY[platform];
-  return countRate(day, key, (count, delivered, pct) => {
+  const config = rulesOf(input);
+  const watchAbove = config.delayed.watchAbovePct.value;
+  const actAbove = config.delayed.actNowAbovePct.value;
+  return countRate(day, key, config, (count, delivered, pct) => {
     let severity: OpsAlertSeverity | null = null;
-    if (pct > 15) severity = "act_now";
-    else if (pct > 8) severity = "watch";
+    if (pct > actAbove) severity = "act_now";
+    else if (pct > watchAbove) severity = "watch";
     if (!severity) return { kind: "clear" };
     return {
       kind: "fire",
       severity,
       value: pct,
-      threshold: severity === "act_now" ? 15 : 8,
+      threshold: severity === "act_now" ? actAbove : watchAbove,
       baselineValue: null,
       baselineDate: null,
       provisional: false,
@@ -384,18 +395,21 @@ function badOrders(input: DailyEvaluationInput, day: OpsAppDay | undefined): Rul
   const count = pointValue(day, "bad_orders");
   const storedPct = pointValue(day, "bad_orders_pct");
   if (delivered == null || count == null) return { kind: "hold", reason: "missing" };
-  const guard = rateGuard(delivered, count);
+  const config = rulesOf(input);
+  const guard = rateGuard(delivered, count, config);
   if (guard) return guard;
   const pct = storedPct ?? (count / delivered) * 100;
+  const watchAbove = config.badOrders.watchAbovePct.value;
+  const actAbove = config.badOrders.actNowAbovePct.value;
   let severity: OpsAlertSeverity | null = null;
-  if (pct > 20) severity = "act_now";
-  else if (pct > 12) severity = "watch";
+  if (pct > actAbove) severity = "act_now";
+  else if (pct > watchAbove) severity = "watch";
   if (!severity) return { kind: "clear" };
   return {
     kind: "fire",
     severity,
     value: pct,
-    threshold: severity === "act_now" ? 20 : 12,
+    threshold: severity === "act_now" ? actAbove : watchAbove,
     baselineValue: null,
     baselineDate: null,
     provisional: false,
@@ -411,16 +425,18 @@ function cancellations(
 ): RuleDecision {
   const key = platform === "zomato" ? "rejected_orders" : "restaurant_cancelled_orders";
   const label = platform === "zomato" ? "rejected orders" : "cancellations";
-  return countRate(day, key, (count, delivered, pct) => {
-    const watch = count >= 3 && pct > 5;
-    const act = count >= 6 || pct > 10;
+  const config = rulesOf(input);
+  const limits = config.cancellations;
+  return countRate(day, key, config, (count, delivered, pct) => {
+    const watch = count >= limits.watchCount.value && pct > limits.watchAbovePct.value;
+    const act = count >= limits.actNowCount.value || pct > limits.actNowAbovePct.value;
     if (!watch && !act) return { kind: "clear" };
     const severity: OpsAlertSeverity = act ? "act_now" : "watch";
     return {
       kind: "fire",
       severity,
       value: count,
-      threshold: severity === "act_now" ? 6 : 3,
+      threshold: severity === "act_now" ? limits.actNowCount.value : limits.watchCount.value,
       baselineValue: null,
       baselineDate: null,
       provisional: false,
@@ -435,16 +451,18 @@ function complaints(
   platform: OpsPlatform,
   day: OpsAppDay | undefined,
 ): RuleDecision {
-  return countRate(day, "complaints", (count, delivered, pct) => {
-    const watch = count >= 3 && pct > 5;
-    const act = count >= 6 && pct > 10;
+  const config = rulesOf(input);
+  const limits = config.complaints;
+  return countRate(day, "complaints", config, (count, delivered, pct) => {
+    const watch = count >= limits.watchCount.value && pct > limits.watchAbovePct.value;
+    const act = count >= limits.actNowCount.value && pct > limits.actNowAbovePct.value;
     if (!watch && !act) return { kind: "clear" };
     const severity: OpsAlertSeverity = act ? "act_now" : "watch";
     return {
       kind: "fire",
       severity,
       value: count,
-      threshold: severity === "act_now" ? 6 : 3,
+      threshold: severity === "act_now" ? limits.actNowCount.value : limits.watchCount.value,
       baselineValue: null,
       baselineDate: null,
       provisional: false,
@@ -461,17 +479,20 @@ function foodReady(input: DailyEvaluationInput, day: OpsAppDay | undefined): Rul
   const delivered = pointValue(day, "delivered_orders");
   if (pct == null || delivered == null) return { kind: "hold", reason: "missing" };
   const inaccurate = delivered * (1 - pct / 100);
-  const guard = rateGuard(delivered, inaccurate);
+  const config = rulesOf(input);
+  const guard = rateGuard(delivered, inaccurate, config);
   if (guard) return guard;
+  const watchBelow = config.foodReady.watchBelowPct.value;
+  const actBelow = config.foodReady.actNowBelowPct.value;
   let severity: OpsAlertSeverity | null = null;
-  if (pct < 75) severity = "act_now";
-  else if (pct < 85) severity = "watch";
+  if (pct < actBelow) severity = "act_now";
+  else if (pct < watchBelow) severity = "watch";
   if (!severity) return { kind: "clear" };
   return {
     kind: "fire",
     severity,
     value: pct,
-    threshold: severity === "act_now" ? 75 : 85,
+    threshold: severity === "act_now" ? actBelow : watchBelow,
     baselineValue: null,
     baselineDate: null,
     provisional: false,
@@ -491,16 +512,19 @@ function online(
   const pct = pointValue(day, "online_pct");
   const delivered = pointValue(day, "delivered_orders");
   if (pct == null || delivered == null) return { kind: "hold", reason: "missing" };
-  if (delivered < RATE_MIN_DELIVERED) return { kind: "hold", reason: "guard" };
+  const config = rulesOf(input);
+  if (delivered < config.guards.rateMinDelivered.value) return { kind: "hold", reason: "guard" };
+  const watchBelow = config.online.watchBelowPct.value;
+  const actBelow = config.online.actNowBelowPct.value;
   let severity: OpsAlertSeverity | null = null;
-  if (pct < 70) severity = "act_now";
-  else if (pct < 85) severity = "watch";
+  if (pct < actBelow) severity = "act_now";
+  else if (pct < watchBelow) severity = "watch";
   if (!severity) return { kind: "clear" };
   return {
     kind: "fire",
     severity,
     value: pct,
-    threshold: severity === "act_now" ? 70 : 85,
+    threshold: severity === "act_now" ? actBelow : watchBelow,
     baselineValue: null,
     baselineDate: null,
     provisional: false,
@@ -518,10 +542,13 @@ function prep(
   if (pointState(day, "kpt_minutes") === "updating") return { kind: "hold", reason: "updating" };
   const minutes = pointValue(day, "kpt_minutes");
   if (minutes == null) return { kind: "hold", reason: "missing" };
+  const config = rulesOf(input);
   const baseline = minuteBaseline(input.days, outletId, platform, input.date);
   const rise = baseline ? minutes - baseline.value : null;
-  const act = minutes > 22;
-  const watch = minutes > 18 && rise != null && rise >= 2;
+  const actAbove = config.prep.actNowAboveMinutes.value;
+  const watchAbove = config.prep.watchAboveMinutes.value;
+  const act = minutes > actAbove;
+  const watch = minutes > watchAbove && rise != null && rise >= config.prep.minRiseMinutes.value;
   if (!act && !watch) return { kind: "clear" };
   const severity: OpsAlertSeverity = act ? "act_now" : "watch";
   const was = baseline ? ` (was ${trimNumber(baseline.value)})` : "";
@@ -529,7 +556,7 @@ function prep(
     kind: "fire",
     severity,
     value: minutes,
-    threshold: severity === "act_now" ? 22 : 18,
+    threshold: severity === "act_now" ? actAbove : watchAbove,
     baselineValue: baseline?.value ?? null,
     baselineDate: baseline?.date ?? null,
     provisional: false,
@@ -557,22 +584,25 @@ function rating(
   if (pointState(day, "rating") === "updating") return { kind: "hold", reason: "updating" };
   const value = pointValue(day, "rating");
   if (value == null) return { kind: "hold", reason: "missing" };
+  const config = rulesOf(input);
+  const actBelow = config.rating.actNowBelow.value;
+  const watchBelow = config.rating.watchBelow.value;
   const baseline = minuteBaseline(input.days, outletId, "zomato", input.date, "rating");
   const drop = baseline ? Math.round((baseline.value - value) * 100) / 100 : null;
-  const act = value < 3.8;
-  const watch = value < 4 || (drop != null && drop >= 0.05);
+  const act = value < actBelow;
+  const watch = value < watchBelow || (drop != null && drop >= config.rating.watchDrop.value);
   if (!act && !watch) return { kind: "clear" };
   const severity: OpsAlertSeverity = act ? "act_now" : "watch";
   const clause = act
-    ? ", below 3.80"
-    : value < 4
-      ? ", below 4.00"
+    ? `, below ${actBelow.toFixed(2)}`
+    : value < watchBelow
+      ? `, below ${watchBelow.toFixed(2)}`
       : `, down from ${baseline?.value.toFixed(2)}`;
   return {
     kind: "fire",
     severity,
     value,
-    threshold: severity === "act_now" ? 3.8 : 4,
+    threshold: severity === "act_now" ? actBelow : watchBelow,
     baselineValue: baseline?.value ?? null,
     baselineDate: baseline?.date ?? null,
     provisional: false,
@@ -595,6 +625,7 @@ function rating(
 function countRate(
   day: OpsAppDay | undefined,
   key: string,
+  config: OpsRulesConfig,
   decide: (count: number, delivered: number, pct: number) => RuleDecision,
 ): RuleDecision {
   if (pointState(day, key) === "updating" || pointState(day, "delivered_orders") === "updating") {
@@ -603,15 +634,23 @@ function countRate(
   const count = pointValue(day, key);
   const delivered = pointValue(day, "delivered_orders");
   if (count == null || delivered == null) return { kind: "hold", reason: "missing" };
-  const guard = rateGuard(delivered, count);
+  const guard = rateGuard(delivered, count, config);
   if (guard) return guard;
   if (delivered === 0) return { kind: "hold", reason: "guard" };
   return decide(count, delivered, (count / delivered) * 100);
 }
 
-function rateGuard(delivered: number, numerator: number): RuleDecision | null {
-  if (delivered < RATE_MIN_DELIVERED || numerator < RATE_MIN_NUMERATOR)
+function rateGuard(
+  delivered: number,
+  numerator: number,
+  config: OpsRulesConfig,
+): RuleDecision | null {
+  if (
+    delivered < config.guards.rateMinDelivered.value ||
+    numerator < config.guards.rateMinNumerator.value
+  ) {
     return { kind: "hold", reason: "guard" };
+  }
   return null;
 }
 
@@ -620,6 +659,7 @@ function salesBaseline(
   outletId: string,
   platform: OpsPlatform,
   date: string,
+  config: OpsRulesConfig,
 ): { date: string; value: number } | null {
   for (const back of [7, 14]) {
     const prior = findDay(days, outletId, platform, addDays(date, -back));
@@ -627,7 +667,7 @@ function salesBaseline(
     if (pointState(prior, SALES_KEY[platform]) !== "ok") continue;
     const value = pointValue(prior, SALES_KEY[platform]);
     if (value == null) continue;
-    if (value < SALES_BASELINE_PAISE) continue;
+    if (value < config.guards.salesBaselinePaise.value) continue;
     return { date: prior.date, value };
   }
   return null;

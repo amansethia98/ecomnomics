@@ -1,3 +1,4 @@
+import { DEFAULT_OPS_RULES_CONFIG } from "@rakazo/contracts";
 import type { PrismaClient } from "@rakazo/db";
 import {
   createDb,
@@ -190,6 +191,17 @@ describePostgres("daily ops brief (PostgreSQL)", () => {
     expect(body.workbook.available).toBe(false);
     expect(body.message.chars).toBeLessThanOrEqual(1200);
     expect(body.message.text).toContain("Zomato sales down");
+    const stamped = await runAsSystem("ops config stamp", async () => {
+      const report = await ownerDb.report.findUnique({ where: { id: body.reportId } });
+      const alert = await ownerDb.opsAlert.findFirst({ where: { restaurantId: restaurantA } });
+      return { report, alert };
+    });
+    expect((stamped.report?.payload as { configVersion?: string } | null)?.configVersion).toBe(
+      DEFAULT_OPS_RULES_CONFIG.configVersion,
+    );
+    expect((stamped.alert?.evidence as { configVersion?: string } | null)?.configVersion).toBe(
+      DEFAULT_OPS_RULES_CONFIG.configVersion,
+    );
     expect(body.message.text).toContain(
       "confirm the outlet was open and visible on Zomato through dinner",
     );

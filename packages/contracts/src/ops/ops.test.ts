@@ -7,6 +7,7 @@ import {
   stepAlert,
 } from "./alerts.js";
 import { combinedDaySales, composeDailyBrief, viewFromDaily, weekSales } from "./brief.js";
+import { DEFAULT_OPS_RULES_CONFIG, resolveOpsRulesConfig } from "./config.js";
 import { addDays } from "./format.js";
 import {
   displayFindings,
@@ -80,6 +81,36 @@ describe("daily thresholds", () => {
     expect(combinedDailyValue("rating", [4.9, 3.1])).toBeNull();
     expect(combinedDailyValue("delivered_orders", [10, 12])).toBe(22);
     expect(combinedNetSales(100, 40)).toBe(140);
+  });
+
+  it("keeps the published numbers as placeholders and lets an override change the result", () => {
+    for (const group of [
+      DEFAULT_OPS_RULES_CONFIG.salesDrop,
+      DEFAULT_OPS_RULES_CONFIG.delayed,
+      DEFAULT_OPS_RULES_CONFIG.badOrders,
+      DEFAULT_OPS_RULES_CONFIG.foodReady,
+      DEFAULT_OPS_RULES_CONFIG.online,
+      DEFAULT_OPS_RULES_CONFIG.prep,
+      DEFAULT_OPS_RULES_CONFIG.rating,
+      DEFAULT_OPS_RULES_CONFIG.complaints,
+      DEFAULT_OPS_RULES_CONFIG.cancellations,
+      DEFAULT_OPS_RULES_CONFIG.guards,
+      DEFAULT_OPS_RULES_CONFIG.lifecycle,
+    ]) {
+      for (const threshold of Object.values(group)) expect(threshold.placeholder).toBe(true);
+    }
+    const days = salesPair(340_000, 400_000);
+    expect(run(days).findings.some((finding) => finding.code === "d_sales_drop")).toBe(false);
+    const config = resolveOpsRulesConfig({
+      salesDrop: { watchAbovePct: { value: 10 }, actNowAbovePct: { value: 50 } },
+    });
+    expect(config.salesDrop.watchAbovePct).toEqual({ value: 10, placeholder: true });
+    expect(config.salesDrop.actNowAbovePct.value).toBe(50);
+    expect(config.guards.salesBaselinePaise.value).toBe(300_000);
+    const overridden = evaluateDaily({ date: DATE, outlets: [OUTLET], days, config });
+    expect(overridden.findings.find((finding) => finding.platform === "zomato")?.severity).toBe(
+      "watch",
+    );
   });
 
   it("fires a sales drop only past 25% and 40%, and only from a ₹3,000 baseline", () => {

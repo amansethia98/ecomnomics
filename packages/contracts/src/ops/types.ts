@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { metricDefinition } from "../metric-dictionary.js";
+import type { OpsRulesConfig } from "./config.js";
+import { DEFAULT_OPS_RULES_CONFIG } from "./config.js";
 
-export const OPS_RULES_VERSION = "ops-daily/2026-11-15.1";
+export const OPS_RULES_VERSION = DEFAULT_OPS_RULES_CONFIG.configVersion;
 
 /** What the runner is told. The product does not schedule these itself. */
 export const OPS_RUNNER_SCHEDULE = {
@@ -15,15 +17,6 @@ export const OPS_RUNNER_SCHEDULE = {
   payoutDay: "Thursday",
 } as const;
 
-export const SALES_BASELINE_PAISE = 300_000;
-export const RATE_MIN_DELIVERED = 15;
-export const RATE_MIN_NUMERATOR = 2;
-export const ZERO_BASELINE_DELIVERED = 5;
-export const WATCH_ESCALATE_DAYS = 3;
-export const CLEAR_RESOLVE_DAYS = 2;
-export const STALE_DAYS = 7;
-export const REOPEN_DAYS = 7;
-export const BACK_AGAIN_DAYS = 3;
 export const ALL_GOOD_CHAR_LIMIT = 700;
 export const BRIEF_CHAR_LIMIT = 1_200;
 export const CALLOUT_LIMIT = 3;
@@ -164,6 +157,8 @@ export interface DailyEvaluationInput {
   date: string;
   outlets: DailyOutlet[];
   days: OpsAppDay[];
+  /** Defaults when omitted. A restaurant override is already merged. */
+  config?: OpsRulesConfig;
 }
 
 export interface OpsCell {
