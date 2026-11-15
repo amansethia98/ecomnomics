@@ -271,6 +271,28 @@ describe("business label detection", () => {
     expect(detection.findings[0]?.kind).toBe("layout_change");
   });
 
+  it("keeps a one-metric file as a partial extract", () => {
+    const csv = [
+      "Restaurant ID,Restaurant name,Area,City,Overview,Metric,1st Oct 2026,3rd Oct 2026",
+      "900001.0,Test Kitchen,Testarea,Testcity,SALES,Delivered Orders,4,6",
+    ].join("\n");
+    const parsed = evaluateBusinessReport(
+      csv,
+      {
+        ...swiggyDaily,
+        periodStart: "2026-10-01",
+        periodEnd: "2026-10-04",
+      },
+      book,
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.labelDetection?.layoutReason ?? null).toBeNull();
+    const delivered = parsed.rows.filter((row) => row.key === "delivered_orders");
+    expect(delivered.some((row) => row.state === "ok" && row.value === 4)).toBe(true);
+    expect(delivered.some((row) => row.state === "pending_label")).toBe(false);
+  });
+
   it("rejects an unreadable header as a layout change", () => {
     const parsed = evaluateBusinessReport("not a report", swiggyDaily, book);
     expect(parsed.ok).toBe(false);
@@ -307,39 +329,51 @@ describe("payout label columns", () => {
       "Net payout",
       "Amount settled",
     ];
-    const bytes = await workbook([
-      headers,
+    const bytes = await workbook(
       [
-        "9200001",
-        "2026-10-25",
-        "Delivered",
-        "100",
-        "0",
-        "0",
-        "10",
-        "0",
-        "0",
-        "0",
-        "0",
-        "0",
-        "100",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "0",
-        "90",
-        "90",
+        headers,
+        [
+          "9200001",
+          "2026-10-25",
+          "Delivered",
+          "100",
+          "0",
+          "0",
+          "10",
+          "0",
+          "0",
+          "0",
+          "0",
+          "0",
+          "100",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "0",
+          "90",
+          "90",
+        ],
       ],
-    ]);
+      (file) => {
+        const breakup = file.addWorksheet("Payout Breakup");
+        breakup.addRow(["", "Particular", "Total"]);
+        breakup.addRow(["", "Commission", "10"]);
+        breakup.addRow(["", "Swiggy fees", "10"]);
+      },
+    );
     const parsed = await parsePayoutWorkbook(bytes, "swiggy", null, book);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     expect(parsed.payout.checks.some((check) => check.key === "net_payout_paise")).toBe(false);
-    expect(parsed.payout.skippedChecks?.some((check) => check.reason === "pending_label")).toBe(
+    const skipped = parsed.payout.skippedChecks?.map((check) => check.key) ?? [];
+    expect(skipped).toContain("net_payout_paise");
+    expect(skipped).toContain("commission_paise");
+    expect(skipped).toContain("platform_fees_paise");
+    expect(parsed.payout.skippedChecks?.every((check) => check.reason === "pending_label")).toBe(
       true,
     );
     const finding = parsed.payout.labelFindings?.find((item) => item.slotId.endsWith("commission"));
@@ -352,6 +386,18 @@ describe("payout label columns", () => {
       median: null,
     });
     expect(JSON.stringify(finding?.evidence)).not.toContain("9200001");
+  });
+
+  it("treats a renamed order date as a layout change before reading rows", async () => {
+    const bytes = await workbook([
+      ["Order ID", "Order day", "Order status", "Item total", "Net payout"],
+      ["9200002", "2026-10-25", "Delivered", "100", "100"],
+    ]);
+    const parsed = await parsePayoutWorkbook(bytes, "swiggy", null, book);
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.layout).toBe(true);
+    expect(parsed.reason).toContain("key column");
   });
 
   it("treats a missing order id column as a layout change", async () => {
@@ -413,7 +459,10 @@ describe("payout label columns", () => {
   });
 });
 
-function workbook(rows: unknown[][]): Promise<Uint8Array> {
+function workbook(
+  rows: unknown[][],
+  extra?: (file: { addWorksheet(name: string): { addRow(values: unknown[]): void } }) => void,
+): Promise<Uint8Array> {
   const { Workbook } = require("exceljs") as {
     Workbook: new () => {
       addWorksheet(name: string): { addRow(values: unknown[]): void };
@@ -433,5 +482,6 @@ function workbook(rows: unknown[][]): Promise<Uint8Array> {
   }
   const orders = file.addWorksheet("Order Level");
   for (const row of rows) orders.addRow(row);
+  extra?.(file);
   return file.xlsx.writeBuffer().then((buffer) => new Uint8Array(buffer));
 }

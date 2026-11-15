@@ -36,6 +36,8 @@ x-app-environment: &app-environment # Runtime
   RESTAURANT_STARTER_BOTS_ENABLED:
   # Salt for hashing Zomato customer ids on payout orders. Unset stores no customer hash.
   CUSTOMER_HASH_SALT:
+  # Off unless set to on. A label decision is recorded and no alias is added.
+  ECOMNOMICS_LABEL_AUTO_APPLY:
   USER_DEVICES_ENABLED:
   BOT_MESSAGE_MAX_HOPS:
   RAKAZO_MESSAGE_USER_MAX_CHARS:

@@ -246,12 +246,18 @@ export function detectBusinessLabels(input: {
 
   const absentSlots = slots.filter((slot) => !resolved.has(slot.id));
   const sectionsAffected = new Set(absentSlots.map((slot) => slot.section)).size;
-  const layoutReason = businessLayoutReason({
-    required: slots.length,
-    absent: absentSlots.length,
-    sectionsAffected,
-    unknown,
-  });
+  // A short file of known labels is a partial extract, not a report that lost its layout.
+  // A full report that is missing more than a quarter still has most of its labels.
+  const present = slots.length - absentSlots.length;
+  const partialExtract = unknown === 0 && slots.length > 0 && present / slots.length <= 0.25;
+  const layoutReason = partialExtract
+    ? null
+    : businessLayoutReason({
+        required: slots.length,
+        absent: absentSlots.length,
+        sectionsAffected,
+        unknown,
+      });
   const findings: LabelChangeFinding[] = [];
   const pending: BusinessLabelDetection["pending"] = [];
   const bySection = new Map<string, LabelSlot[]>();
@@ -268,7 +274,7 @@ export function detectBusinessLabels(input: {
     const blankPeriods = row
       ? row.cells.flatMap((cell, index) => (cell.value == null ? [index] : []))
       : [...Array(input.periods).keys()];
-    if (!row) {
+    if (!row && !partialExtract) {
       for (const periodIndex of blankPeriods) {
         pending.push({ section: slot.section, label: old, periodIndex, slotId: slot.id });
       }

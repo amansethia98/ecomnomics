@@ -293,6 +293,12 @@ function parseZomato(
   const paidCol = columnFor(book, head, "zomato.payout.order_level.paid_amount", () =>
     paidColumn(head),
   );
+  const missingDate = missingOrderDate(book, "zomato", "payout", identity.observed, head, [
+    ["zomato.payout.order_level.order_id", orderIdCol],
+    ["zomato.payout.order_level.order_date", orderDateCol],
+    ["zomato.payout.order_level.order_status", orderStatusCol],
+  ]);
+  if (missingDate) return missingDate;
   for (const row of ordersSheet.slice(header.index + 1)) {
     const rawId = cell(row, orderIdCol);
     if (isJunk(rawId)) continue;
@@ -435,15 +441,7 @@ function parseZomato(
       adjustments,
       totals,
       warnings,
-      formulaPending(labels?.findings, [
-        "zomato.payout.order_level.service_fee",
-        "zomato.payout.order_level.payment_fee",
-        "zomato.payout.order_level.taxes",
-        "zomato.payout.order_level.tds",
-        "zomato.payout.order_level.tcs",
-        "zomato.payout.order_level.complaints",
-        "zomato.payout.order_level.commissionable",
-      ]),
+      pendingLabelSlots(labels?.findings),
       labels?.findings,
     ),
   };
@@ -590,6 +588,12 @@ function parseSwiggy(
   const paidCol = columnFor(book, head, "swiggy.payout_annexure.order_level.paid_amount", () =>
     paidColumn(head),
   );
+  const missingDate = missingOrderDate(book, "swiggy", "payout_annexure", identity.observed, head, [
+    ["swiggy.payout_annexure.order_level.order_id", orderIdCol],
+    ["swiggy.payout_annexure.order_level.order_date", orderDateCol],
+    ["swiggy.payout_annexure.order_level.order_status", orderStatusCol],
+  ]);
+  if (missingDate) return missingDate;
   for (const row of ordersSheet.slice(header.index + 1)) {
     const rawId = cell(row, orderIdCol);
     if (isJunk(rawId)) continue;
@@ -752,17 +756,7 @@ function parseSwiggy(
       adjustments,
       totals,
       [],
-      formulaPending(labels?.findings, [
-        "swiggy.payout_annexure.order_level.commission",
-        "swiggy.payout_annexure.order_level.total_fees",
-        "swiggy.payout_annexure.order_level.gst_on_fees",
-        "swiggy.payout_annexure.order_level.gst_collected",
-        "swiggy.payout_annexure.order_level.tds",
-        "swiggy.payout_annexure.order_level.tcs",
-        "swiggy.payout_annexure.order_level.complaints",
-        "swiggy.payout_annexure.order_level.net_bill",
-        "swiggy.payout_annexure.order_level.item_total",
-      ]),
+      pendingLabelSlots(labels?.findings),
       labels?.findings,
     ),
   };
@@ -777,12 +771,69 @@ interface CycleFields {
   utrLast4: string | null;
 }
 
-function formulaPending(findings: LabelChangeFinding[] | undefined, slotIds: string[]): boolean {
+function pendingLabelSlots(findings: LabelChangeFinding[] | undefined): string[] {
   return (
-    findings?.some(
-      (finding) => finding.kind === "metric_label_change" && slotIds.includes(finding.slotId),
-    ) ?? false
+    findings?.flatMap((finding) =>
+      finding.kind === "metric_label_change" && finding.slotId ? [finding.slotId] : [],
+    ) ?? []
   );
+}
+
+/** A renamed order-date header is an anchor failure, before any row is read as dateless. */
+function missingOrderDate(
+  book: LabelBook | undefined,
+  platform: "swiggy" | "zomato",
+  reportKind: string,
+  observed: ObservedReportIdentity,
+  head: string[],
+  columns: Array<[string, number | null]>,
+): PayoutParseResult | null {
+  const date = columns.find(([slotId]) => slotId.endsWith(".order_date"));
+  if (date?.[1] != null) return null;
+  const labels = watchedPayoutLabels(platform, reportKind, book, head, columns);
+  return {
+    ok: false,
+    reason: labels?.layoutReason ?? "A payout key column is missing.",
+    observed,
+    layout: true,
+    ...(labels && labels.findings.length > 0 ? { labelFindings: labels.findings } : {}),
+  };
+}
+
+const PAYOUT_CHECK_INPUTS: Record<string, readonly string[]> = {
+  net_payout_paise: [
+    "commission",
+    "total_fees",
+    "gst_on_fees",
+    "gst_collected",
+    "service_fee",
+    "payment_fee",
+    "taxes",
+    "tds",
+    "tcs",
+    "complaints",
+    "net_bill",
+    "item_total",
+    "commissionable",
+  ],
+  commission_paise: ["commission", "service_fee"],
+  platform_fees_paise: ["total_fees", "commission", "gst_on_fees", "payment_fee"],
+  taxes_paise: ["gst_on_fees", "taxes"],
+  tds_paise: ["tds"],
+  tcs_paise: ["tcs"],
+  gst_collected_paise: ["gst_collected"],
+  complaints_cancellation_charges_paise: ["complaints"],
+  cv_paise: ["net_bill", "item_total", "commissionable"],
+  gross_sales_paise: ["item_total", "packaging", "subtotal"],
+  discount_paise: ["discount", "promo_discount", "other_discount"],
+  platform_net_payout_paise: ["net_payout", "order_level_payout"],
+  paid_amount_paise: ["paid_amount"],
+};
+
+function checkDependsOnPending(key: string, pending: readonly string[]): boolean {
+  const inputs = PAYOUT_CHECK_INPUTS[key];
+  if (!inputs) return false;
+  return pending.some((slotId) => inputs.some((input) => slotId.endsWith(`.${input}`)));
 }
 
 function watchedPayoutLabels(
@@ -812,10 +863,10 @@ function finish(
   adjustments: ParsedAdjustment[],
   totals: ParsedCycleTotals,
   warnings: string[],
-  skipOrderNet = false,
+  pendingSlots: readonly string[] = [],
   labelFindings?: LabelChangeFinding[],
 ): ParsedPayoutFile {
-  const checks = buildChecks(platform, orders, adjustments, totals, skipOrderNet);
+  const checks = buildChecks(platform, orders, adjustments, totals, pendingSlots);
   const skippedChecks = checks.filter((check) => check.skipped);
   const kept = checks.filter((check) => !check.skipped);
   return {
@@ -868,23 +919,25 @@ function buildChecks(
   orders: ParsedPayoutOrder[],
   adjustments: ParsedAdjustment[],
   totals: ParsedCycleTotals,
-  skipOrderNet = false,
+  pendingSlots: readonly string[] = [],
 ): PayoutCheck[] {
   const checks: PayoutCheck[] = [];
+  const keep = (check: PayoutCheck) => {
+    checks.push(
+      checkDependsOnPending(check.key, pendingSlots)
+        ? { ...check, skipped: true, reason: "pending_label", pass: false }
+        : check,
+    );
+  };
   for (const order of orders) {
     const rebuilt = _platform === "swiggy" ? swiggyRecomputedNet(order) : order.recomputedNetPaise;
-    const check = moneyCheck("net_payout_paise", rebuilt, order.netPayoutPaise);
-    checks.push(
-      skipOrderNet ? { ...check, skipped: true, reason: "pending_label", pass: false } : check,
-    );
+    keep(moneyCheck("net_payout_paise", rebuilt, order.netPayoutPaise));
   }
   const sum = (pick: (order: ParsedPayoutOrder) => number) =>
     orders.reduce((total, order) => total + pick(order), 0);
   const compare = (key: string, rebuilt: number, platformValue: number | null, count = false) => {
     if (platformValue == null) return;
-    checks.push(
-      count ? countCheck(key, rebuilt, platformValue) : moneyCheck(key, rebuilt, platformValue),
-    );
+    keep(count ? countCheck(key, rebuilt, platformValue) : moneyCheck(key, rebuilt, platformValue));
   };
   compare("payout_orders", orders.length, totals.orderCount, true);
   compare(

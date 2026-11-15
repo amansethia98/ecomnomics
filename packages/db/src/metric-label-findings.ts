@@ -25,6 +25,16 @@ export async function recordLabelFindings(
   const recorded: RecordedLabelFinding[] = [];
   for (const finding of input.findings) {
     const stored = await runAsSystemInTransaction(tx, "record a label finding", async () => {
+      const lockKey = [
+        finding.kind,
+        finding.platform,
+        finding.family,
+        finding.reportKind,
+        finding.section,
+        finding.slotId,
+        finding.candidateNorm ?? "",
+      ].join("\t");
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
       const open = await tx.metricLabelFinding.findFirst({
         where: {
           status: "open",
