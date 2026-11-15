@@ -13,6 +13,7 @@
     "check": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run --root ../.. apps/api/src",
     "db:migrate": "tsx src/cli/migrate-database.ts",
+    "db:seed-labels": "tsx src/cli/seed-labels.ts",
     "restaurant:mint-token": "tsx src/cli/mint-restaurant-token.ts",
     "db:deploy": "node --enable-source-maps dist/cli/migrate-database.js",
     "secrets:infisical": "tsx src/cli/secrets-infisical.ts",

@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { seedLabelBook } from "./metric-label-seed.js";
 import { checkObservedIdentity } from "./metric-parse.js";
 import { rollupMetrics } from "./metric-rollup.js";
 import type { ParsedPayoutFile } from "./payout-parse.js";
@@ -474,6 +475,18 @@ describe("payout workbooks", () => {
     expect(wrong.check.pass).toBe(false);
     expect(wrong.check.gap).toBe(10000);
     expect(wrong.check.tolerance).toBe(100);
+  });
+
+  it("reads the GST and cancellation workbooks the same way through the label book", async () => {
+    const book = seedLabelBook();
+    for (const [bytes, platform] of [
+      [await zomatoGstRows(), "zomato"],
+      [await swiggyCancelRows(), "swiggy"],
+    ] as const) {
+      expect(await parsePayoutWorkbook(bytes, platform, SALT, book)).toEqual(
+        await parsePayoutWorkbook(bytes, platform, SALT),
+      );
+    }
   });
 });
 

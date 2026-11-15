@@ -9,6 +9,9 @@ import {
 } from "./metric-dates.js";
 import type { MetricGranularity, MetricKey, MetricPlatform } from "./metric-dictionary.js";
 import { requireMetric, SWIGGY_DAILY_MAX_DAYS } from "./metric-dictionary.js";
+import type { LabelBook } from "./metric-label.js";
+import { itemSuffix, normaliseLabel } from "./metric-label.js";
+import { METRIC_LABEL_ALIASES, METRIC_LABEL_SLOTS } from "./metric-label-seed.js";
 
 export type ReportKind = "daily" | "weekly" | "monthly";
 
@@ -272,6 +275,7 @@ function rejectedReport(
 export function evaluateBusinessReport(
   csv: string,
   expected: ExpectedReportIdentity,
+  book?: LabelBook,
 ): ReportEvaluation {
   if (expected.report === "payout") {
     return rejectedReport(
@@ -330,25 +334,38 @@ export function evaluateBusinessReport(
 
   const rows: ParsedMetricRow[] = [];
   const items: ParsedWindowItem[] = [];
+  const aliasSlots = book ? businessAliasSlots(book, expected.platform) : null;
   for (let index = 0; index < periods.length; index += 1) {
     const period = periods[index];
     if (!period) continue;
     const cells = new Map<string, Cell>();
     const itemCells: Array<{ name: string; pct: number | null }> = [];
+    const suffix =
+      expected.platform === "swiggy"
+        ? book
+          ? itemSuffix(book, "swiggy.business.MENU.item_revenue_pct")
+          : " Revenue %"
+        : " Revenue %";
     for (const line of grid) {
-      if (line.metric.endsWith(" Revenue %")) {
+      if (expected.platform === "swiggy" && line.metric.endsWith(suffix)) {
         itemCells.push({
-          name: line.metric.slice(0, -" Revenue %".length),
+          name: line.metric.slice(0, -suffix.length),
           pct: line.cells[index]?.value ?? null,
         });
         continue;
       }
       const cell = line.cells[index];
-      if (cell) cells.set(`${line.section}\t${line.metric}`, cell);
+      if (!cell) continue;
+      if (aliasSlots) {
+        const slotId = aliasSlots.get(`${line.section}\t${normaliseLabel(line.metric)}`);
+        if (slotId) cells.set(slotId, cell);
+      } else {
+        cells.set(`${line.section}\t${line.metric}`, cell);
+      }
     }
-    if (expected.platform === "swiggy") emitSwiggy(expected.report, period, cells, rows);
-    else emitZomato(expected.report, period, cells, rows);
-    if (expected.platform === "swiggy") emitItems(period, cells, itemCells, items);
+    if (expected.platform === "swiggy") emitSwiggy(expected.report, period, cells, rows, book);
+    else emitZomato(expected.report, period, cells, rows, book);
+    if (expected.platform === "swiggy") emitItems(period, cells, itemCells, items, book);
   }
   return {
     ok: true,
@@ -412,10 +429,44 @@ interface Column {
   period: ReportPeriod;
   cells: Map<string, Cell>;
   rows: ParsedMetricRow[];
+  book?: LabelBook;
+  platform: MetricPlatform;
+}
+
+const businessSlotIds = new Map<string, string>();
+for (const slot of METRIC_LABEL_SLOTS) {
+  if (slot.reportKind !== "business") continue;
+  for (const alias of METRIC_LABEL_ALIASES) {
+    if (alias.slotId === slot.id && alias.role === "read") {
+      businessSlotIds.set(`${slot.platform}\t${slot.section}\t${alias.label}`, slot.id);
+    }
+  }
+}
+
+function businessAliasSlots(book: LabelBook, platform: MetricPlatform): Map<string, string> {
+  const sections = new Map<string, string>();
+  for (const slot of book.slots) {
+    if (slot.platform === platform && slot.reportKind === "business") {
+      sections.set(slot.id, slot.section);
+    }
+  }
+  const found = new Map<string, string>();
+  for (const alias of book.aliases) {
+    if (alias.role !== "read" || alias.platform !== platform || alias.reportKind !== "business") {
+      continue;
+    }
+    const section = sections.get(alias.slotId);
+    if (!section) continue;
+    found.set(`${section}\t${alias.normLabel}`, alias.slotId);
+  }
+  return found;
 }
 
 function read(column: Column, section: string, label: string): Cell | undefined {
-  return column.cells.get(`${section}\t${label}`);
+  if (!column.book) return column.cells.get(`${section}\t${label}`);
+  const slotId = businessSlotIds.get(`${column.platform}\t${section}\t${label}`);
+  if (!slotId) throw new Error(`No label slot for ${column.platform} ${section} / ${label}`);
+  return column.cells.get(slotId);
 }
 
 function asNumber(cell: Cell | undefined): number | null {
@@ -518,8 +569,9 @@ function emitSwiggy(
   period: ReportPeriod,
   cells: Map<string, Cell>,
   rows: ParsedMetricRow[],
+  book?: LabelBook,
 ): void {
-  const column: Column = { report, period, cells, rows };
+  const column: Column = { report, period, cells, rows, book, platform: "swiggy" };
   for (const [section, label, key, mode] of SWIGGY_SUMS) {
     const cell = read(column, section, label);
     const value =
@@ -749,8 +801,9 @@ function emitZomato(
   period: ReportPeriod,
   cells: Map<string, Cell>,
   rows: ParsedMetricRow[],
+  book?: LabelBook,
 ): void {
-  const column: Column = { report, period, cells, rows };
+  const column: Column = { report, period, cells, rows, book, platform: "zomato" };
   const sums: ReadonlyArray<readonly [string, string, MetricKey, "paise" | "count" | "decimal"]> = [
     ["Sales", "Delivered orders", "delivered_orders", "count"],
     ["Sales", "Sales (Rs)", "ops_sales_paise", "paise"],
@@ -891,8 +944,11 @@ function emitItems(
   cells: Map<string, Cell>,
   itemCells: Array<{ name: string; pct: number | null }>,
   items: ParsedWindowItem[],
+  book?: LabelBook,
 ): void {
-  const top5 = asPaise(cells.get("MENU\tTop Selling Items (Gross Revenue)"));
+  const top5 = asPaise(
+    cells.get(book ? "swiggy.business.MENU.top5_items" : "MENU\tTop Selling Items (Gross Revenue)"),
+  );
   itemCells.forEach((item, index) => {
     if (top5 == null || item.pct == null) return;
     items.push({

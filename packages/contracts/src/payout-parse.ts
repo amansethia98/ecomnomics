@@ -3,6 +3,8 @@ import type { CellValue, Worksheet } from "exceljs";
 import { addIsoDays } from "./metric-dates.js";
 import type { MetricPlatform } from "./metric-dictionary.js";
 import { PAISE_SUM_TOLERANCE } from "./metric-dictionary.js";
+import type { LabelBook } from "./metric-label.js";
+import { resolveColumn, resolveColumns } from "./metric-label.js";
 import type { ObservedReportIdentity } from "./metric-parse.js";
 import { costPaise, discountPaise, rupeesToPaise, signedPaise } from "./payout-money.js";
 import { openPayoutWorkbook } from "./payout-workbook.js";
@@ -114,6 +116,7 @@ export async function parsePayoutWorkbook(
   bytes: Uint8Array,
   platform: MetricPlatform,
   customerHashSalt: string | null,
+  book?: LabelBook,
 ): Promise<PayoutParseResult> {
   let workbook: Awaited<ReturnType<typeof openPayoutWorkbook>>;
   try {
@@ -126,11 +129,33 @@ export async function parsePayoutWorkbook(
     sheets.set(norm(sheet.name), grid(sheet));
   }
   return platform === "swiggy"
-    ? parseSwiggy(sheets, customerHashSalt)
-    : parseZomato(sheets, customerHashSalt);
+    ? parseSwiggy(sheets, customerHashSalt, book)
+    : parseZomato(sheets, customerHashSalt, book);
 }
 
-function parseZomato(sheets: Map<string, string[][]>, salt: string | null): PayoutParseResult {
+function columnFor(
+  book: LabelBook | undefined,
+  header: string[],
+  slot: string,
+  fallback: () => number | null,
+): number | null {
+  return book ? resolveColumn(header, book, slot) : fallback();
+}
+
+function columnsFor(
+  book: LabelBook | undefined,
+  header: string[],
+  slot: string,
+  fallback: () => number[],
+): number[] {
+  return book ? resolveColumns(header, book, slot) : fallback();
+}
+
+function parseZomato(
+  sheets: Map<string, string[][]>,
+  salt: string | null,
+  book?: LabelBook,
+): PayoutParseResult {
   const summary = sheets.get("summary") ?? [];
   const hidden = sheets.get("hsummary") ?? [];
   const identity = zomatoIdentity(summary, hidden);
@@ -163,8 +188,95 @@ function parseZomato(sheets: Map<string, string[][]>, salt: string | null): Payo
     warnings.push("Customer hashes were not stored because CUSTOMER_HASH_SALT is not set.");
   const orders: ParsedPayoutOrder[] = [];
   const seen = new Set<string>();
+  const head = header.header;
+  const orderIdCol = columnFor(book, head, "zomato.payout.order_level.order_id", () =>
+    col(head, "order id"),
+  );
+  const orderDateCol = columnFor(book, head, "zomato.payout.order_level.order_date", () =>
+    col(head, "order date"),
+  );
+  const orderStatusCol = columnFor(book, head, "zomato.payout.order_level.order_status", () =>
+    col(head, "order status"),
+  );
+  const subtotalCol = columnFor(book, head, "zomato.payout.order_level.subtotal", () =>
+    col(head, "subtotal"),
+  );
+  const packagingCol = columnFor(book, head, "zomato.payout.order_level.packaging", () =>
+    col(head, "packaging"),
+  );
+  const promoCol = columnFor(book, head, "zomato.payout.order_level.promo_discount", () =>
+    colIncludes(head, "discount", "promo"),
+  );
+  const otherDiscountCol = columnFor(book, head, "zomato.payout.order_level.other_discount", () =>
+    column(head, (label) => label.includes("restaurant discount") && !label.includes("promo")),
+  );
+  const serviceFeeCol = columnFor(book, head, "zomato.payout.order_level.service_fee", () =>
+    serviceFeeColumn(head),
+  );
+  const paymentCol = columnFor(book, head, "zomato.payout.order_level.payment_fee", () =>
+    paymentFeeColumn(head),
+  );
+  const taxesCol = columnFor(book, head, "zomato.payout.order_level.taxes", () =>
+    colIncludes(head, "taxes on service"),
+  );
+  const tdsCol = columnFor(book, head, "zomato.payout.order_level.tds", () =>
+    colIncludes(head, "tds"),
+  );
+  const tcsCols = columnsFor(book, head, "zomato.payout.order_level.tcs", () => tcsColumns(head));
+  const complaintsCol = columnFor(book, head, "zomato.payout.order_level.complaints", () =>
+    column(head, (label) => label.includes("compensation") || label.includes("recoupment")),
+  );
+  const additionsCol = columnFor(book, head, "zomato.payout.order_level.net_additions", () =>
+    colIncludes(head, "net additions"),
+  );
+  const cvCol = columnFor(book, head, "zomato.payout.order_level.commissionable", () =>
+    colIncludes(head, "commissionable"),
+  );
+  const gstCollectedCol = columnFor(book, head, "zomato.payout.order_level.gst_collected", () =>
+    colIncludes(head, "gst collected"),
+  );
+  const gstOnBehalfCol = columnFor(book, head, "zomato.payout.order_level.gst_paid_9_5", () =>
+    column(head, (label) => label.includes("gst") && label.includes("9(5)")),
+  );
+  const gstRestaurantCol = columnFor(
+    book,
+    head,
+    "zomato.payout.order_level.gst_restaurant_payable",
+    () =>
+      column(
+        head,
+        (label) =>
+          label.includes("gst") &&
+          (label.includes("restaurant partner") ||
+            (label.includes("to be paid") && label.includes("govt"))),
+      ),
+  );
+  const payoutCol = columnFor(book, head, "zomato.payout.order_level.order_level_payout", () =>
+    colIncludes(head, "order level payout"),
+  );
+  const settlementDateCol = columnFor(book, head, "zomato.payout.order_level.settlement_date", () =>
+    colIncludes(head, "settlement date"),
+  );
+  const cancelledByCol = columnFor(book, head, "zomato.payout.order_level.cancelled_by", () =>
+    colIncludes(head, "cancelled by"),
+  );
+  const settlementStatusCol = columnFor(
+    book,
+    head,
+    "zomato.payout.order_level.settlement_status",
+    () => colIncludes(head, "settlement status"),
+  );
+  const utrCol = columnFor(book, head, "zomato.payout.order_level.utr", () =>
+    colIncludes(head, "utr"),
+  );
+  const customerCol = columnFor(book, head, "zomato.payout.order_level.customer_id", () =>
+    colIncludes(head, "customer id"),
+  );
+  const paidCol = columnFor(book, head, "zomato.payout.order_level.paid_amount", () =>
+    paidColumn(head),
+  );
   for (const row of ordersSheet.slice(header.index + 1)) {
-    const rawId = cell(row, col(header.header, "order id"));
+    const rawId = cell(row, orderIdCol);
     if (isJunk(rawId)) continue;
     const platformOrderId = rawId.trim().replace(/\.0$/, "");
     if (!platformOrderId) continue;
@@ -176,7 +288,7 @@ function parseZomato(sheets: Map<string, string[][]>, salt: string | null): Payo
       };
     }
     seen.add(platformOrderId);
-    const orderDate = parseCivilDate(cell(row, col(header.header, "order date")), range.year);
+    const orderDate = parseCivilDate(cell(row, orderDateCol), range.year);
     if (!orderDate) {
       return {
         ok: false,
@@ -184,37 +296,27 @@ function parseZomato(sheets: Map<string, string[][]>, salt: string | null): Payo
         observed: identity.observed,
       };
     }
-    const status = orderStatus(cell(row, col(header.header, "order status")));
+    const status = orderStatus(cell(row, orderStatusCol));
     const delivered = status === "DELIVERED";
-    const subtotal = costPaise(cell(row, col(header.header, "subtotal")));
-    const packaging = costPaise(cell(row, col(header.header, "packaging")));
-    const promo = discountPaise(cell(row, colIncludes(header.header, "discount", "promo")));
-    const otherDiscount = discountPaise(otherDiscountCell(header.header, row));
+    const subtotal = costPaise(cell(row, subtotalCol));
+    const packaging = costPaise(cell(row, packagingCol));
+    const promo = discountPaise(cell(row, promoCol));
+    const otherDiscount = discountPaise(cell(row, otherDiscountCol));
     const gross = delivered ? subtotal + packaging : 0;
     const discount = delivered ? promo + otherDiscount : 0;
-    const commission = costPaise(cell(row, serviceFeeColumn(header.header)));
-    const payment = costPaise(cell(row, paymentFeeColumn(header.header)));
-    const taxes = costPaise(cell(row, colIncludes(header.header, "taxes on service")));
-    const tds = costPaise(cell(row, colIncludes(header.header, "tds")));
-    const tcs = tcsColumns(header.header).reduce(
-      (total, index) => total + costPaise(cell(row, index)),
-      0,
-    );
-    const complaints = costPaise(
-      cell(
-        row,
-        column(
-          header.header,
-          (label) => label.includes("compensation") || label.includes("recoupment"),
-        ),
-      ),
-    );
-    const additions = signedPaise(cell(row, colIncludes(header.header, "net additions")));
-    const cvParsed = rupeesToPaise(cell(row, colIncludes(header.header, "commissionable")));
+    const commission = costPaise(cell(row, serviceFeeCol));
+    const payment = costPaise(cell(row, paymentCol));
+    const taxes = costPaise(cell(row, taxesCol));
+    const tds = costPaise(cell(row, tdsCol));
+    const tcs = tcsCols.reduce((total, index) => total + costPaise(cell(row, index)), 0);
+    const complaints = costPaise(cell(row, complaintsCol));
+    const additions = signedPaise(cell(row, additionsCol));
+    const cvParsed = rupeesToPaise(cell(row, cvCol));
     const cv = cvParsed == null ? Math.max(0, gross - discount) : Math.abs(cvParsed);
-    const gstCollected = costPaise(cell(row, colIncludes(header.header, "gst collected")));
+    const gstCollected = costPaise(cell(row, gstCollectedCol));
     // AJ is customer GST the restaurant still owes. The printed payout keeps it.
     // A blank cell is collected minus the 9(5) amount the platform already paid.
+    const listedGst = rupeesToPaise(cell(row, gstRestaurantCol));
     const recomputed =
       cv -
       commission -
@@ -224,25 +326,19 @@ function parseZomato(sheets: Map<string, string[][]>, salt: string | null): Payo
       tcs -
       complaints +
       additions +
-      restaurantGstPaise(header.header, row, gstCollected);
-    const printed = signedPaise(cell(row, colIncludes(header.header, "order level payout")));
-    const settlementDate = parseCivilDate(
-      cell(row, colIncludes(header.header, "settlement date")),
-      range.year,
-    );
+      (listedGst ?? gstCollected - costPaise(cell(row, gstOnBehalfCol)));
+    const printed = signedPaise(cell(row, payoutCol));
+    const settlementDate = parseCivilDate(cell(row, settlementDateCol), range.year);
     orders.push({
       platformOrderId,
       orderDate,
       orderStatus: status,
       category: null,
-      cancelledBy: blankToNull(cell(row, colIncludes(header.header, "cancelled by"))),
-      settlementStatus: inferSettlement(
-        cell(row, colIncludes(header.header, "settlement status")),
-        settlementDate,
-      ),
+      cancelledBy: blankToNull(cell(row, cancelledByCol)),
+      settlementStatus: inferSettlement(cell(row, settlementStatusCol), settlementDate),
       settlementDate,
-      utrLast4: last4(cell(row, colIncludes(header.header, "utr"))),
-      customerHash: hashCustomer(cell(row, colIncludes(header.header, "customer id")), salt),
+      utrLast4: last4(cell(row, utrCol)),
+      customerHash: hashCustomer(cell(row, customerCol), salt),
       mfrMarked: null,
       mfrAccurate: null,
       grossSalesPaise: gross,
@@ -256,7 +352,7 @@ function parseZomato(sheets: Map<string, string[][]>, salt: string | null): Payo
       gstCollectedPaise: gstCollected,
       complaintsCancellationChargesPaise: complaints,
       netPayoutPaise: printed,
-      paidAmountPaise: orderPaid(header.header, row),
+      paidAmountPaise: rupeesToPaise(cell(row, paidCol)),
       recomputedNetPaise: recomputed,
     });
   }
@@ -272,8 +368,8 @@ function parseZomato(sheets: Map<string, string[][]>, salt: string | null): Payo
   if (summaryDate) cycle.settlementDate = summaryDate;
   const summaryReference = last4(labeledText(summary, "bank utr"));
   if (summaryReference) cycle.utrLast4 = summaryReference;
-  const adjustments = zomatoAdjustments(sheets.get("addition deductions details") ?? []);
-  const totals = zomatoTotals(sheets.get("payout breakup") ?? []);
+  const adjustments = zomatoAdjustments(sheets.get("addition deductions details") ?? [], book);
+  const totals = zomatoTotals(sheets.get("payout breakup") ?? [], book);
   applyPaidTotal(totals, orders, summaryPaid(summary));
   const observed = withPeriod(identity.observed, cycle.cycleStart, cycle.cycleEnd);
   return {
@@ -282,7 +378,11 @@ function parseZomato(sheets: Map<string, string[][]>, salt: string | null): Payo
   };
 }
 
-function parseSwiggy(sheets: Map<string, string[][]>, _salt: string | null): PayoutParseResult {
+function parseSwiggy(
+  sheets: Map<string, string[][]>,
+  _salt: string | null,
+  book?: LabelBook,
+): PayoutParseResult {
   const summary = sheets.get("summary");
   if (!summary) return { ok: false, reason: "The file has no Summary sheet.", observed: null };
   const identity = swiggyIdentity(summary);
@@ -312,8 +412,108 @@ function parseSwiggy(sheets: Map<string, string[][]>, _salt: string | null): Pay
   }
   const draft: Array<Omit<ParsedPayoutOrder, "orderDate"> & { orderDate: string | null }> = [];
   const seen = new Set<string>();
+  const head = header.header;
+  const orderIdCol = columnFor(book, head, "swiggy.payout_annexure.order_level.order_id", () =>
+    col(head, "order id"),
+  );
+  const orderDateCol = columnFor(book, head, "swiggy.payout_annexure.order_level.order_date", () =>
+    orderDateColumn(head),
+  );
+  const orderStatusCol = columnFor(
+    book,
+    head,
+    "swiggy.payout_annexure.order_level.order_status",
+    () => col(head, "order status"),
+  );
+  const itemCol = columnFor(book, head, "swiggy.payout_annexure.order_level.item_total", () =>
+    colIncludes(head, "item total"),
+  );
+  const packagingCol = columnFor(book, head, "swiggy.payout_annexure.order_level.packaging", () =>
+    colIncludes(head, "packaging"),
+  );
+  const discountCol = columnFor(
+    book,
+    head,
+    "swiggy.payout_annexure.order_level.discount",
+    () =>
+      column(head, (label) => label.includes("discount share")) ?? colIncludes(head, "discount"),
+  );
+  const commissionCol = columnFor(book, head, "swiggy.payout_annexure.order_level.commission", () =>
+    exactCol(head, "commission"),
+  );
+  const feesCol = columnFor(book, head, "swiggy.payout_annexure.order_level.total_fees", () =>
+    colIncludes(head, "total swiggy fees"),
+  );
+  const gstOnFeesCol = columnFor(book, head, "swiggy.payout_annexure.order_level.gst_on_fees", () =>
+    colIncludes(head, "gst on service"),
+  );
+  const tdsCol = columnFor(book, head, "swiggy.payout_annexure.order_level.tds", () =>
+    exactCol(head, "tds"),
+  );
+  const tcsCol = columnFor(book, head, "swiggy.payout_annexure.order_level.tcs", () =>
+    exactCol(head, "tcs"),
+  );
+  const complaintsCol = columnFor(
+    book,
+    head,
+    "swiggy.payout_annexure.order_level.complaints",
+    () =>
+      column(head, (label) => label.includes("complaint") && label.includes("cancellation")) ??
+      colIncludes(head, "complaint"),
+  );
+  const netBillCol = columnFor(book, head, "swiggy.payout_annexure.order_level.net_bill", () =>
+    colIncludes(head, "net bill"),
+  );
+  const settlementDateCol = columnFor(
+    book,
+    head,
+    "swiggy.payout_annexure.order_level.settlement_date",
+    () => colIncludes(head, "settlement date"),
+  );
+  const cancelledByCol = columnFor(
+    book,
+    head,
+    "swiggy.payout_annexure.order_level.cancelled_by",
+    () => colIncludes(head, "cancelled by"),
+  );
+  const categoryCol = columnFor(book, head, "swiggy.payout_annexure.order_level.category", () =>
+    colIncludes(head, "category"),
+  );
+  const settlementStatusCol = columnFor(
+    book,
+    head,
+    "swiggy.payout_annexure.order_level.settlement_status",
+    () => colIncludes(head, "settlement status"),
+  );
+  const utrCol = columnFor(book, head, "swiggy.payout_annexure.order_level.utr", () =>
+    colIncludes(head, "utr"),
+  );
+  const mfrMarkedCol = columnFor(
+    book,
+    head,
+    "swiggy.payout_annexure.order_level.mfr_marked",
+    () => colIncludes(head, "mfr pressed") ?? colIncludes(head, "mfr marked"),
+  );
+  const mfrAccurateCol = columnFor(
+    book,
+    head,
+    "swiggy.payout_annexure.order_level.mfr_accurate",
+    () => colIncludes(head, "mfr accurate"),
+  );
+  const gstCollectedCol = columnFor(
+    book,
+    head,
+    "swiggy.payout_annexure.order_level.gst_collected",
+    () => colIncludes(head, "gst collected"),
+  );
+  const payoutCol = columnFor(book, head, "swiggy.payout_annexure.order_level.net_payout", () =>
+    colIncludes(head, "net payout"),
+  );
+  const paidCol = columnFor(book, head, "swiggy.payout_annexure.order_level.paid_amount", () =>
+    paidColumn(head),
+  );
   for (const row of ordersSheet.slice(header.index + 1)) {
-    const rawId = cell(row, col(header.header, "order id"));
+    const rawId = cell(row, orderIdCol);
     if (isJunk(rawId)) continue;
     const platformOrderId = rawId.trim().replace(/\.0$/, "");
     if (!/^\d+(\.0)?$/.test(rawId.trim()) && !/^[A-Za-z0-9-]{4,}$/.test(platformOrderId)) continue;
@@ -325,64 +525,39 @@ function parseSwiggy(sheets: Map<string, string[][]>, _salt: string | null): Pay
       };
     }
     seen.add(platformOrderId);
-    const item = costPaise(cell(row, colIncludes(header.header, "item total")));
-    const packaging = costPaise(cell(row, colIncludes(header.header, "packaging")));
-    const discount = discountPaise(
-      cell(
-        row,
-        column(header.header, (label) => label.includes("discount share")) ??
-          colIncludes(header.header, "discount"),
-      ),
-    );
+    const item = costPaise(cell(row, itemCol));
+    const packaging = costPaise(cell(row, packagingCol));
+    const discount = discountPaise(cell(row, discountCol));
     const gross = item + packaging;
-    const commission = costPaise(cell(row, exactCol(header.header, "commission")));
-    const totalFees = costPaise(cell(row, colIncludes(header.header, "total swiggy fees")));
-    const gstOnFees = costPaise(cell(row, colIncludes(header.header, "gst on service")));
+    const commission = costPaise(cell(row, commissionCol));
+    const totalFees = costPaise(cell(row, feesCol));
+    const gstOnFees = costPaise(cell(row, gstOnFeesCol));
     const platformFees = Math.max(0, totalFees - commission - gstOnFees);
-    const tds = costPaise(cell(row, exactCol(header.header, "tds")));
-    const tcs = costPaise(cell(row, exactCol(header.header, "tcs")));
-    const complaints = costPaise(
-      cell(
-        row,
-        column(
-          header.header,
-          (label) => label.includes("complaint") && label.includes("cancellation"),
-        ) ?? colIncludes(header.header, "complaint"),
-      ),
-    );
-    const cvParsed = rupeesToPaise(cell(row, colIncludes(header.header, "net bill")));
+    const tds = costPaise(cell(row, tdsCol));
+    const tcs = costPaise(cell(row, tcsCol));
+    const complaints = costPaise(cell(row, complaintsCol));
+    const cvParsed = rupeesToPaise(cell(row, netBillCol));
     const cv = cvParsed == null ? Math.max(0, gross - discount) : Math.abs(cvParsed);
-    const status = orderStatus(cell(row, col(header.header, "order status")));
-    const cancelledBy = blankToNull(cell(row, colIncludes(header.header, "cancelled by")));
+    const status = orderStatus(cell(row, orderStatusCol));
+    const cancelledBy = blankToNull(cell(row, cancelledByCol));
     // A customer cancellation settles without the complaint charge. The charge
     // stays on the row. A restaurant cancellation still deducts it.
     const payoutCharge =
       status === "CANCELLED" && norm(cancelledBy ?? "").includes("customer") ? 0 : complaints;
     const recomputed = cv - commission - platformFees - gstOnFees - tds - tcs - payoutCharge;
-    const settlementDate = parseCivilDate(
-      cell(row, colIncludes(header.header, "settlement date")),
-      null,
-    );
+    const settlementDate = parseCivilDate(cell(row, settlementDateCol), null);
     draft.push({
       platformOrderId,
-      orderDate: parseCivilDate(cell(row, orderDateColumn(header.header)), null),
+      orderDate: parseCivilDate(cell(row, orderDateCol), null),
       orderStatus: status,
-      category: swiggyCategory(cell(row, colIncludes(header.header, "category"))),
+      category: swiggyCategory(cell(row, categoryCol)),
       cancelledBy,
-      settlementStatus: inferSettlement(
-        cell(row, colIncludes(header.header, "settlement status")),
-        settlementDate,
-      ),
+      settlementStatus: inferSettlement(cell(row, settlementStatusCol), settlementDate),
       settlementDate,
-      utrLast4: last4(cell(row, colIncludes(header.header, "utr"))),
+      utrLast4: last4(cell(row, utrCol)),
       customerHash: null,
-      mfrMarked: flag(
-        cell(
-          row,
-          colIncludes(header.header, "mfr pressed") ?? colIncludes(header.header, "mfr marked"),
-        ),
-      ),
-      mfrAccurate: flag(cell(row, colIncludes(header.header, "mfr accurate"))),
+      mfrMarked: flag(cell(row, mfrMarkedCol)),
+      mfrAccurate: flag(cell(row, mfrAccurateCol)),
       grossSalesPaise: gross,
       discountPaise: discount,
       commissionPaise: commission,
@@ -391,10 +566,10 @@ function parseSwiggy(sheets: Map<string, string[][]>, _salt: string | null): Pay
       tdsPaise: tds,
       tcsPaise: tcs,
       cvPaise: cv,
-      gstCollectedPaise: costPaise(cell(row, colIncludes(header.header, "gst collected"))),
+      gstCollectedPaise: costPaise(cell(row, gstCollectedCol)),
       complaintsCancellationChargesPaise: complaints,
-      netPayoutPaise: signedPaise(cell(row, colIncludes(header.header, "net payout"))),
-      paidAmountPaise: orderPaid(header.header, row),
+      netPayoutPaise: signedPaise(cell(row, payoutCol)),
+      paidAmountPaise: rupeesToPaise(cell(row, paidCol)),
       recomputedNetPaise: recomputed,
     });
   }
@@ -436,8 +611,8 @@ function parseSwiggy(sheets: Map<string, string[][]>, _salt: string | null): Pay
   const summaryReference = last4(labeledText(summary, "bank utr"));
   if (summaryReference) cycle.utrLast4 = summaryReference;
   const growth = sheetNamed(sheets, "growth") ?? [];
-  const adjustments = swiggyGrowthAdjustments(growth, corrected);
-  const totals = swiggyTotals(sheets.get("payout breakup") ?? []);
+  const adjustments = swiggyGrowthAdjustments(growth, corrected, book);
+  const totals = swiggyTotals(sheets.get("payout breakup") ?? [], book);
   const marketing = adjustments
     .filter((row) => /marketing|co-branded/i.test(row.type))
     .reduce((total, row) => total + row.amountPaise, 0);
@@ -606,7 +781,7 @@ function stampAdjustmentKeys(
   });
 }
 
-function zomatoAdjustments(rows: string[][]): ParsedAdjustment[] {
+function zomatoAdjustments(rows: string[][], book?: LabelBook): ParsedAdjustment[] {
   let section = "";
   let header: string[] | null = null;
   const found: Array<ParsedAdjustment & { sourceRow: number }> = [];
@@ -627,15 +802,49 @@ function zomatoAdjustments(rows: string[][]): ParsedAdjustment[] {
       continue;
     }
     if (!header || !section) continue;
-    const type = cell(row, col(header, "type"));
+    const columns = header;
+    const type = cell(
+      row,
+      columnFor(book, columns, "zomato.payout.order_level.adjustment_type", () =>
+        col(columns, "type"),
+      ),
+    );
     if (!type || norm(type).startsWith("total")) continue;
-    const amount = costPaise(cell(row, col(header, "adjusted") ?? col(header, "total amount")));
+    const amount = costPaise(
+      cell(
+        row,
+        columnFor(
+          book,
+          columns,
+          "zomato.payout.order_level.adjustment_amount",
+          () => col(columns, "adjusted") ?? col(columns, "total amount"),
+        ),
+      ),
+    );
     if (!amount) continue;
-    const period = inclusiveRange(cell(row, col(header, "period") ?? col(header, "deduction")));
+    const period = inclusiveRange(
+      cell(
+        row,
+        columnFor(
+          book,
+          columns,
+          "zomato.payout.order_level.adjustment_period",
+          () => col(columns, "period") ?? col(columns, "deduction"),
+        ),
+      ),
+    );
     if (!period) continue;
     found.push({
       type: type.trim(),
-      invoiceId: (cell(row, col(header, "invoice") ?? col(header, "campaign")) || "").trim(),
+      invoiceId: cell(
+        row,
+        columnFor(
+          book,
+          columns,
+          "zomato.payout.order_level.adjustment_invoice",
+          () => col(columns, "invoice") ?? col(columns, "campaign"),
+        ),
+      ).trim(),
       periodFrom: period.start,
       periodTo: period.end,
       amountPaise: amount,
@@ -646,7 +855,7 @@ function zomatoAdjustments(rows: string[][]): ParsedAdjustment[] {
   return stampAdjustmentKeys(found, "addition deductions");
 }
 
-function zomatoTotals(rows: string[][]): ParsedCycleTotals {
+function zomatoTotals(rows: string[][], book?: LabelBook): ParsedCycleTotals {
   const header = headerRow(rows, "particular");
   const totals = emptyTotals();
   if (!header) return totals;
@@ -656,51 +865,82 @@ function zomatoTotals(rows: string[][]): ParsedCycleTotals {
     label: norm(cell(row, labelCol)),
     amount: cell(row, totalCol),
   }));
-  const pick = (accept: (label: string) => boolean) => {
-    const hit = lookup.find((row) => accept(row.label) && rupeesToPaise(row.amount) != null);
-    return hit ? costPaise(hit.amount) : null;
+  const labels = lookup.map((row) => row.label);
+  const pick = (slot: string, accept: (label: string) => boolean) => {
+    const indexes = book
+      ? resolveColumns(labels, book, slot)
+      : lookup.flatMap((row, index) => (accept(row.label) ? [index] : []));
+    for (const index of indexes) {
+      const amount = lookup[index]?.amount;
+      if (amount != null && rupeesToPaise(amount) != null) return costPaise(amount);
+    }
+    return null;
   };
-  const signed = (accept: (label: string) => boolean) => {
-    const hit = lookup.find((row) => accept(row.label) && rupeesToPaise(row.amount) != null);
-    return hit ? signedPaise(hit.amount) : null;
+  const signed = (slot: string, accept: (label: string) => boolean) => {
+    const indexes = book
+      ? resolveColumns(labels, book, slot)
+      : lookup.flatMap((row, index) => (accept(row.label) ? [index] : []));
+    for (const index of indexes) {
+      const amount = lookup[index]?.amount;
+      if (amount != null && rupeesToPaise(amount) != null) return signedPaise(amount);
+    }
+    return null;
   };
-  totals.orderCount = countCell(
-    lookup.find((row) => row.label.includes("number of orders"))?.amount ?? "",
+  const orderCountIndexes = book
+    ? resolveColumns(labels, book, "zomato.payout.breakup.order_count")
+    : lookup.flatMap((row, index) => (row.label.includes("number of orders") ? [index] : []));
+  totals.orderCount = countCell(lookup[orderCountIndexes[0] ?? -1]?.amount ?? "");
+  const subtotal = pick("zomato.payout.order_level.subtotal", (label) =>
+    label.includes("subtotal"),
   );
-  const subtotal = pick((label) => label.includes("subtotal"));
-  const packaging = pick((label) => label.includes("packaging"));
+  const packaging = pick("zomato.payout.order_level.packaging", (label) =>
+    label.includes("packaging"),
+  );
   totals.grossSalesPaise =
     subtotal == null && packaging == null ? null : (subtotal ?? 0) + (packaging ?? 0);
-  const promo = pick((label) => label.includes("discount") && label.includes("promo"));
-  const other = lookup.find(
-    (row) =>
-      row.label.includes("restaurant discount") &&
-      !row.label.includes("promo") &&
-      rupeesToPaise(row.amount) != null,
+  const promo = pick(
+    "zomato.payout.order_level.promo_discount",
+    (label) => label.includes("discount") && label.includes("promo"),
   );
-  totals.discountPaise =
-    promo == null && !other ? null : (promo ?? 0) + (other ? costPaise(other.amount) : 0);
+  const other = pick(
+    "zomato.payout.order_level.other_discount",
+    (label) => label.includes("restaurant discount") && !label.includes("promo"),
+  );
+  totals.discountPaise = promo == null && other == null ? null : (promo ?? 0) + (other ?? 0);
   totals.commissionPaise = pick(
+    "zomato.payout.order_level.service_fee",
     (label) => label.includes("service fee") && !label.includes("payment") && !label.includes("%"),
   );
   totals.platformFeesPaise = pick(
+    "zomato.payout.order_level.payment_fee",
     (label) =>
       label.includes("payment mechanism") && !label.includes("service") && !label.includes("tax"),
   );
-  totals.taxesPaise = pick((label) => label.includes("taxes on service"));
-  totals.tdsPaise = pick((label) => label.includes("tds"));
+  totals.taxesPaise = pick("zomato.payout.order_level.taxes", (label) =>
+    label.includes("taxes on service"),
+  );
+  totals.tdsPaise = pick("zomato.payout.order_level.tds", (label) => label.includes("tds"));
   totals.tcsPaise = pick(
+    "zomato.payout.breakup.tcs",
     (label) =>
       label.includes("tax collected at source") ||
       (label.includes("tcs") && label.includes("igst")),
   );
-  totals.gstCollectedPaise = pick((label) => label.includes("gst collected"));
+  totals.gstCollectedPaise = pick("zomato.payout.order_level.gst_collected", (label) =>
+    label.includes("gst collected"),
+  );
   totals.complaintsCancellationChargesPaise = pick(
+    "zomato.payout.order_level.complaints",
     (label) => label.includes("compensation") || label.includes("recoupment"),
   );
-  totals.adSpendPaise = pick((label) => label.includes("total ads"));
-  totals.platformNetPayoutPaise = signed((label) => label.includes("net payout"));
+  totals.adSpendPaise = pick("zomato.payout.breakup.ad_spend", (label) =>
+    label.includes("total ads"),
+  );
+  totals.platformNetPayoutPaise = signed("zomato.payout.breakup.net_payout", (label) =>
+    label.includes("net payout"),
+  );
   totals.paidAmountPaise = signed(
+    "zomato.payout.breakup.paid_amount",
     (label) => label === "amount settled" || label.startsWith("amount settled"),
   );
   const cv = totals.grossSalesPaise;
@@ -712,6 +952,7 @@ function zomatoTotals(rows: string[][]): ParsedCycleTotals {
 function swiggyGrowthAdjustments(
   rows: string[][],
   period: { start: string; end: string },
+  book?: LabelBook,
 ): ParsedAdjustment[] {
   let header: string[] | null = null;
   const found: Array<ParsedAdjustment & { sourceRow: number }> = [];
@@ -725,18 +966,62 @@ function swiggyGrowthAdjustments(
       continue;
     }
     if (!header) continue;
-    const type = cell(row, col(header, "adjustment type") ?? col(header, "type")).trim();
+    const columns = header;
+    const type = cell(
+      row,
+      columnFor(
+        book,
+        columns,
+        "swiggy.payout_annexure.breakup.adjustment_type",
+        () => col(columns, "adjustment type") ?? col(columns, "type"),
+      ),
+    ).trim();
     if (!type || norm(type).startsWith("total")) continue;
-    const settled = rupeesToPaise(cell(row, col(header, "settled")));
-    const total = rupeesToPaise(cell(row, col(header, "total amount")));
+    const settled = rupeesToPaise(
+      cell(
+        row,
+        columnFor(book, columns, "swiggy.payout_annexure.breakup.settled_amount", () =>
+          col(columns, "settled"),
+        ),
+      ),
+    );
+    const total = rupeesToPaise(
+      cell(
+        row,
+        columnFor(book, columns, "swiggy.payout_annexure.breakup.total_amount", () =>
+          col(columns, "total amount"),
+        ),
+      ),
+    );
     const amount =
       settled != null && settled !== 0 ? Math.abs(settled) : total == null ? 0 : Math.abs(total);
     if (!amount) continue;
-    const from = parseCivilDate(cell(row, col(header, "period from")), null);
-    const to = parseCivilDate(cell(row, col(header, "period to")), null);
+    const from = parseCivilDate(
+      cell(
+        row,
+        columnFor(book, columns, "swiggy.payout_annexure.breakup.period_from", () =>
+          col(columns, "period from"),
+        ),
+      ),
+      null,
+    );
+    const to = parseCivilDate(
+      cell(
+        row,
+        columnFor(book, columns, "swiggy.payout_annexure.breakup.period_to", () =>
+          col(columns, "period to"),
+        ),
+      ),
+      null,
+    );
     found.push({
       type,
-      invoiceId: cell(row, col(header, "invoice")).trim(),
+      invoiceId: cell(
+        row,
+        columnFor(book, columns, "swiggy.payout_annexure.breakup.invoice", () =>
+          col(columns, "invoice"),
+        ),
+      ).trim(),
       periodFrom: from ?? period.start,
       periodTo: to ? addIsoDays(to, 1) : period.end,
       amountPaise: amount,
@@ -782,7 +1067,7 @@ function swiggyAdjustments(
   return stampAdjustmentKeys(found, "payout breakup");
 }
 
-function swiggyTotals(rows: string[][]): ParsedCycleTotals {
+function swiggyTotals(rows: string[][], book?: LabelBook): ParsedCycleTotals {
   const header = headerRow(rows, "particular");
   const totals = emptyTotals();
   if (!header) return totals;
@@ -792,38 +1077,77 @@ function swiggyTotals(rows: string[][]): ParsedCycleTotals {
     label: norm(cell(row, labelCol)),
     amount: cell(row, totalCol),
   }));
-  const pick = (...needles: string[]) => {
-    const hit = lookup.find((row) => needles.every((needle) => row.label.includes(needle)));
-    return hit ? costPaise(hit.amount) : null;
+  const labels = lookup.map((row) => row.label);
+  const indexesFor = (slot: string, accept: (label: string) => boolean) =>
+    book
+      ? resolveColumns(labels, book, slot)
+      : lookup.flatMap((row, index) => (accept(row.label) ? [index] : []));
+  const pick = (slot: string, accept: (label: string) => boolean) => {
+    const index = indexesFor(slot, accept)[0];
+    return index == null ? null : costPaise(lookup[index]?.amount ?? "");
   };
-  totals.orderCount = countCell(
-    lookup.find((row) => row.label === "orders" || row.label.includes("number of orders"))
-      ?.amount ?? "",
+  const orderCount = indexesFor(
+    "swiggy.payout_annexure.breakup.order_count",
+    (label) => label === "orders" || label.includes("number of orders"),
+  )[0];
+  totals.orderCount = countCell(lookup[orderCount ?? -1]?.amount ?? "");
+  const item = pick("swiggy.payout_annexure.order_level.item_total", (label) =>
+    label.includes("item total"),
   );
-  const item = pick("item total");
-  const packaging = pick("packaging");
+  const packaging = pick("swiggy.payout_annexure.order_level.packaging", (label) =>
+    label.includes("packaging"),
+  );
   totals.grossSalesPaise =
     item == null && packaging == null ? null : (item ?? 0) + (packaging ?? 0);
-  const discountRows = lookup.filter(
-    (row) => row.label.includes("restaurant discount") && rupeesToPaise(row.amount) != null,
+  const discountIndexes = indexesFor(
+    "swiggy.payout_annexure.breakup.restaurant_discount",
+    (label) => label.includes("restaurant discount"),
   );
+  const discountRows = discountIndexes
+    .map((index) => lookup[index])
+    .filter((row) => row != null && rupeesToPaise(row.amount) != null);
   totals.discountPaise =
     discountRows.length === 0
       ? null
-      : discountRows.reduce((total, row) => total + costPaise(row.amount), 0);
-  const fees = pick("swiggy fees");
-  const commission = pick("commission");
+      : discountRows.reduce((total, row) => total + costPaise(row?.amount ?? ""), 0);
+  const fees = pick("swiggy.payout_annexure.breakup.swiggy_fees", (label) =>
+    label.includes("swiggy fees"),
+  );
+  const commission = pick("swiggy.payout_annexure.breakup.commission", (label) =>
+    label.includes("commission"),
+  );
   totals.commissionPaise = commission;
   totals.platformFeesPaise =
     fees == null ? null : commission == null ? fees : Math.max(0, fees - commission);
-  totals.taxesPaise = pick("gst on service");
-  totals.tdsPaise = pick("tds");
-  totals.tcsPaise = pick("tcs");
-  totals.gstCollectedPaise = pick("gst collected");
-  totals.complaintsCancellationChargesPaise = pick("complaint");
-  totals.adSpendPaise = pick("growth") ?? pick("ads");
-  const net = lookup.find((row) => row.label.startsWith("net payout") || row.label === "g");
-  totals.platformNetPayoutPaise = net ? signedPaise(net.amount) : pick("net payout");
+  totals.taxesPaise = pick("swiggy.payout_annexure.order_level.gst_on_fees", (label) =>
+    label.includes("gst on service"),
+  );
+  totals.tdsPaise = pick("swiggy.payout_annexure.breakup.tds", (label) => label.includes("tds"));
+  totals.tcsPaise = pick("swiggy.payout_annexure.breakup.tcs", (label) => label.includes("tcs"));
+  totals.gstCollectedPaise = pick("swiggy.payout_annexure.order_level.gst_collected", (label) =>
+    label.includes("gst collected"),
+  );
+  totals.complaintsCancellationChargesPaise = pick(
+    "swiggy.payout_annexure.breakup.complaints",
+    (label) => label.includes("complaint"),
+  );
+  const growth = indexesFor("swiggy.payout_annexure.breakup.ad_spend", (label) =>
+    label.includes("growth"),
+  );
+  const ads =
+    book == null
+      ? lookup.flatMap((row, index) => (row.label.includes("ads") ? [index] : []))
+      : growth;
+  const adIndex = book ? growth[0] : (growth[0] ?? ads[0]);
+  totals.adSpendPaise = adIndex == null ? null : costPaise(lookup[adIndex]?.amount ?? "");
+  const netIndex = indexesFor(
+    "swiggy.payout_annexure.breakup.net_payout",
+    (label) => label.startsWith("net payout") || label === "g",
+  )[0];
+  const net = netIndex == null ? undefined : lookup[netIndex];
+  totals.platformNetPayoutPaise = net
+    ? signedPaise(net.amount)
+    : pick("swiggy.payout_annexure.breakup.net_payout", (label) => label.includes("net payout"));
   totals.cvPaise =
     totals.grossSalesPaise == null || totals.discountPaise == null
       ? null
@@ -1003,10 +1327,6 @@ function correctSwiggyPeriod(
   }
   if (min === plain.start && maxExclusive === plain.end) return { ...plain, year: baseYear };
   return { start: min, end: maxExclusive, year: Number(min.slice(0, 4)) };
-}
-
-function orderPaid(header: string[], row: string[]): number | null {
-  return rupeesToPaise(cell(row, paidColumn(header)));
 }
 
 function paidColumn(header: string[]): number | null {
@@ -1277,14 +1597,6 @@ function exactCol(header: string[], needle: string): number | null {
   return found < 0 ? null : found;
 }
 
-function otherDiscountCell(header: string[], row: string[]): string {
-  for (let index = 0; index < header.length; index += 1) {
-    const label = norm(header[index] ?? "");
-    if (label.includes("restaurant discount") && !label.includes("promo")) return row[index] ?? "";
-  }
-  return "";
-}
-
 function orderDateColumn(header: string[]): number | null {
   return (
     exactCol(header, "order date") ??
@@ -1309,28 +1621,6 @@ function paymentFeeColumn(header: string[]): number | null {
     (label) =>
       label.includes("payment mechanism") && !label.includes("service") && !label.includes("tax"),
   );
-}
-
-function restaurantGstPaise(header: string[], row: string[], collected: number): number {
-  const onBehalf = costPaise(
-    cell(
-      row,
-      column(header, (label) => label.includes("gst") && label.includes("9(5)")),
-    ),
-  );
-  const listed = rupeesToPaise(
-    cell(
-      row,
-      column(
-        header,
-        (label) =>
-          label.includes("gst") &&
-          (label.includes("restaurant partner") ||
-            (label.includes("to be paid") && label.includes("govt"))),
-      ),
-    ),
-  );
-  return listed ?? collected - onBehalf;
 }
 
 function tcsColumns(header: string[]): number[] {

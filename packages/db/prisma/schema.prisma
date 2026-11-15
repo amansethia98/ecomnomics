@@ -3262,3 +3262,52 @@ model AdminAuditLog {
   @@index([restaurantId, createdAt])
   @@map("admin_audit_log")
 }
+
+/// Global metric and payout column names. Not a tenant table: anyone may read,
+/// and only the platform-admin role or the system bypass may write.
+model MetricLabelSlot {
+  id             String            @id
+  platform       String
+  reportKind     String
+  slotKey        String
+  section        String
+  valueType      String
+  summable       Boolean
+  allowAutoApply Boolean
+  collect        String
+  aliases        MetricLabelAlias[]
+
+  @@unique([platform, reportKind, section, slotKey])
+  @@map("metric_label_slots")
+}
+
+model MetricLabelAlias {
+  id            String          @id
+  slotId        String
+  slot          MetricLabelSlot @relation(fields: [slotId], references: [id])
+  platform      String
+  reportKind    String
+  label         String
+  normLabel     String
+  matchMode     String
+  includeTokens String[]
+  excludeTokens String[]
+  group         Int
+  role          String
+  source        String
+  createdAt     DateTime        @default(now())
+  createdBy     String?
+
+  @@index([slotId])
+  @@index([platform, reportKind, normLabel])
+  @@map("metric_label_aliases")
+}
+
+/// One row, id `global`. Parsers cache the alias list until `version` changes.
+model MetricLabelRegistry {
+  id        String   @id
+  version   Int
+  updatedAt DateTime @updatedAt @default(now())
+
+  @@map("metric_label_registry")
+}
