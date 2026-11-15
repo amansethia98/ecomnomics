@@ -318,12 +318,12 @@ export async function readOpsReport(
   };
 }
 
-/** Store the owner's closed or open answer. A later answer for the same outlet and date replaces it. */
+/** Store the owner's closed or not-sure answer. A later answer for the same outlet and date replaces it. */
 export async function recordOutletDay(
   db: PrismaClient,
   scope: RestaurantScope,
   input: OutletDayRequest,
-): Promise<{ outletId: string; date: string; status: "closed" | "open" }> {
+): Promise<{ outletId: string; date: string; status: "closed" | "not_sure" }> {
   const saved = await runAsTenant(scope, async () => {
     const outlet = await db.outlet.findFirst({
       where: {
@@ -371,7 +371,7 @@ export async function recordOutletDay(
   return {
     outletId: saved.outletId,
     date: input.date,
-    status: saved.status === "closed" ? "closed" : "open",
+    status: saved.status === "not_sure" ? "not_sure" : "closed",
   };
 }
 
@@ -762,13 +762,13 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
       current.ingest = { code: "fetch_held", retryable: false };
     }
   }
-  const outletDays: Array<{ outletId: string; date: string; status: "closed" | "open" }> = [];
+  const outletDays: Array<{ outletId: string; date: string; status: "closed" | "not_sure" }> = [];
   for (const row of answers) {
-    if (row.status !== "closed" && row.status !== "open") continue;
+    if (row.status !== "closed" && row.status !== "not_sure") continue;
     outletDays.push({
       outletId: row.outletId,
       date: civil(row.businessDate),
-      status: row.status === "open" ? "open" : "closed",
+      status: row.status === "not_sure" ? "not_sure" : "closed",
     });
   }
   return {
@@ -815,7 +815,7 @@ function covers(
 
 function weekPoints(
   days: OpsAppDay[],
-  outletDays: ReadonlyArray<{ outletId: string; date: string; status: "closed" | "open" }>,
+  outletDays: ReadonlyArray<{ outletId: string; date: string; status: "closed" | "not_sure" }>,
 ): Array<{
   date: string;
   platform: "zomato" | "swiggy";

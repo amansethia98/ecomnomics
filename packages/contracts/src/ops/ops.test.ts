@@ -338,7 +338,7 @@ describe("daily thresholds", () => {
     expect(blank.findings).toEqual([]);
     expect(blank.snapshots[0]?.apps.find((app) => app.platform === "swiggy")?.mode).toBe("ready");
     expect(blank.ownerQuestions.map((question) => question.platform)).toEqual(["swiggy"]);
-    expect(blank.notes.join(" ")).toContain("Was it closed or open?");
+    expect(blank.notes.join(" ")).toContain("Was it closed or not sure?");
 
     const offline = run([
       day("zomato", DATE, {

@@ -714,7 +714,7 @@ describePostgres("daily ops brief (PostgreSQL)", () => {
       message: { text: string };
       ownerQuestions: Array<{ outletId: string; platform: string; date: string; kind: string }>;
     };
-    expect(askedBody.message.text).toContain("Was it closed or open?");
+    expect(askedBody.message.text).toContain("Was it closed or not sure?");
     expect(askedBody.message.text).not.toContain("had no orders");
     expect(askedBody.ownerQuestions.map((question) => question.platform)).toEqual([
       "zomato",
@@ -737,10 +737,10 @@ describePostgres("daily ops brief (PostgreSQL)", () => {
     const again = await call(agent, "POST", "/agent/v1/outlet-days", tokenA, {
       outletId: outletA,
       date: "2026-04-11",
-      status: "open",
+      status: "not_sure",
       source: "in_app",
     });
-    expect((await again.json()) as { status: string }).toMatchObject({ status: "open" });
+    expect((await again.json()) as { status: string }).toMatchObject({ status: "not_sure" });
     const outsider = await call(agent, "POST", "/agent/v1/outlet-days", tokenB, {
       outletId: outletA,
       date: "2026-04-11",

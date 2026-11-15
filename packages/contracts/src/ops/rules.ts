@@ -920,7 +920,7 @@ function zeroQuestionNotes(input: DailyEvaluationInput): string[] {
   const names = new Map(input.outlets.map((outlet) => [outlet.id, outlet.name]));
   return zeroQuestions(input).map((question) => {
     const name = names.get(question.outletId) ?? "Outlet";
-    return `${name} (${appLabel(question.platform)}) had 0 orders on ${formatCivilDay(question.date)}: either it was closed or the app hasn't updated yet. Was it closed or open?`;
+    return `${name} (${appLabel(question.platform)}) had 0 orders on ${formatCivilDay(question.date)}: either it was closed or the app hasn't updated yet. Was it closed or not sure?`;
   });
 }
 

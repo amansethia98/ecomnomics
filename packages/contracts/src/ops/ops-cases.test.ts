@@ -121,7 +121,7 @@ function pipeline(input: {
   capturedOn?: string | null;
   clock?: string | null;
   config?: ReturnType<typeof resolveOpsRulesConfig>;
-  outletDays?: Array<{ outletId: string; date: string; status: "closed" | "open" }>;
+  outletDays?: Array<{ outletId: string; date: string; status: "closed" | "not_sure" }>;
 }) {
   const date = input.date ?? DATE;
   const outlets = input.outlets ?? [BOTH];
@@ -356,7 +356,7 @@ describe("brief edge cases", () => {
     expect(result.current.snapshots[0]?.apps[0]?.mode).toBe("ready");
     expect(result.current.findings.some((finding) => finding.code === "d_zero_orders")).toBe(false);
     expect(result.text).toContain(
-      "Test (Zomato) had 0 orders on Sat 14 Nov: either it was closed or the app hasn't updated yet. Was it closed or open?",
+      "Test (Zomato) had 0 orders on Sat 14 Nov: either it was closed or the app hasn't updated yet. Was it closed or not sure?",
     );
     expect(result.text).not.toContain("aren't in yet");
     expect(result.text).not.toContain("had no orders");
@@ -2229,7 +2229,7 @@ describe("brief properties", () => {
     expect(withdrawn.current.ownerQuestions).toEqual([]);
   });
 
-  it("ZD-04 an open answer still waits for the streak", () => {
+  it("ZD-04 a not sure answer still waits for the streak", () => {
     const zeros = (date: string): OpsAppDay =>
       day(BOTH.id, "zomato", date, {
         ops_sales_paise: point(0),
@@ -2239,7 +2239,7 @@ describe("brief properties", () => {
       date: DATE,
       outlets: [{ ...BOTH, platforms: ["zomato"] }],
       days: [zeros(DATE), calm(BOTH, "zomato", WEEK, 2_000_000, 40)],
-      outletDays: [{ outletId: BOTH.id, date: DATE, status: "open" }],
+      outletDays: [{ outletId: BOTH.id, date: DATE, status: "not_sure" }],
     });
     expect(answered.findings.some((finding) => finding.code === "d_zero_orders")).toBe(false);
     expect(answered.ownerQuestions).toEqual([]);
@@ -2248,8 +2248,8 @@ describe("brief properties", () => {
       outlets: [{ ...BOTH, platforms: ["zomato"] }],
       days: [zeros(DATE), zeros(addDays(DATE, -1)), calm(BOTH, "zomato", WEEK, 2_000_000, 40)],
       outletDays: [
-        { outletId: BOTH.id, date: DATE, status: "open" },
-        { outletId: BOTH.id, date: addDays(DATE, -1), status: "open" },
+        { outletId: BOTH.id, date: DATE, status: "not_sure" },
+        { outletId: BOTH.id, date: addDays(DATE, -1), status: "not_sure" },
       ],
     });
     expect(streak.findings.some((finding) => finding.code === "d_zero_orders")).toBe(true);
@@ -2291,7 +2291,7 @@ describe("brief properties", () => {
       ],
     });
     expect(result.current.ownerQuestions).toEqual([]);
-    expect(result.text).not.toContain("Was it closed or open?");
+    expect(result.text).not.toContain("Was it closed or not sure?");
     expect(result.current.findings.some((finding) => finding.code === "d_zero_orders")).toBe(false);
   });
 

@@ -178,7 +178,7 @@ export interface DailyEvaluationInput {
    */
   asOf?: string;
   /** Owner answers for an outlet on a civil date. Latest answer wins. */
-  outletDays?: ReadonlyArray<{ outletId: string; date: string; status: "closed" | "open" }>;
+  outletDays?: ReadonlyArray<{ outletId: string; date: string; status: "closed" | "not_sure" }>;
 }
 
 export interface OwnerQuestion {
@@ -499,7 +499,7 @@ export const OutletDayRequestSchema = z
   .object({
     outletId: z.string().min(1),
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    status: z.enum(["closed", "open"]),
+    status: z.enum(["closed", "not_sure"]),
     source: z.string().min(1).max(200),
   })
   .strict();
