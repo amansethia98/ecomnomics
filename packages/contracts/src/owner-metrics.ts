@@ -128,11 +128,13 @@ export interface OwnerMetricValue {
   kind: AggregationKind;
   accuracy: MetricAccuracy;
   value: number | null;
-  status: "ok" | "not_available";
+  status: "ok" | "not_available" | "updating";
   reason?: string;
   coverageDays: number;
   expectedDays: number;
   missingDates: string[];
+  /** Days whose column was renamed and is being re-read. Owners see these as Updating. */
+  updatingDates: string[];
   partialDates: string[];
   provisional: boolean;
   restated: boolean;

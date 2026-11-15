@@ -14,18 +14,34 @@ import { openPayoutWorkbook } from "./payout-workbook.js";
 export const PAYOUT_PARSER_VERSION = "2026-11-15.payout.5";
 
 export interface PayoutOrderAmounts {
-  grossSalesPaise: number;
-  discountPaise: number;
-  commissionPaise: number;
-  platformFeesPaise: number;
-  taxesPaise: number;
-  tdsPaise: number;
-  tcsPaise: number;
-  cvPaise: number;
-  gstCollectedPaise: number;
-  complaintsCancellationChargesPaise: number;
-  netPayoutPaise: number;
+  grossSalesPaise: number | null;
+  discountPaise: number | null;
+  commissionPaise: number | null;
+  platformFeesPaise: number | null;
+  taxesPaise: number | null;
+  tdsPaise: number | null;
+  tcsPaise: number | null;
+  cvPaise: number | null;
+  gstCollectedPaise: number | null;
+  complaintsCancellationChargesPaise: number | null;
+  netPayoutPaise: number | null;
 }
+
+/** Amount fields a renamed column leaves unknown. A blank cell on a present column stays 0. */
+export const PAYOUT_PENDING_FIELDS = [
+  "grossSalesPaise",
+  "discountPaise",
+  "commissionPaise",
+  "platformFeesPaise",
+  "taxesPaise",
+  "tdsPaise",
+  "tcsPaise",
+  "cvPaise",
+  "gstCollectedPaise",
+  "complaintsCancellationChargesPaise",
+  "netPayoutPaise",
+] as const;
+export type PayoutPendingField = (typeof PAYOUT_PENDING_FIELDS)[number];
 
 export interface ParsedPayoutOrder extends PayoutOrderAmounts {
   platformOrderId: string;
@@ -44,6 +60,8 @@ export interface ParsedPayoutOrder extends PayoutOrderAmounts {
   /// GST Swiggy deducted on this order. Null when that column is missing or the cell is blank.
   gstDeductionPaise: number | null;
   recomputedNetPaise: number;
+  /** Amounts stored as null because their column was renamed. */
+  pendingFields: PayoutPendingField[];
 }
 
 export interface ParsedAdjustment {
@@ -71,6 +89,7 @@ export interface ParsedCycleTotals {
   platformNetPayoutPaise: number | null;
   /// Bank paid amount. Zomato Amount Settled, or the Swiggy summary total payout. Null when the file has neither.
   paidAmountPaise: number | null;
+  pendingFields: PayoutPendingField[];
 }
 
 export interface PayoutCheck {
@@ -379,6 +398,7 @@ function parseZomato(
       netPayoutPaise: printed,
       paidAmountPaise: rupeesToPaise(cell(row, paidCol)),
       recomputedNetPaise: recomputed,
+      pendingFields: [],
     });
   }
   if (orders.length === 0) {
@@ -662,6 +682,7 @@ function parseSwiggy(
       netPayoutPaise: signedPaise(cell(row, payoutCol)),
       paidAmountPaise: rupeesToPaise(cell(row, paidCol)),
       recomputedNetPaise: recomputed,
+      pendingFields: [],
     });
   }
   const dated = draft.flatMap((order) => (order.orderDate ? [order.orderDate] : []));
@@ -855,6 +876,44 @@ function watchedPayoutLabels(
   return { layoutReason: detected.layoutReason, findings: detected.findings };
 }
 
+const PAYOUT_FIELD_BY_SLOT: Record<string, PayoutPendingField> = {
+  subtotal: "grossSalesPaise",
+  packaging: "grossSalesPaise",
+  item_total: "grossSalesPaise",
+  promo_discount: "discountPaise",
+  other_discount: "discountPaise",
+  discount: "discountPaise",
+  service_fee: "commissionPaise",
+  commission: "commissionPaise",
+  payment_fee: "platformFeesPaise",
+  total_fees: "platformFeesPaise",
+  gst_on_fees: "taxesPaise",
+  taxes: "taxesPaise",
+  tds: "tdsPaise",
+  tcs: "tcsPaise",
+  net_bill: "cvPaise",
+  commissionable: "cvPaise",
+  gst_collected: "gstCollectedPaise",
+  complaints: "complaintsCancellationChargesPaise",
+  order_level_payout: "netPayoutPaise",
+  net_payout: "netPayoutPaise",
+};
+
+function clearCycleField(totals: ParsedCycleTotals, field: PayoutPendingField): void {
+  if (field === "netPayoutPaise") return;
+  totals[field] = null;
+}
+
+function pendingAmountFields(slots: readonly string[]): PayoutPendingField[] {
+  const fields = new Set<PayoutPendingField>();
+  for (const slotId of slots) {
+    const suffix = slotId.split(".").at(-1) ?? "";
+    const field = PAYOUT_FIELD_BY_SLOT[suffix];
+    if (field) fields.add(field);
+  }
+  return PAYOUT_PENDING_FIELDS.filter((field) => fields.has(field));
+}
+
 function finish(
   platform: MetricPlatform,
   observed: ObservedReportIdentity,
@@ -867,6 +926,15 @@ function finish(
   labelFindings?: LabelChangeFinding[],
 ): ParsedPayoutFile {
   const checks = buildChecks(platform, orders, adjustments, totals, pendingSlots);
+  const pendingFields = pendingAmountFields(pendingSlots);
+  if (pendingFields.length > 0) {
+    for (const order of orders) {
+      order.pendingFields = pendingFields;
+      for (const field of pendingFields) order[field] = null;
+    }
+    totals.pendingFields = pendingFields;
+    for (const field of pendingFields) clearCycleField(totals, field);
+  }
   const skippedChecks = checks.filter((check) => check.skipped);
   const kept = checks.filter((check) => !check.skipped);
   return {
@@ -890,27 +958,32 @@ function swiggyGstDeductionPaise(index: number | null, row: string[]): number | 
 }
 
 /** A null GST deduction means Swiggy deducted the GST it collected. */
+function amount(value: number | null | undefined): number {
+  return value ?? 0;
+}
+
 function swiggyRecomputedNet(order: {
-  cvPaise: number;
-  gstCollectedPaise: number;
+  cvPaise: number | null;
+  gstCollectedPaise: number | null;
   gstDeductionPaise: number | null;
-  commissionPaise: number;
-  platformFeesPaise: number;
-  taxesPaise: number;
-  tdsPaise: number;
-  tcsPaise: number;
-  complaintsCancellationChargesPaise: number;
+  commissionPaise: number | null;
+  platformFeesPaise: number | null;
+  taxesPaise: number | null;
+  tdsPaise: number | null;
+  tcsPaise: number | null;
+  complaintsCancellationChargesPaise: number | null;
 }): number {
-  const gstDeduction = order.gstDeductionPaise ?? order.gstCollectedPaise;
+  const gstCollected = amount(order.gstCollectedPaise);
+  const gstDeduction = order.gstDeductionPaise ?? gstCollected;
   return (
-    order.cvPaise +
-    (order.gstCollectedPaise - gstDeduction) -
-    order.commissionPaise -
-    order.platformFeesPaise -
-    order.taxesPaise -
-    order.tdsPaise -
-    order.tcsPaise -
-    order.complaintsCancellationChargesPaise
+    amount(order.cvPaise) +
+    (gstCollected - gstDeduction) -
+    amount(order.commissionPaise) -
+    amount(order.platformFeesPaise) -
+    amount(order.taxesPaise) -
+    amount(order.tdsPaise) -
+    amount(order.tcsPaise) -
+    amount(order.complaintsCancellationChargesPaise)
   );
 }
 
@@ -931,10 +1004,19 @@ function buildChecks(
   };
   for (const order of orders) {
     const rebuilt = _platform === "swiggy" ? swiggyRecomputedNet(order) : order.recomputedNetPaise;
-    keep(moneyCheck("net_payout_paise", rebuilt, order.netPayoutPaise));
+    if (order.netPayoutPaise == null) {
+      keep({
+        ...moneyCheck("net_payout_paise", rebuilt, 0),
+        skipped: true,
+        reason: "pending_label",
+        pass: false,
+      });
+    } else {
+      keep(moneyCheck("net_payout_paise", rebuilt, order.netPayoutPaise));
+    }
   }
-  const sum = (pick: (order: ParsedPayoutOrder) => number) =>
-    orders.reduce((total, order) => total + pick(order), 0);
+  const sum = (pick: (order: ParsedPayoutOrder) => number | null) =>
+    orders.reduce((total, order) => total + amount(pick(order)), 0);
   const compare = (key: string, rebuilt: number, platformValue: number | null, count = false) => {
     if (platformValue == null) return;
     keep(count ? countCheck(key, rebuilt, platformValue) : moneyCheck(key, rebuilt, platformValue));
@@ -1439,6 +1521,7 @@ function emptyTotals(): ParsedCycleTotals {
     adSpendPaise: null,
     platformNetPayoutPaise: null,
     paidAmountPaise: null,
+    pendingFields: [],
   };
 }
 

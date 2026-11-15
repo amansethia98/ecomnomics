@@ -16,6 +16,12 @@ import {
 import type { PrismaClient } from "./client.js";
 import { assertFetchOpen, noteIdentityMismatch } from "./fetch-holds.js";
 import type { Prisma } from "./generated/prisma/client.js";
+import {
+  fetchCoversCurrentLabels,
+  findingIdFromSource,
+  labelRegistryVersion,
+  noteRelabelFailures,
+} from "./metric-label-aging.js";
 import type { RecordedLabelFinding } from "./metric-label-findings.js";
 import { recordLabelFindings } from "./metric-label-findings.js";
 import { loadLabelBook } from "./metric-labels.js";
@@ -30,6 +36,8 @@ export interface IngestMetricReportResult {
   superseded: number;
   checks: number;
   layoutChanged?: boolean;
+  /** True when this post parsed bytes that were already stored under an older label set. */
+  reingested?: boolean;
   labels?: {
     pendingSlots: number;
     findings: Array<{ findingId: string; slotId: string; kind: string; status: string }>;
@@ -147,6 +155,7 @@ export async function ingestBusinessReport(
     };
   }
 
+  const registryVersion = await labelRegistryVersion(db);
   const duplicate = await db.metricFetch.findFirst({
     where: {
       outletId: input.outletId,
@@ -158,9 +167,11 @@ export async function ingestBusinessReport(
       requestedPeriodEnd: requestedEnd,
       status: "stored",
     },
-    select: { id: true },
+    orderBy: [{ capturedAt: "desc" }, { createdAt: "desc" }],
+    select: { id: true, pendingLabels: true, labelSetVersion: true },
   });
-  if (duplicate) {
+  const reingested = duplicate != null && !fetchCoversCurrentLabels(duplicate, registryVersion);
+  if (duplicate && !reingested) {
     const fetch = await db.metricFetch.create({
       data: fetchData(scope, input, {
         status: "skipped",
@@ -218,6 +229,7 @@ export async function ingestBusinessReport(
         observed,
         capturedAt,
         missingPeriods: evaluation.missingPeriods,
+        labelSetVersion: registryVersion,
       }),
     });
     const existing = await tx.metricValue.findMany({
@@ -346,6 +358,33 @@ export async function ingestBusinessReport(
     const pendingSlots = new Set(
       evaluation.rows.filter((row) => row.state === "pending_label").map((row) => row.key),
     ).size;
+    const pendingLeft =
+      plan.inserts.filter((row) => row.state === "pending_label").length +
+      mapped.filter((row) => row.state === "pending_label" && !supersedeIds.includes(row.id))
+        .length;
+    await tx.metricFetch.update({
+      where: { id: fetch.id },
+      data: { pendingLabels: pendingLeft, labelSetVersion: registryVersion },
+    });
+    if (reingested && pendingLeft > 0) {
+      const stillPending = [
+        ...plan.inserts.filter((row) => row.state === "pending_label"),
+        ...mapped.filter((row) => row.state === "pending_label" && !supersedeIds.includes(row.id)),
+      ];
+      const failures = stillPending.flatMap((row) => {
+        const findingId = findingIdFromSource(row.source);
+        if (!findingId) return [];
+        return [
+          {
+            outletId: input.outletId,
+            platform: input.platform,
+            findingId,
+            periodStart: row.periodStart,
+          },
+        ];
+      });
+      await noteRelabelFailures(tx, scope, indiaCivilDate(capturedAt), failures);
+    }
     return {
       fetchId: fetch.id,
       written: plan.inserts.length,
@@ -354,7 +393,12 @@ export async function ingestBusinessReport(
       labels: labelSummary(pendingSlots, labelFindings),
     };
   });
-  return { ...result, status: "stored", reason: warning };
+  return {
+    ...result,
+    status: "stored",
+    reason: warning,
+    ...(reingested ? { reingested: true } : {}),
+  };
 }
 
 async function writeChecks(
@@ -524,6 +568,7 @@ function fetchData(
     capturedAt: Date;
     identityMismatch?: boolean;
     missingPeriods?: Array<{ start: string; end: string }>;
+    labelSetVersion?: number;
   },
 ) {
   const first = details.observed?.periods[0];
@@ -555,6 +600,7 @@ function fetchData(
       : null,
     source: input.source,
     parserVersion: METRIC_PARSER_VERSION,
+    labelSetVersion: details.labelSetVersion ?? null,
     reason: details.reason,
     runId: input.runId,
     capturedAt: details.capturedAt,

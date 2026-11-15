@@ -47,6 +47,16 @@ export interface FetchPlanFacts {
   cycles: readonly FetchPlanCycle[];
   /** Platforms whose fetching is paused. Their plan has no windows. */
   held?: ReadonlySet<Platform>;
+  /** Days whose approved label should be read again. Held platforms are skipped. */
+  relabel?: ReadonlyArray<{
+    platform: Platform;
+    days: ReadonlyArray<{ date: string; findingIds: readonly string[] }>;
+    payouts?: ReadonlyArray<{
+      periodStart: string;
+      periodEnd: string;
+      findingIds: readonly string[];
+    }>;
+  }>;
 }
 
 interface Span {
@@ -96,7 +106,68 @@ function platformPlan(
     for (const payout of payoutWindows(input, platform)) windows.push(payout);
   }
   for (const span of backfill) windows.push(windowFor("daily", ["backfill"], span));
+  const relabel = input.relabel?.find((item) => item.platform === platform);
+  if (relabel) mergeRelabel(windows, platform, relabel);
   return { platform, platformId, reason: null, held: false, windows };
+}
+
+function mergeRelabel(
+  windows: FetchPlanWindow[],
+  platform: Platform,
+  relabel: {
+    days: ReadonlyArray<{ date: string; findingIds: readonly string[] }>;
+    payouts?: ReadonlyArray<{
+      periodStart: string;
+      periodEnd: string;
+      findingIds: readonly string[];
+    }>;
+  },
+): void {
+  const chosen = [...relabel.days].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 30);
+  const loose: Array<{ date: string; findingIds: readonly string[] }> = [];
+  for (const day of chosen) {
+    const host = windows.find(
+      (window) =>
+        window.report === "daily" && window.periodStart <= day.date && day.date < window.periodEnd,
+    );
+    if (!host) {
+      loose.push(day);
+      continue;
+    }
+    if (!host.reasons.includes("relabel")) host.reasons.push("relabel");
+    const ids = new Set([...(host.relabel?.findingIds ?? []), ...day.findingIds]);
+    host.relabel = { findingIds: [...ids] };
+  }
+  const chunks = chunkMissing(platform, loose.map((day) => day.date).sort(), loose.length);
+  for (const chunk of chunks) {
+    const ids = new Set(
+      loose
+        .filter((day) => day.date >= chunk.periodStart && day.date < chunk.periodEnd)
+        .flatMap((day) => day.findingIds),
+    );
+    windows.push({
+      ...windowFor("daily", ["relabel"], chunk),
+      relabel: { findingIds: [...ids] },
+    });
+  }
+  for (const payout of relabel.payouts ?? []) {
+    const host = windows.find(
+      (window) =>
+        window.report === "payout" &&
+        window.periodStart === payout.periodStart &&
+        window.periodEnd === payout.periodEnd,
+    );
+    if (host) {
+      if (!host.reasons.includes("relabel")) host.reasons.push("relabel");
+      const ids = new Set([...(host.relabel?.findingIds ?? []), ...payout.findingIds]);
+      host.relabel = { findingIds: [...ids] };
+      continue;
+    }
+    windows.push({
+      ...windowFor("payout", ["relabel"], payout),
+      relabel: { findingIds: [...payout.findingIds] },
+    });
+  }
 }
 
 function payoutWindows(input: FetchPlanFacts, platform: Platform): FetchPlanWindow[] {

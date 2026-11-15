@@ -3,6 +3,7 @@ import { civilRangeBounds, indiaCivilDate } from "@rakazo/contracts";
 import { getLogger } from "@rakazo/logging";
 import type { PrismaClient } from "./client.js";
 import { Prisma } from "./generated/prisma/client.js";
+import { applyLabelAging } from "./metric-label-aging.js";
 import type { OwnerCycleFact, OwnerOrderFact } from "./owner-metrics-assemble.js";
 import {
   assembleOwnerMetrics,
@@ -65,6 +66,7 @@ export async function readOwnerMetrics(
     throw new RestaurantAgentError("unknown_outlet", 422, "Outlet is not part of this restaurant.");
   }
   const outletIds = query.outletIds ?? outlets.map((outlet) => outlet.id);
+  await applyLabelAging(db, scope);
   const platforms = query.platform === "all" ? [...PLATFORMS] : [query.platform];
   const range = civilRangeBounds(query.from, query.to);
   const keys = ownerMetricLoadKeys(query.keys);
@@ -145,6 +147,7 @@ export async function readOwnerMetrics(
         complaintsCancellationChargesPaise: true,
         netPayoutPaise: true,
         paidAmountPaise: true,
+        pendingFields: true,
       },
     }),
     db.payoutAdjustment.findMany({
@@ -188,6 +191,7 @@ export async function readOwnerMetrics(
           date: indiaCivilDate(row.periodStart),
           value: row.value == null ? null : Number(row.value),
           valueBoolean: row.valueBoolean,
+          state: labelState(row.state),
           granularity: row.granularity,
           periodEnd: indiaCivilDate(row.periodEnd),
         },
@@ -266,6 +270,7 @@ interface MetricFactRow {
   periodEnd: Date;
   value: number | null;
   valueBoolean: boolean | null;
+  state: string;
 }
 
 function loadMetricFacts(
@@ -286,7 +291,8 @@ function loadMetricFacts(
       "periodStart",
       "periodEnd",
       "value"::float8 AS value,
-      "valueBoolean"
+      "valueBoolean",
+      state
     FROM "restaurant_metric_values"
     WHERE "restaurantId" = ${scope.restaurantId}
       AND "spaceId" = ${scope.spaceId}
@@ -299,6 +305,15 @@ function loadMetricFacts(
   `;
 }
 
+function labelState(value: string): "ok" | "pending_label" | "label_unrecoverable" {
+  if (value === "pending_label" || value === "label_unrecoverable") return value;
+  return "ok";
+}
+
+function paid(value: number | null): number {
+  return value ?? 0;
+}
+
 function orderFact(row: {
   outletId: string;
   platform: "zomato" | "swiggy";
@@ -308,18 +323,19 @@ function orderFact(row: {
   utrLast4: string | null;
   category: string | null;
   customerHash: string | null;
-  grossSalesPaise: number;
-  discountPaise: number;
-  commissionPaise: number;
-  platformFeesPaise: number;
-  taxesPaise: number;
-  tdsPaise: number;
-  tcsPaise: number;
-  cvPaise: number;
-  gstCollectedPaise: number;
-  complaintsCancellationChargesPaise: number;
-  netPayoutPaise: number;
+  grossSalesPaise: number | null;
+  discountPaise: number | null;
+  commissionPaise: number | null;
+  platformFeesPaise: number | null;
+  taxesPaise: number | null;
+  tdsPaise: number | null;
+  tcsPaise: number | null;
+  cvPaise: number | null;
+  gstCollectedPaise: number | null;
+  complaintsCancellationChargesPaise: number | null;
+  netPayoutPaise: number | null;
   paidAmountPaise: number | null;
+  pendingFields: string[];
 }): OwnerOrderFact {
   return {
     outletId: row.outletId,
@@ -330,18 +346,19 @@ function orderFact(row: {
     utrLast4: row.utrLast4,
     category: row.category,
     customerHash: row.customerHash,
-    grossSalesPaise: row.grossSalesPaise,
-    discountPaise: row.discountPaise,
-    commissionPaise: row.commissionPaise,
-    platformFeesPaise: row.platformFeesPaise,
-    taxesPaise: row.taxesPaise,
-    tdsPaise: row.tdsPaise,
-    tcsPaise: row.tcsPaise,
-    cvPaise: row.cvPaise,
-    gstCollectedPaise: row.gstCollectedPaise,
-    complaintsCancellationChargesPaise: row.complaintsCancellationChargesPaise,
-    netPayoutPaise: row.netPayoutPaise,
+    grossSalesPaise: paid(row.grossSalesPaise),
+    discountPaise: paid(row.discountPaise),
+    commissionPaise: paid(row.commissionPaise),
+    platformFeesPaise: paid(row.platformFeesPaise),
+    taxesPaise: paid(row.taxesPaise),
+    tdsPaise: paid(row.tdsPaise),
+    tcsPaise: paid(row.tcsPaise),
+    cvPaise: paid(row.cvPaise),
+    gstCollectedPaise: paid(row.gstCollectedPaise),
+    complaintsCancellationChargesPaise: paid(row.complaintsCancellationChargesPaise),
+    netPayoutPaise: paid(row.netPayoutPaise),
     paidAmountPaise: row.paidAmountPaise,
+    pendingFields: row.pendingFields,
   };
 }
 

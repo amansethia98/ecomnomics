@@ -31,7 +31,7 @@ export function looseNorm(value: string): string {
 export type LabelPlatform = "swiggy" | "zomato";
 export type LabelReportKind = "business" | "payout" | "payout_annexure";
 export type LabelMatchMode = "exact" | "tokens" | "prefix";
-export type LabelRole = "read" | "item_pattern";
+export type LabelRole = "read" | "item_pattern" | "ignore";
 export type LabelSource = "seed" | "admin";
 
 export interface LabelSlot {
@@ -45,6 +45,8 @@ export interface LabelSlot {
   allowAutoApply: boolean;
   /** "all" keeps every matching column. "first" keeps the first match. */
   collect: "first" | "all";
+  /** Set when an admin retires the metric. */
+  retiredFrom?: string | null;
 }
 
 export interface LabelAlias {

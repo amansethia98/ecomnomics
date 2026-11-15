@@ -1,4 +1,16 @@
 import type { PrismaClient } from "./client.js";
+import type { LabelRejectMode } from "./metric-label-admin.js";
+import {
+  addLabelAlias,
+  approveLabelFinding,
+  listLabelFindings,
+  listMetricLabels,
+  listUnknownLabels,
+  readLabelFinding,
+  rejectLabelFinding,
+  resolveLayoutFinding,
+  retireLabelAlias,
+} from "./metric-label-admin.js";
 import { runAsPlatformAdmin } from "./row-security.js";
 
 export interface PlatformAdminAudit {
@@ -192,7 +204,71 @@ export function createPlatformAdminStore(db: PrismaClient) {
         return { outletId, platform, clearedAt: cleared.clearedAt.toISOString() };
       });
     },
+    async listLabelFindings(
+      query: { status?: string; platform?: string; kind?: string },
+      audit: PlatformAdminAudit,
+    ) {
+      return runAsPlatformAdmin(audit.adminUserId, async () => {
+        await db.adminAuditLog.create({ data: auditRow(audit) });
+        return listLabelFindings(db, query);
+      });
+    },
+    async readLabelFinding(findingId: string, audit: PlatformAdminAudit) {
+      return runAsPlatformAdmin(audit.adminUserId, async () => {
+        await db.adminAuditLog.create({ data: auditRow(audit) });
+        return readLabelFinding(db, findingId);
+      });
+    },
+    async approveLabelFinding(findingId: string, audit: PlatformAdminAudit) {
+      return runAsPlatformAdmin(audit.adminUserId, async () => {
+        await db.adminAuditLog.create({ data: auditRow(audit) });
+        return approveLabelFinding(db, findingId, audit.adminUserId);
+      });
+    },
+    async rejectLabelFinding(findingId: string, mode: LabelRejectMode, audit: PlatformAdminAudit) {
+      return runAsPlatformAdmin(audit.adminUserId, async () => {
+        await db.adminAuditLog.create({ data: auditRow(audit) });
+        return rejectLabelFinding(db, findingId, audit.adminUserId, mode);
+      });
+    },
+    async resolveLayoutFinding(findingId: string, audit: PlatformAdminAudit) {
+      return runAsPlatformAdmin(audit.adminUserId, async () => {
+        await db.adminAuditLog.create({ data: auditRow(audit) });
+        return resolveLayoutFinding(db, findingId, audit.adminUserId);
+      });
+    },
+    async listMetricLabels(
+      query: { platform?: string; family?: string },
+      audit: PlatformAdminAudit,
+    ) {
+      return runAsPlatformAdmin(audit.adminUserId, async () => {
+        await db.adminAuditLog.create({ data: auditRow(audit) });
+        return listMetricLabels(db, query);
+      });
+    },
+    async addLabelAlias(slotId: string, label: string, audit: PlatformAdminAudit) {
+      return runAsPlatformAdmin(audit.adminUserId, async () => {
+        await db.adminAuditLog.create({ data: auditRow(audit) });
+        return addLabelAlias(db, slotId, label, audit.adminUserId);
+      });
+    },
+    async retireLabelAlias(aliasId: string, audit: PlatformAdminAudit) {
+      return runAsPlatformAdmin(audit.adminUserId, async () => {
+        await db.adminAuditLog.create({ data: auditRow(audit) });
+        return retireLabelAlias(db, aliasId, audit.adminUserId);
+      });
+    },
+    async listUnknownLabels(audit: PlatformAdminAudit) {
+      return runAsPlatformAdmin(audit.adminUserId, async () => {
+        await db.adminAuditLog.create({ data: auditRow(audit) });
+        return listUnknownLabels(db);
+      });
+    },
   };
+}
+
+function auditRow(audit: PlatformAdminAudit) {
+  return { ...audit, ip: audit.ip?.slice(0, 64) ?? null };
 }
 
 export type PlatformAdminStore = ReturnType<typeof createPlatformAdminStore>;

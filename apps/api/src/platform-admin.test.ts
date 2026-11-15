@@ -31,8 +31,52 @@ function recordingStore() {
     async clearFetchHold() {
       return null;
     },
+    ...unusedLabels(),
   };
   return { store, audits };
+}
+
+function unusedLabels(): Pick<
+  PlatformAdminStore,
+  | "listLabelFindings"
+  | "readLabelFinding"
+  | "approveLabelFinding"
+  | "rejectLabelFinding"
+  | "resolveLayoutFinding"
+  | "listMetricLabels"
+  | "addLabelAlias"
+  | "retireLabelAlias"
+  | "listUnknownLabels"
+> {
+  return {
+    async listLabelFindings() {
+      return { findings: [] };
+    },
+    async readLabelFinding() {
+      return null;
+    },
+    async approveLabelFinding() {
+      return { ok: false, error: "not_found" };
+    },
+    async rejectLabelFinding() {
+      return { ok: false, error: "not_found" };
+    },
+    async resolveLayoutFinding() {
+      return { ok: false, error: "not_found" };
+    },
+    async listMetricLabels() {
+      return { version: 1, slots: [] };
+    },
+    async addLabelAlias() {
+      return { ok: false, error: "not_found" };
+    },
+    async retireLabelAlias() {
+      return { ok: false, error: "not_found" };
+    },
+    async listUnknownLabels() {
+      return { labels: [] };
+    },
+  };
 }
 
 describe("platform admin routes", () => {
@@ -98,6 +142,7 @@ describe("platform admin routes", () => {
       async clearFetchHold() {
         return null;
       },
+      ...unusedLabels(),
     };
     const response = await admin(
       store,

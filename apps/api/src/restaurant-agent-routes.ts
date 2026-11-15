@@ -36,6 +36,7 @@ import {
   markReportFileUploaded,
   RestaurantAgentError,
   readFetchPlan,
+  readLabelSummary,
   readOwnerMetrics,
   readRestaurant,
   reportFileForUpload,
@@ -159,6 +160,14 @@ export function restaurantAgentRoutes(options: RestaurantAgentRouteOptions) {
     try {
       const input = LogFetchSchema.parse(await readJson(c));
       return c.json(await logMetricFetch(options.prisma, scopeOf(c), input), 201);
+    } catch (error) {
+      return agentFailure(c, error);
+    }
+  });
+
+  app.get("/agent/v1/label-summary", async (c) => {
+    try {
+      return c.json(await readLabelSummary(options.prisma, scopeOf(c)));
     } catch (error) {
       return agentFailure(c, error);
     }
