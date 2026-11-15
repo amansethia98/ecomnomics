@@ -205,6 +205,8 @@ export const ROW_SECURITY_MODELS: ReadonlySet<string> = new Set([
   "MetricLabelSlot",
   "MetricLabelAlias",
   "MetricLabelRegistry",
+  "MetricLabelFinding",
+  "MetricLabelObservation",
   "Page",
   "PageVersion",
 ]);

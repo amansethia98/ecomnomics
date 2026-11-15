@@ -11,6 +11,8 @@ import type { MetricGranularity, MetricKey, MetricPlatform } from "./metric-dict
 import { requireMetric, SWIGGY_DAILY_MAX_DAYS } from "./metric-dictionary.js";
 import type { LabelBook } from "./metric-label.js";
 import { itemSuffix, normaliseLabel } from "./metric-label.js";
+import type { BusinessLabelDetection } from "./metric-label-change.js";
+import { detectBusinessLabels, labelAutoApplyEnabled } from "./metric-label-change.js";
 import { METRIC_LABEL_ALIASES, METRIC_LABEL_SLOTS } from "./metric-label-seed.js";
 
 export type ReportKind = "daily" | "weekly" | "monthly";
@@ -67,6 +69,8 @@ export interface ParsedMetricRow {
   value: number | null;
   rowRole: "fact" | "platform_check";
   source: string;
+  /** ok is a real figure. pending_label is an absent metric, never a stored zero. */
+  state: "ok" | "pending_label" | "label_unrecoverable";
 }
 
 export interface ParsedWindowItem {
@@ -88,6 +92,8 @@ export type ReportEvaluation =
       warnings: string[];
       /** Requested periods with no column. Nothing is stored for them. */
       missingPeriods: ReportPeriod[];
+      /** Present only when a label is missing or new. Unchanged files omit it. */
+      labelDetection?: BusinessLabelDetection;
     }
   | {
       ok: false;
@@ -95,6 +101,9 @@ export type ReportEvaluation =
       observed: ObservedReportIdentity | null;
       /** True only when the outlet or the window did not match. A parse failure is false. */
       identity: boolean;
+      /** The sheet shape changed. This is not an identity mismatch. */
+      layout?: boolean;
+      labelDetection?: BusinessLabelDetection;
     };
 
 const SWIGGY_HEADER = ["Restaurant ID", "Restaurant name", "Area", "City", "Overview", "Metric"];
@@ -268,8 +277,11 @@ function rejectedReport(
   reason: string,
   observed: ObservedReportIdentity | null,
   identity = false,
+  layout = false,
 ): ReportEvaluation {
-  return { ok: false, reason, observed, identity };
+  return layout
+    ? { ok: false, reason, observed, identity: false, layout: true }
+    : { ok: false, reason, observed, identity };
 }
 
 export function evaluateBusinessReport(
@@ -285,20 +297,26 @@ export function evaluateBusinessReport(
   }
   const table = parseCsv(csv);
   const header = table[0];
-  if (!header) return rejectedReport("The file has no header.", null);
+  if (!header) return rejectedReport("The file has no header.", null, false, true);
   const prefix = expected.platform === "swiggy" ? SWIGGY_HEADER : ZOMATO_HEADER;
   if (prefix.some((name, index) => header[index]?.trim() !== name)) {
-    return rejectedReport(`This file is not a ${expected.platform} business report.`, null);
+    return rejectedReport(
+      `This file is not a ${expected.platform} business report.`,
+      null,
+      false,
+      true,
+    );
   }
   const periods: ReportPeriod[] = [];
   for (const label of header.slice(prefix.length)) {
     const period = parsePeriodLabel(label.trim(), expected);
     if (!period) {
-      return rejectedReport(`Could not read a date from "${label.trim()}".`, null);
+      return rejectedReport(`Could not read a date from "${label.trim()}".`, null, false, true);
     }
     periods.push(period);
   }
-  if (periods.length === 0) return rejectedReport("The file has no date columns.", null);
+  if (periods.length === 0)
+    return rejectedReport("The file has no date columns.", null, false, true);
 
   const identities = new Set<string>();
   const grid: Array<{ section: string; metric: string; cells: Cell[] }> = [];
@@ -331,6 +349,34 @@ export function evaluateBusinessReport(
   }
   const identity = checkObservedIdentity(observed, expected);
   if (!identity.ok) return rejectedReport(identity.reject, observed, true);
+
+  const labelDetection =
+    book == null
+      ? null
+      : detectBusinessLabels({
+          platform: expected.platform,
+          reportKind: expected.report,
+          book,
+          periods: periods.length,
+          switchOn: labelAutoApplyEnabled(),
+          expectedLabels: expectedMetricLabels(book, expected.platform),
+          rows: grid.map((line, index) => ({
+            section: line.section,
+            metric: line.metric,
+            rowIndex: index + 1,
+            cells: line.cells.map((cell) => ({ value: cell.value, kind: cell.kind })),
+          })),
+        });
+  if (labelDetection?.layoutReason) {
+    return {
+      ok: false,
+      reason: labelDetection.layoutReason,
+      observed,
+      identity: false,
+      layout: true,
+      labelDetection,
+    };
+  }
 
   const rows: ParsedMetricRow[] = [];
   const items: ParsedWindowItem[] = [];
@@ -366,6 +412,14 @@ export function evaluateBusinessReport(
     if (expected.platform === "swiggy") emitSwiggy(expected.report, period, cells, rows, book);
     else emitZomato(expected.report, period, cells, rows, book);
     if (expected.platform === "swiggy") emitItems(period, cells, itemCells, items, book);
+    if (labelDetection) {
+      markPending(
+        rows,
+        expected.platform,
+        period,
+        labelDetection.pending.filter((item) => item.periodIndex === index),
+      );
+    }
   }
   return {
     ok: true,
@@ -375,6 +429,9 @@ export function evaluateBusinessReport(
     items,
     warnings: identity.warnings,
     missingPeriods: identity.missingPeriods,
+    ...(labelDetection && (labelDetection.findings.length > 0 || labelDetection.pending.length > 0)
+      ? { labelDetection }
+      : {}),
   };
 }
 
@@ -512,7 +569,40 @@ function push(column: Column, key: MetricKey, value: number | null, source: stri
     value: stored,
     rowRole,
     source: rowRole === "platform_check" ? "platform_check" : source,
+    state: "ok",
   });
+}
+
+function markPending(
+  rows: ParsedMetricRow[],
+  platform: MetricPlatform,
+  period: ReportPeriod,
+  pending: Array<{ section: string; label: string; key?: string }>,
+): void {
+  for (const item of pending) {
+    const key = METRIC_KEY_BY_LABEL.get(`${platform}\t${item.section}\t${item.label}`);
+    if (!key) continue;
+    item.key = key;
+    for (const row of rows) {
+      if (row.key !== key || row.periodStart !== period.start) continue;
+      row.value = null;
+      row.state = "pending_label";
+      row.source = "pending_label";
+    }
+  }
+}
+
+function expectedMetricLabels(book: LabelBook, platform: MetricPlatform): Set<string> {
+  const labels = new Set<string>();
+  for (const slot of book.slots) {
+    if (slot.platform !== platform || slot.reportKind !== "business") continue;
+    const alias = book.aliases.find((item) => item.slotId === slot.id && item.role === "read");
+    if (!alias) continue;
+    if (METRIC_KEY_BY_LABEL.has(`${platform}\t${slot.section}\t${alias.label}`)) {
+      labels.add(`${slot.section}\t${alias.label}`);
+    }
+  }
+  return labels;
 }
 
 function roundPct(pct: number | null, denominator: number | null): number | null {
@@ -563,6 +653,65 @@ const SWIGGY_SUMS: ReadonlyArray<
   ["COMPLAINTS", "Packaging & Spillage", "complaints_packaging", "count"],
   ["MENU", "Top Selling Items (Gross Revenue)", "top5_items_revenue_paise", "paise"],
 ];
+
+const METRIC_KEY_BY_LABEL = new Map<string, MetricKey>();
+for (const [section, label, key] of SWIGGY_SUMS) {
+  METRIC_KEY_BY_LABEL.set(`swiggy\t${section}\t${label}`, key);
+}
+for (const [label, key] of [
+  ["Impressions to Menu", "impressions_to_menu_pct"],
+  ["Menu to Cart", "menu_to_cart_pct"],
+  ["Cart to Order", "cart_to_orders_pct"],
+] as const) {
+  METRIC_KEY_BY_LABEL.set(`swiggy\tCONVERSION_FUNNEL\t${label}`, key);
+}
+for (const [section, label, key] of [
+  ["Sales", "Delivered orders", "delivered_orders"],
+  ["Sales", "Sales (Rs)", "ops_sales_paise"],
+  ["Sales", "Market share (%)", "market_share_pct"],
+  ["Customer experience", "Rated orders", "rated_orders"],
+  ["Customer experience", "Bad orders", "bad_orders"],
+  ["Customer experience", "Rejected orders", "rejected_orders"],
+  ["Customer experience", "KPT+10 delayed orders", "delayed_orders_kpt10"],
+  ["Customer experience", "Poor rated orders", "poor_rated_orders"],
+  ["Customer experience", "Total complaints", "complaints"],
+  ["Customer experience", "Non-refunded complaints", "non_refunded_complaints"],
+  ["Customer experience", "Total complaints - Poor packaging", "complaints_packaging"],
+  ["Customer experience", "Total complaints - Poor quality", "complaints_quality"],
+  ["Customer experience", "Total complaints - Wrong order", "complaints_wrong"],
+  ["Customer experience", "Total complaints - Missing items", "complaints_missing"],
+  ["Customer experience", "Self logs other ors", "self_logged_ors"],
+  ["Customer experience", "Lost sales (Rs)", "lost_sales_paise"],
+  ["Customer experience", "Average rating", "rating"],
+  ["Customer experience", "Offline time (in hours)", "offline_time_hours"],
+  ["Customer experience", "Online %", "online_pct"],
+  ["Customer experience", "KPT (in minutes)", "kpt_minutes"],
+  ["Customer funnel", "Impressions", "impressions"],
+  ["Customer funnel", "Menu opens", "menu_opens"],
+  ["Customer funnel", "Cart builds", "cart_builds"],
+  ["Customer funnel", "Placed Orders", "placed_orders"],
+  ["Customer funnel", "Menu to cart (%)", "menu_to_cart_pct"],
+  ["Customer funnel", "Impressions to menu (%)", "impressions_to_menu_pct"],
+  ["Customer funnel", "Cart to orders (%)", "cart_to_orders_pct"],
+  ["Customer segmentation", "New user orders", "new_user_orders"],
+  ["Customer segmentation", "Repeat user orders", "repeat_user_orders"],
+  ["Customer segmentation", "Lapsed user orders", "lapsed_user_orders"],
+  ["Customer segmentation", "Breakfast orders", "breakfast_orders"],
+  ["Customer segmentation", "Lunch orders", "lunch_orders"],
+  ["Customer segmentation", "Snacks orders", "snacks_orders"],
+  ["Customer segmentation", "Dinner orders", "dinner_orders"],
+  ["Customer segmentation", "Late night orders", "late_night_orders"],
+  ["Ads", "Sales from ads (Rs)", "ads_sales_paise"],
+  ["Ads", "Ads impressions", "ads_impressions"],
+  ["Ads", "Ads menu opens", "ads_menu_opens"],
+  ["Ads", "Ads orders", "ad_orders"],
+  ["Ads", "Ads spend (Rs)", "ad_spend_paise"],
+  ["Offers", "Discount given (Rs)", "discount_paise"],
+  ["Offers", "Orders with offers", "offer_orders"],
+  ["Offers", "Gross sales from offers (Rs)", "offer_gross_sales_paise"],
+] as const) {
+  METRIC_KEY_BY_LABEL.set(`zomato\t${section}\t${label}`, key);
+}
 
 function emitSwiggy(
   report: ReportKind,

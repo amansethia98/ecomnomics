@@ -5,6 +5,8 @@ import type { MetricPlatform } from "./metric-dictionary.js";
 import { PAISE_SUM_TOLERANCE } from "./metric-dictionary.js";
 import type { LabelBook } from "./metric-label.js";
 import { resolveColumn, resolveColumns } from "./metric-label.js";
+import type { LabelChangeFinding } from "./metric-label-change.js";
+import { detectPayoutLabels } from "./metric-label-change.js";
 import type { ObservedReportIdentity } from "./metric-parse.js";
 import { costPaise, discountPaise, rupeesToPaise, signedPaise } from "./payout-money.js";
 import { openPayoutWorkbook } from "./payout-workbook.js";
@@ -78,6 +80,9 @@ export interface PayoutCheck {
   gap: number;
   tolerance: number;
   pass: boolean;
+  /** Set when a column in the rebuild is missing, so the check is not a failure. */
+  skipped?: boolean;
+  reason?: string;
 }
 
 export interface ParsedPayoutFile {
@@ -93,11 +98,21 @@ export interface ParsedPayoutFile {
   totals: ParsedCycleTotals;
   checks: PayoutCheck[];
   warnings: string[];
+  /** Order checks left out because a formula column was not in the sheet. */
+  skippedChecks?: PayoutCheck[];
+  /** Present only when an expected column is missing and a new header is present. */
+  labelFindings?: LabelChangeFinding[];
 }
 
 export type PayoutParseResult =
   | { ok: true; payout: ParsedPayoutFile }
-  | { ok: false; reason: string; observed: ObservedReportIdentity | null };
+  | {
+      ok: false;
+      reason: string;
+      observed: ObservedReportIdentity | null;
+      layout?: boolean;
+      labelFindings?: LabelChangeFinding[];
+    };
 
 const MONTHS = [
   "january",
@@ -183,6 +198,7 @@ function parseZomato(
       ok: false,
       reason: "The Order Level sheet has no header row with Order ID and Order status.",
       observed: identity.observed,
+      layout: true,
     };
   }
   const warnings: string[] = [];
@@ -375,9 +391,61 @@ function parseZomato(
   const totals = zomatoTotals(sheets.get("payout breakup") ?? [], book);
   applyPaidTotal(totals, orders, summaryPaid(summary));
   const observed = withPeriod(identity.observed, cycle.cycleStart, cycle.cycleEnd);
+  const labels = watchedPayoutLabels("zomato", "payout", book, head, [
+    ["zomato.payout.order_level.order_id", orderIdCol],
+    ["zomato.payout.order_level.order_date", orderDateCol],
+    ["zomato.payout.order_level.order_status", orderStatusCol],
+    ["zomato.payout.order_level.subtotal", subtotalCol],
+    ["zomato.payout.order_level.packaging", packagingCol],
+    ["zomato.payout.order_level.promo_discount", promoCol],
+    ["zomato.payout.order_level.other_discount", otherDiscountCol],
+    ["zomato.payout.order_level.service_fee", serviceFeeCol],
+    ["zomato.payout.order_level.payment_fee", paymentCol],
+    ["zomato.payout.order_level.taxes", taxesCol],
+    ["zomato.payout.order_level.tds", tdsCol],
+    ["zomato.payout.order_level.tcs", tcsCols[0] ?? null],
+    ["zomato.payout.order_level.complaints", complaintsCol],
+    ["zomato.payout.order_level.net_additions", additionsCol],
+    ["zomato.payout.order_level.commissionable", cvCol],
+    ["zomato.payout.order_level.gst_collected", gstCollectedCol],
+    ["zomato.payout.order_level.gst_paid_9_5", gstOnBehalfCol],
+    ["zomato.payout.order_level.order_level_payout", payoutCol],
+    ["zomato.payout.order_level.settlement_date", settlementDateCol],
+    ["zomato.payout.order_level.cancelled_by", cancelledByCol],
+    ["zomato.payout.order_level.utr", utrCol],
+    ["zomato.payout.order_level.customer_id", customerCol],
+    ["zomato.payout.order_level.paid_amount", paidCol],
+  ]);
+  if (labels?.layoutReason) {
+    return {
+      ok: false,
+      reason: labels.layoutReason,
+      observed: identity.observed,
+      layout: true,
+      labelFindings: labels.findings,
+    };
+  }
   return {
     ok: true,
-    payout: finish("zomato", observed, cycle, orders, adjustments, totals, warnings),
+    payout: finish(
+      "zomato",
+      observed,
+      cycle,
+      orders,
+      adjustments,
+      totals,
+      warnings,
+      formulaPending(labels?.findings, [
+        "zomato.payout.order_level.service_fee",
+        "zomato.payout.order_level.payment_fee",
+        "zomato.payout.order_level.taxes",
+        "zomato.payout.order_level.tds",
+        "zomato.payout.order_level.tcs",
+        "zomato.payout.order_level.complaints",
+        "zomato.payout.order_level.commissionable",
+      ]),
+      labels?.findings,
+    ),
   };
 }
 
@@ -411,6 +479,7 @@ function parseSwiggy(
       ok: false,
       reason: "The Order Level sheet has no header row with Order ID and Order status.",
       observed: identity.observed,
+      layout: true,
     };
   }
   const draft: Array<Omit<ParsedPayoutOrder, "orderDate"> & { orderDate: string | null }> = [];
@@ -639,7 +708,64 @@ function parseSwiggy(
   }
   applyPaidTotal(totals, orders, summaryPaid(summary));
   const observed = withPeriod(identity.observed, cycle.cycleStart, cycle.cycleEnd);
-  return { ok: true, payout: finish("swiggy", observed, cycle, orders, adjustments, totals, []) };
+  const labels = watchedPayoutLabels("swiggy", "payout_annexure", book, head, [
+    ["swiggy.payout_annexure.order_level.order_id", orderIdCol],
+    ["swiggy.payout_annexure.order_level.order_date", orderDateCol],
+    ["swiggy.payout_annexure.order_level.order_status", orderStatusCol],
+    ["swiggy.payout_annexure.order_level.item_total", itemCol],
+    ["swiggy.payout_annexure.order_level.packaging", packagingCol],
+    ["swiggy.payout_annexure.order_level.discount", discountCol],
+    ["swiggy.payout_annexure.order_level.commission", commissionCol],
+    ["swiggy.payout_annexure.order_level.total_fees", feesCol],
+    ["swiggy.payout_annexure.order_level.gst_on_fees", gstOnFeesCol],
+    ["swiggy.payout_annexure.order_level.tds", tdsCol],
+    ["swiggy.payout_annexure.order_level.tcs", tcsCol],
+    ["swiggy.payout_annexure.order_level.complaints", complaintsCol],
+    ["swiggy.payout_annexure.order_level.net_bill", netBillCol],
+    ["swiggy.payout_annexure.order_level.settlement_date", settlementDateCol],
+    ["swiggy.payout_annexure.order_level.cancelled_by", cancelledByCol],
+    ["swiggy.payout_annexure.order_level.category", categoryCol],
+    ["swiggy.payout_annexure.order_level.settlement_status", settlementStatusCol],
+    ["swiggy.payout_annexure.order_level.utr", utrCol],
+    ["swiggy.payout_annexure.order_level.mfr_marked", mfrMarkedCol],
+    ["swiggy.payout_annexure.order_level.mfr_accurate", mfrAccurateCol],
+    ["swiggy.payout_annexure.order_level.gst_collected", gstCollectedCol],
+    ["swiggy.payout_annexure.order_level.net_payout", payoutCol],
+    ["swiggy.payout_annexure.order_level.paid_amount", paidCol],
+  ]);
+  if (labels?.layoutReason) {
+    return {
+      ok: false,
+      reason: labels.layoutReason,
+      observed: identity.observed,
+      layout: true,
+      labelFindings: labels.findings,
+    };
+  }
+  return {
+    ok: true,
+    payout: finish(
+      "swiggy",
+      observed,
+      cycle,
+      orders,
+      adjustments,
+      totals,
+      [],
+      formulaPending(labels?.findings, [
+        "swiggy.payout_annexure.order_level.commission",
+        "swiggy.payout_annexure.order_level.total_fees",
+        "swiggy.payout_annexure.order_level.gst_on_fees",
+        "swiggy.payout_annexure.order_level.gst_collected",
+        "swiggy.payout_annexure.order_level.tds",
+        "swiggy.payout_annexure.order_level.tcs",
+        "swiggy.payout_annexure.order_level.complaints",
+        "swiggy.payout_annexure.order_level.net_bill",
+        "swiggy.payout_annexure.order_level.item_total",
+      ]),
+      labels?.findings,
+    ),
+  };
 }
 
 interface CycleFields {
@@ -651,6 +777,33 @@ interface CycleFields {
   utrLast4: string | null;
 }
 
+function formulaPending(findings: LabelChangeFinding[] | undefined, slotIds: string[]): boolean {
+  return (
+    findings?.some(
+      (finding) => finding.kind === "metric_label_change" && slotIds.includes(finding.slotId),
+    ) ?? false
+  );
+}
+
+function watchedPayoutLabels(
+  platform: "swiggy" | "zomato",
+  reportKind: string,
+  book: LabelBook | undefined,
+  headers: string[],
+  columns: Array<[string, number | null]>,
+): { layoutReason: string | null; findings: LabelChangeFinding[] } | null {
+  if (!book) return null;
+  const detected = detectPayoutLabels({
+    platform,
+    reportKind,
+    section: "order_level",
+    book,
+    headers,
+    columns: columns.map(([slotId, index]) => ({ slotId, index })),
+  });
+  return { layoutReason: detected.layoutReason, findings: detected.findings };
+}
+
 function finish(
   platform: MetricPlatform,
   observed: ObservedReportIdentity,
@@ -659,15 +812,22 @@ function finish(
   adjustments: ParsedAdjustment[],
   totals: ParsedCycleTotals,
   warnings: string[],
+  skipOrderNet = false,
+  labelFindings?: LabelChangeFinding[],
 ): ParsedPayoutFile {
+  const checks = buildChecks(platform, orders, adjustments, totals, skipOrderNet);
+  const skippedChecks = checks.filter((check) => check.skipped);
+  const kept = checks.filter((check) => !check.skipped);
   return {
     observed,
     ...cycle,
     orders,
     adjustments: adjustments.map((row) => ({ ...row, bookedCycle: cycle.cycleId })),
     totals,
-    checks: buildChecks(platform, orders, adjustments, totals),
+    checks: kept,
     warnings,
+    ...(skippedChecks.length > 0 ? { skippedChecks } : {}),
+    ...(labelFindings && labelFindings.length > 0 ? { labelFindings } : {}),
   };
 }
 
@@ -708,11 +868,15 @@ function buildChecks(
   orders: ParsedPayoutOrder[],
   adjustments: ParsedAdjustment[],
   totals: ParsedCycleTotals,
+  skipOrderNet = false,
 ): PayoutCheck[] {
   const checks: PayoutCheck[] = [];
   for (const order of orders) {
     const rebuilt = _platform === "swiggy" ? swiggyRecomputedNet(order) : order.recomputedNetPaise;
-    checks.push(moneyCheck("net_payout_paise", rebuilt, order.netPayoutPaise));
+    const check = moneyCheck("net_payout_paise", rebuilt, order.netPayoutPaise);
+    checks.push(
+      skipOrderNet ? { ...check, skipped: true, reason: "pending_label", pass: false } : check,
+    );
   }
   const sum = (pick: (order: ParsedPayoutOrder) => number) =>
     orders.reduce((total, order) => total + pick(order), 0);
