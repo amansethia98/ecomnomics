@@ -79,6 +79,9 @@ export function stepAlert(
   // day is already on the row, that older day must not move it again.
   const applied = laterDate(existing.book.evaluatedOn, existing.book.frozenOn);
   if (applied && input.date < applied) return ignore(existing);
+  if (input.outcome.kind === "clear" && input.outcome.withdraw && existing.status !== "resolved") {
+    return revise(existing, input.date, config);
+  }
   if (
     input.outcome.kind === "clear" &&
     existing.book.evaluatedOn === input.date &&
@@ -179,7 +182,7 @@ export function applyDailyAlerts(input: {
         family: existing.family,
         outletId: clear.outletId,
         platform: clear.platform,
-        outcome: { kind: "clear" },
+        outcome: { kind: "clear", withdraw: clear.withdraw },
         config: input.config,
       }),
     );
@@ -335,10 +338,13 @@ function fireOpen(
     notify = true;
     notifyReason = "escalated";
     events.push({ kind: "escalated", severity, value: outcome.value, businessDate: date });
-  } else if (heldEscalation && outcome.severity === "watch") {
+  } else if (heldEscalation && outcome.severity === "watch" && config.escalation.stayActNow) {
     severity = "act_now";
     events.push({ kind: "seen", severity, value: outcome.value, businessDate: date });
-  } else if (existing.severity === "act_now" && outcome.severity === "watch") {
+  } else if (
+    (existing.severity === "act_now" || (heldEscalation && !config.escalation.stayActNow)) &&
+    outcome.severity === "watch"
+  ) {
     const previousWatch = existing.book.ruleSeverity === "watch";
     watchLevelDays = previousWatch ? (existing.book.watchLevelDays ?? 0) + 1 : 1;
     if (watchLevelDays >= config.lifecycle.watchDeescalateDays.value) {
@@ -695,6 +701,8 @@ export function nextReportDelivery(
     ready: boolean;
     text?: string;
     notifyUpdate?: boolean;
+    /** Defaults to the ops config: a new Act now re-sends even when the colour is unchanged. */
+    updateOnActNow?: boolean;
   },
 ): { version: number; shouldNotify: boolean; reason: "first" | "update" | "unchanged" } {
   const textChanged = existing?.text != null && next.text != null && existing.text !== next.text;
@@ -711,7 +719,7 @@ export function nextReportDelivery(
   if (!existing?.ready) {
     return { version: existing ? existing.version + 1 : 1, shouldNotify: true, reason: "first" };
   }
-  if (next.notifyUpdate) {
+  if (next.notifyUpdate && next.updateOnActNow !== false) {
     return { version: existing.version + 1, shouldNotify: true, reason: "update" };
   }
   if (textChanged || existing.status !== next.status) {

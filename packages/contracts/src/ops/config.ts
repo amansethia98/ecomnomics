@@ -67,8 +67,21 @@ export interface OpsRulesConfig {
     reopenDays: OpsThreshold;
     backAgainDays: OpsThreshold;
   };
-  /** Days a zero or missing day stays "not in yet" before it is treated as real. */
+  /** Days with no stored figures stay "not in yet". A stored zero day uses `zero`. */
   blank: { waitDays: OpsThreshold };
+  /**
+   * A stored day with no orders, or an outlet that was offline. Day one asks.
+   * The alert waits until this many days in a row.
+   */
+  zero: { waitDays: OpsThreshold; askOwner: boolean };
+  /** Name the app that is still pending, as in "Zomato healthy · Swiggy pending". */
+  header: { namePendingApp: boolean };
+  /** A withdrawn alert is a Correction line at the top of the next brief. */
+  correction: { inBrief: boolean };
+  /** Re-send when a new or escalated Act now arrives, even if the header colour does not change. */
+  delivery: { updateOnActNow: boolean };
+  /** An escalation stays Act now until the metric is back to normal. */
+  escalation: { stayActNow: boolean };
   /** Delivered below this fraction of the comparison day is a partial day. */
   partial: { deliveredRatio: OpsThreshold };
   /** When true, the runner stores the brief and does not push it. */
@@ -83,7 +96,7 @@ function placeholder(value: number): OpsThreshold {
 
 /** The only numbers the daily rules and the alert windows read. */
 export const DEFAULT_OPS_RULES_CONFIG = {
-  configVersion: "ops-daily/2026-11-15.3",
+  configVersion: "ops-daily/2026-11-16.1",
   salesDrop: {
     watchAbovePct: placeholder(25),
     actNowAbovePct: placeholder(40),
@@ -141,6 +154,11 @@ export const DEFAULT_OPS_RULES_CONFIG = {
     backAgainDays: placeholder(3),
   },
   blank: { waitDays: placeholder(3) },
+  zero: { waitDays: placeholder(2), askOwner: true },
+  header: { namePendingApp: true },
+  correction: { inBrief: true },
+  delivery: { updateOnActNow: true },
+  escalation: { stayActNow: true },
   partial: { deliveredRatio: placeholder(0.5) },
   shadowMode: true,
   holidayDates: [],
@@ -212,6 +230,17 @@ export const OpsRulesOverrideSchema = z
       backAgainDays: thresholdOverride,
     }).optional(),
     blank: group({ waitDays: thresholdOverride }).optional(),
+    zero: z
+      .object({
+        waitDays: thresholdOverride.optional(),
+        askOwner: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    header: z.object({ namePendingApp: z.boolean() }).strict().partial().optional(),
+    correction: z.object({ inBrief: z.boolean() }).strict().partial().optional(),
+    delivery: z.object({ updateOnActNow: z.boolean() }).strict().partial().optional(),
+    escalation: z.object({ stayActNow: z.boolean() }).strict().partial().optional(),
     partial: group({ deliveredRatio: thresholdOverride }).optional(),
     shadowMode: z.boolean().optional(),
     holidayDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional(),
@@ -236,6 +265,26 @@ export function resolveOpsRulesConfig(override?: OpsRulesOverride | null): OpsRu
     guards: mergeGroup(DEFAULT_OPS_RULES_CONFIG.guards, parsed.guards),
     lifecycle: mergeGroup(DEFAULT_OPS_RULES_CONFIG.lifecycle, parsed.lifecycle),
     blank: mergeGroup(DEFAULT_OPS_RULES_CONFIG.blank, parsed.blank),
+    zero: {
+      waitDays: parsed.zero?.waitDays
+        ? { value: parsed.zero.waitDays.value, placeholder: true as const }
+        : DEFAULT_OPS_RULES_CONFIG.zero.waitDays,
+      askOwner: parsed.zero?.askOwner ?? DEFAULT_OPS_RULES_CONFIG.zero.askOwner,
+    },
+    header: {
+      namePendingApp:
+        parsed.header?.namePendingApp ?? DEFAULT_OPS_RULES_CONFIG.header.namePendingApp,
+    },
+    correction: {
+      inBrief: parsed.correction?.inBrief ?? DEFAULT_OPS_RULES_CONFIG.correction.inBrief,
+    },
+    delivery: {
+      updateOnActNow:
+        parsed.delivery?.updateOnActNow ?? DEFAULT_OPS_RULES_CONFIG.delivery.updateOnActNow,
+    },
+    escalation: {
+      stayActNow: parsed.escalation?.stayActNow ?? DEFAULT_OPS_RULES_CONFIG.escalation.stayActNow,
+    },
     partial: mergeGroup(DEFAULT_OPS_RULES_CONFIG.partial, parsed.partial),
     shadowMode: parsed.shadowMode ?? DEFAULT_OPS_RULES_CONFIG.shadowMode,
     holidayDates: parsed.holidayDates ?? DEFAULT_OPS_RULES_CONFIG.holidayDates,

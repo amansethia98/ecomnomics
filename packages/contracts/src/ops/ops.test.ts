@@ -163,6 +163,10 @@ describe("daily thresholds", () => {
         { swiggy_net_sales_paise: point(400_000), delivered_orders: point(0) },
         { lagBanner: true },
       ),
+      day("swiggy", addDays(DATE, -1), {
+        swiggy_net_sales_paise: point(400_000),
+        delivered_orders: point(0),
+      }),
       day("swiggy", WEEK, { swiggy_net_sales_paise: point(400_000), delivered_orders: point(8) }),
     ]);
     const zero = quiet.findings.find((finding) => finding.code === "d_zero_orders");
@@ -170,6 +174,10 @@ describe("daily thresholds", () => {
     expect(zero?.provisional).toBe(true);
     const plain = run([
       day("swiggy", DATE, { swiggy_net_sales_paise: point(400_000), delivered_orders: point(0) }),
+      day("swiggy", addDays(DATE, -1), {
+        swiggy_net_sales_paise: point(400_000),
+        delivered_orders: point(0),
+      }),
       day("swiggy", WEEK, { swiggy_net_sales_paise: point(400_000), delivered_orders: point(5) }),
     ]).findings.find((finding) => finding.code === "d_zero_orders");
     expect(plain?.severity).toBe("watch");
@@ -328,10 +336,9 @@ describe("daily thresholds", () => {
       day("swiggy", WEEK, { swiggy_net_sales_paise: point(700_000), delivered_orders: point(20) }),
     ]);
     expect(blank.findings).toEqual([]);
-    expect(blank.snapshots[0]?.apps.find((app) => app.platform === "swiggy")?.mode).toBe(
-      "lag_missing",
-    );
-    expect(blank.frozenScopes).toContainEqual({ outletId: OUTLET.id, platform: "swiggy" });
+    expect(blank.snapshots[0]?.apps.find((app) => app.platform === "swiggy")?.mode).toBe("ready");
+    expect(blank.ownerQuestions.map((question) => question.platform)).toEqual(["swiggy"]);
+    expect(blank.notes.join(" ")).toContain("Was it closed or open?");
 
     const offline = run([
       day("zomato", DATE, {
@@ -349,7 +356,8 @@ describe("daily thresholds", () => {
       day("zomato", DATE, { ops_sales_paise: point(500_000), delivered_orders: point(0) }),
       day("zomato", WEEK, { ops_sales_paise: point(500_000), delivered_orders: point(20) }),
     ]);
-    expect(closed.findings.some((finding) => finding.code === "d_zero_orders")).toBe(true);
+    expect(closed.findings.some((finding) => finding.code === "d_zero_orders")).toBe(false);
+    expect(closed.ownerQuestions).toHaveLength(1);
   });
 
   it("keeps a recorded gap as not in yet, then compares once the day is stored", () => {

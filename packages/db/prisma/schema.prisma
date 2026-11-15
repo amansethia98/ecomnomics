@@ -2784,6 +2784,7 @@ model Restaurant {
   opsAlerts      OpsAlert[]
   opsAlertEvents OpsAlertEvent[]
   opsReportDeliveries OpsReportDelivery[]
+  outletDayAnswers OutletDayAnswer[]
 
   @@unique([id, spaceId])
   @@map("restaurants")
@@ -2817,6 +2818,7 @@ model Outlet {
   labelObservations   MetricLabelObservation[]
   relabelAttempts     MetricRelabelAttempt[]
   opsAlerts           OpsAlert[]
+  outletDayAnswers    OutletDayAnswer[]
 
   @@unique([id, spaceId])
   @@index([spaceId])
@@ -3223,6 +3225,25 @@ model OpsAlert {
   @@index([restaurantId, status, lastSeenDate], map: "ops_alerts_status_idx")
   @@index([spaceId], map: "ops_alerts_space_idx")
   @@map("ops_alerts")
+}
+
+/// The owner's answer for one outlet on one civil date: closed or open.
+model OutletDayAnswer {
+  id           String     @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId      String
+  outletId     String
+  outlet       Outlet     @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  businessDate DateTime   @db.Date
+  status       String
+  source       String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([restaurantId, outletId, businessDate])
+  @@index([spaceId])
+  @@map("outlet_day_answers")
 }
 
 /// Append-only history of an alert. restaurantId is here so the shared space trigger can check it.

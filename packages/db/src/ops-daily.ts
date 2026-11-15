@@ -15,6 +15,7 @@ import type {
   OpsRulesOverride,
   OpsRunResult,
   OpsStatus,
+  OutletDayRequest,
 } from "@rakazo/contracts";
 import {
   addIsoDays,
@@ -39,6 +40,7 @@ import {
   viewFromDaily,
   weekSales,
 } from "@rakazo/contracts";
+import { recordAuditEvent } from "./audit-events.js";
 import type { PrismaClient } from "./client.js";
 import type { Prisma } from "./generated/prisma/client.js";
 import { parseMissingPeriods } from "./owner-metrics-assemble.js";
@@ -108,12 +110,14 @@ export async function runDailyOps(
     outlets: loaded.outlets,
     days: loaded.days,
     config,
+    outletDays: loaded.outletDays,
   });
   const current = evaluateDaily({
     date: input.date,
     outlets: loaded.outlets,
     days: loaded.days,
     config,
+    outletDays: loaded.outletDays,
   });
   return db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`ops-daily:${scope.restaurantId}`}, 0))::text AS "lock"`;
@@ -167,7 +171,11 @@ export async function runDailyOps(
         .filter((alert) => alert.resolvedReason === "cleared" && alert.resolvedAt === input.date)
         .map((alert) => `${appLabel(alert.platform)} ${RESOLVED_NAME[alert.ruleCode] ?? "alert"}`),
     );
-    const week = weekSales(input.date, weekPoints(loaded.days));
+    const week = weekSales(
+      input.date,
+      weekPoints(loaded.days, loaded.outletDays),
+      loaded.outletDays.filter((row) => row.status === "closed"),
+    );
     const view = viewFromDaily({
       restaurantName: loaded.name,
       evaluation: current,
@@ -186,11 +194,13 @@ export async function runDailyOps(
       catchUp: catchUpItems,
     };
     const previousReady = Boolean((prior?.payload as unknown as StoredPayload | null)?.ready);
-    const notifyUpdate = [earlierStep, step].some((pass) =>
-      pass.notify.some(
-        (key) => pass.alerts.find((alert) => alert.dedupeKey === key)?.severity === "act_now",
-      ),
-    );
+    const notifyUpdate =
+      config.delivery.updateOnActNow &&
+      [earlierStep, step].some((pass) =>
+        pass.notify.some(
+          (key) => pass.alerts.find((alert) => alert.dedupeKey === key)?.severity === "act_now",
+        ),
+      );
     const delivery = nextReportDelivery(
       prior
         ? {
@@ -253,6 +263,7 @@ export async function runDailyOps(
       workbook: { available: false, fileName: null },
       deliver: { shouldNotify: delivery.shouldNotify, reason: delivery.reason },
       shadowMode: config.shadowMode,
+      ownerQuestions: current.ownerQuestions,
       alerts: {
         opened: [...new Set([...earlierStep.opened, ...step.opened])],
         escalated: [...new Set([...earlierStep.escalated, ...step.escalated])],
@@ -304,6 +315,63 @@ export async function readOpsReport(
       sentAt: delivery.sentAt.toISOString(),
       reportVersion: delivery.reportVersion,
     })),
+  };
+}
+
+/** Store the owner's closed or open answer. A later answer for the same outlet and date replaces it. */
+export async function recordOutletDay(
+  db: PrismaClient,
+  scope: RestaurantScope,
+  input: OutletDayRequest,
+): Promise<{ outletId: string; date: string; status: "closed" | "open" }> {
+  const saved = await runAsTenant(scope, async () => {
+    const outlet = await db.outlet.findFirst({
+      where: {
+        id: input.outletId,
+        restaurantId: scope.restaurantId,
+        spaceId: scope.spaceId,
+      },
+      select: { id: true },
+    });
+    if (!outlet) {
+      throw new RestaurantAgentError(
+        "unknown_outlet",
+        422,
+        "Outlet is not part of this restaurant.",
+      );
+    }
+    const businessDate = utcMidnight(input.date);
+    return db.outletDayAnswer.upsert({
+      where: {
+        restaurantId_outletId_businessDate: {
+          restaurantId: scope.restaurantId,
+          outletId: input.outletId,
+          businessDate,
+        },
+      },
+      create: {
+        restaurantId: scope.restaurantId,
+        spaceId: scope.spaceId,
+        outletId: input.outletId,
+        businessDate,
+        status: input.status,
+        source: input.source,
+      },
+      update: { status: input.status, source: input.source },
+      select: { outletId: true, status: true },
+    });
+  });
+  await recordAuditEvent({
+    action: "ops.outlet_day",
+    actor: { type: "system", label: "restaurant-agent" },
+    spaceId: scope.spaceId,
+    target: { type: "outlet", id: input.outletId },
+    metadata: { date: input.date, status: input.status, source: input.source },
+  });
+  return {
+    outletId: saved.outletId,
+    date: input.date,
+    status: saved.status === "closed" ? "closed" : "open",
   };
 }
 
@@ -569,7 +637,7 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
   });
   const from = addIsoDays(date, -14);
   const range = civilRangeBounds(from, addIsoDays(date, 1));
-  const [metrics, fetches, holds] = await Promise.all([
+  const [metrics, fetches, holds, answers] = await Promise.all([
     db.metricValue.findMany({
       where: {
         restaurantId: scope.restaurantId,
@@ -612,6 +680,14 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
     db.fetchHold.findMany({
       where: { restaurantId: scope.restaurantId, spaceId: scope.spaceId, clearedAt: null },
       select: { outletId: true, platform: true },
+    }),
+    db.outletDayAnswer.findMany({
+      where: {
+        restaurantId: scope.restaurantId,
+        spaceId: scope.spaceId,
+        businessDate: { gte: range.start, lt: range.end },
+      },
+      select: { outletId: true, businessDate: true, status: true },
     }),
   ]);
   const days = new Map<string, OpsAppDay>();
@@ -686,9 +762,19 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
       current.ingest = { code: "fetch_held", retryable: false };
     }
   }
+  const outletDays: Array<{ outletId: string; date: string; status: "closed" | "open" }> = [];
+  for (const row of answers) {
+    if (row.status !== "closed" && row.status !== "open") continue;
+    outletDays.push({
+      outletId: row.outletId,
+      date: civil(row.businessDate),
+      status: row.status === "open" ? "open" : "closed",
+    });
+  }
   return {
     name: restaurant.name,
     dataAsOf,
+    outletDays,
     outlets: outlets.map((outlet) => ({
       id: outlet.id,
       name: outlet.name,
@@ -729,11 +815,28 @@ function covers(
 
 function weekPoints(
   days: OpsAppDay[],
-): Array<{ date: string; platform: "zomato" | "swiggy"; salesPaise: number | null }> {
+  outletDays: ReadonlyArray<{ outletId: string; date: string; status: "closed" | "open" }>,
+): Array<{
+  date: string;
+  platform: "zomato" | "swiggy";
+  salesPaise: number | null;
+  outletId: string;
+}> {
+  const closed = new Set(
+    outletDays.filter((row) => row.status === "closed").map((row) => `${row.outletId}|${row.date}`),
+  );
   return days.flatMap((day) => {
     if (!day.stored || day.ingest) return [];
     if (day.platform !== "zomato" && day.platform !== "swiggy") return [];
-    return [{ date: day.date, platform: day.platform, salesPaise: salesPaise(day) }];
+    if (closed.has(`${day.outletId}|${day.date}`)) return [];
+    return [
+      {
+        date: day.date,
+        platform: day.platform,
+        outletId: day.outletId,
+        salesPaise: salesPaise(day),
+      },
+    ];
   });
 }
 

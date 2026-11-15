@@ -121,6 +121,7 @@ function pipeline(input: {
   capturedOn?: string | null;
   clock?: string | null;
   config?: ReturnType<typeof resolveOpsRulesConfig>;
+  outletDays?: Array<{ outletId: string; date: string; status: "closed" | "open" }>;
 }) {
   const date = input.date ?? DATE;
   const outlets = input.outlets ?? [BOTH];
@@ -131,6 +132,7 @@ function pipeline(input: {
     days: input.days,
     asOf: input.asOf,
     config: input.config,
+    outletDays: input.outletDays,
   });
   const current = evaluateDaily({
     date,
@@ -138,6 +140,7 @@ function pipeline(input: {
     days: input.days,
     asOf: input.asOf,
     config: input.config,
+    outletDays: input.outletDays,
   });
   const earlierStep = applyDailyAlerts({
     date: earlierDate,
@@ -185,7 +188,15 @@ function pipeline(input: {
       date,
       input.days
         .filter((item) => item.stored && !item.ingest)
+        .filter(
+          (item) =>
+            !input.outletDays?.some(
+              (row) =>
+                row.outletId === item.outletId && row.date === item.date && row.status === "closed",
+            ),
+        )
         .map((item) => ({
+          outletId: item.outletId,
           date: item.date,
           platform: item.platform,
           salesPaise:
@@ -198,6 +209,7 @@ function pipeline(input: {
                   : item.metrics.swiggy_net_sales_paise?.value) ?? null)
               : null,
         })),
+      (input.outletDays ?? []).filter((row) => row.status === "closed"),
     ),
     resolved: null,
   });
@@ -267,7 +279,7 @@ describe("brief edge cases", () => {
     expect(result.text).toContain("Too few orders on Zomato yesterday to judge rates.");
   });
 
-  it("DS-03 closed day after the wait window", () => {
+  it("DS-03 a second stored zero day is a real alert", () => {
     const zeros = (date: string): OpsAppDay =>
       day(BOTH.id, "zomato", date, {
         ops_sales_paise: point(0),
@@ -275,24 +287,13 @@ describe("brief edge cases", () => {
         online_pct: point(0),
         rating: point(0),
       });
-    const baseline = calm(BOTH, "zomato", WEEK, 2_000_000, 40);
-    for (const age of [0, 1, 2]) {
-      const waiting = evaluateDaily({
-        date: DATE,
-        outlets: [{ ...BOTH, platforms: ["zomato"] }],
-        days: [zeros(DATE), baseline],
-        asOf: addDays(DATE, age),
-      });
-      expect(waiting.findings.some((finding) => finding.code === "d_zero_orders")).toBe(false);
-      expect(waiting.snapshots[0]?.apps[0]?.mode).toBe("lag_missing");
-    }
-    const real = pipeline({
+    const result = pipeline({
       id: "DS-03",
       outlets: [{ ...BOTH, platforms: ["zomato"] }],
-      days: [zeros(DATE), baseline],
-      asOf: addDays(DATE, 3),
+      days: [zeros(DATE), zeros(addDays(DATE, -1)), calm(BOTH, "zomato", WEEK, 2_000_000, 40)],
     });
-    expect(real.text).toContain(
+    expect(result.current.snapshots[0]?.apps[0]?.mode).toBe("ready");
+    expect(result.text).toContain(
       "🔴 Zomato had no orders on Sat 14 Nov (usually 40). Fix: confirm the outlet was open and visible on Zomato that day.",
     );
   });
@@ -352,8 +353,16 @@ describe("brief edge cases", () => {
         calm(BOTH, "zomato", WEEK),
       ],
     });
-    expect(result.text).toContain("aren't in yet");
-    expect(result.text).not.toContain("🟢 Healthy");
+    expect(result.current.snapshots[0]?.apps[0]?.mode).toBe("ready");
+    expect(result.current.findings.some((finding) => finding.code === "d_zero_orders")).toBe(false);
+    expect(result.text).toContain(
+      "Test (Zomato) had 0 orders on Sat 14 Nov: either it was closed or the app hasn't updated yet. Was it closed or open?",
+    );
+    expect(result.text).not.toContain("aren't in yet");
+    expect(result.text).not.toContain("had no orders");
+    expect(result.current.ownerQuestions).toEqual([
+      { outletId: BOTH.id, platform: "zomato", date: DATE, kind: "zero_day" },
+    ]);
   });
 
   it("DS-07 online 0 with orders", () => {
@@ -380,20 +389,25 @@ describe("brief edge cases", () => {
     expect(result.current.snapshots[0]?.apps[0]?.mode).toBe("ready");
   });
 
-  it("DS-08 full-day offline after the wait window", () => {
+  it("DS-08 a second offline day is a real alert", () => {
+    const offline = (date: string): OpsAppDay =>
+      day(BOTH.id, "zomato", date, {
+        ops_sales_paise: point(2_000_000),
+        delivered_orders: point(0),
+        online_pct: point(0),
+        rating: point(4.2),
+      });
+    const first = evaluateDaily({
+      date: addDays(DATE, -1),
+      outlets: [{ ...BOTH, platforms: ["zomato"] }],
+      days: [offline(addDays(DATE, -1)), calm(BOTH, "zomato", WEEK, 2_000_000, 40)],
+    });
+    expect(first.findings.some((finding) => finding.code === "d_online")).toBe(false);
+    expect(first.ownerQuestions).toHaveLength(1);
     const result = pipeline({
       id: "DS-08",
       outlets: [{ ...BOTH, platforms: ["zomato"] }],
-      asOf: addDays(DATE, 3),
-      days: [
-        day(BOTH.id, "zomato", DATE, {
-          ops_sales_paise: point(2_000_000),
-          delivered_orders: point(0),
-          online_pct: point(0),
-          rating: point(4.2),
-        }),
-        calm(BOTH, "zomato", WEEK, 2_000_000, 40),
-      ],
+      days: [offline(DATE), offline(addDays(DATE, -1)), calm(BOTH, "zomato", WEEK, 2_000_000, 40)],
     });
     expect(result.text).toContain(
       "🔴 Zomato was offline all day Sat 14 Nov (0 orders, usually 40).",
@@ -1512,6 +1526,21 @@ describe("brief edge cases", () => {
     expect(filled.step.alerts.some((alert) => alert.resolvedReason === "revised")).toBe(true);
     expect(filled.text).toContain("Correction:");
     expect(filled.text).toContain("earlier alert is withdrawn");
+    expect(filled.text.indexOf("Correction:")).toBeLessThan(filled.text.indexOf("Good morning"));
+    const hidden = pipeline({
+      id: "AL-14c",
+      outlets: [{ ...BOTH, platforms: ["zomato"] }],
+      days: [...pair(BOTH, "zomato", 1_980_000)],
+      existing: low.step.alerts,
+      config: resolveOpsRulesConfig({ correction: { inBrief: false } }),
+    });
+    expect(hidden.text).not.toContain("Correction:");
+    expect(
+      nextReportDelivery(
+        { version: 1, status: "red", ready: true, text: low.text },
+        { status: filled.status, ready: true, text: filled.text, notifyUpdate: false },
+      ).shouldNotify,
+    ).toBe(false);
   });
 
   it("AL-15 a snoozed watch is hidden and an escalation is not", () => {
@@ -1985,7 +2014,9 @@ describe("brief edge cases", () => {
 
   it("X-03 the wait window defaults to 3 days", () => {
     expect(DEFAULT_OPS_RULES_CONFIG.blank.waitDays.value).toBe(3);
-    expect(DEFAULT_OPS_RULES_CONFIG.configVersion).toBe("ops-daily/2026-11-15.3");
+    expect(DEFAULT_OPS_RULES_CONFIG.zero.waitDays.value).toBe(2);
+    expect(DEFAULT_OPS_RULES_CONFIG.zero.askOwner).toBe(true);
+    expect(DEFAULT_OPS_RULES_CONFIG.configVersion).toBe("ops-daily/2026-11-16.1");
     expect(resolveOpsRulesConfig({ blank: { waitDays: { value: 2 } } }).blank.waitDays.value).toBe(
       2,
     );
@@ -2169,6 +2200,193 @@ describe("brief edge cases", () => {
 });
 
 describe("brief properties", () => {
+  it("ZD-03 a later closed answer withdraws the alert", () => {
+    const zeros = (date: string): OpsAppDay =>
+      day(BOTH.id, "zomato", date, {
+        ops_sales_paise: point(0),
+        delivered_orders: point(0),
+        online_pct: point(0),
+        rating: point(0),
+      });
+    const opened = pipeline({
+      id: "ZD-03",
+      outlets: [{ ...BOTH, platforms: ["zomato"] }],
+      days: [zeros(DATE), zeros(addDays(DATE, -1)), calm(BOTH, "zomato", WEEK, 2_000_000, 40)],
+    });
+    expect(opened.step.alerts.some((alert) => alert.ruleCode === "d_zero_orders")).toBe(true);
+    const withdrawn = pipeline({
+      id: "ZD-03b",
+      outlets: [{ ...BOTH, platforms: ["zomato"] }],
+      days: [zeros(DATE), zeros(addDays(DATE, -1)), calm(BOTH, "zomato", WEEK, 2_000_000, 40)],
+      existing: opened.step.alerts,
+      outletDays: [{ outletId: BOTH.id, date: DATE, status: "closed" }],
+    });
+    expect(
+      withdrawn.step.alerts.find((alert) => alert.ruleCode === "d_zero_orders")?.resolvedReason,
+    ).toBe("revised");
+    expect(withdrawn.text.startsWith("Correction:")).toBe(true);
+    expect(withdrawn.text).toContain("was closed");
+    expect(withdrawn.current.ownerQuestions).toEqual([]);
+  });
+
+  it("ZD-04 an open answer still waits for the streak", () => {
+    const zeros = (date: string): OpsAppDay =>
+      day(BOTH.id, "zomato", date, {
+        ops_sales_paise: point(0),
+        delivered_orders: point(0),
+      });
+    const answered = evaluateDaily({
+      date: DATE,
+      outlets: [{ ...BOTH, platforms: ["zomato"] }],
+      days: [zeros(DATE), calm(BOTH, "zomato", WEEK, 2_000_000, 40)],
+      outletDays: [{ outletId: BOTH.id, date: DATE, status: "open" }],
+    });
+    expect(answered.findings.some((finding) => finding.code === "d_zero_orders")).toBe(false);
+    expect(answered.ownerQuestions).toEqual([]);
+    const streak = evaluateDaily({
+      date: DATE,
+      outlets: [{ ...BOTH, platforms: ["zomato"] }],
+      days: [zeros(DATE), zeros(addDays(DATE, -1)), calm(BOTH, "zomato", WEEK, 2_000_000, 40)],
+      outletDays: [
+        { outletId: BOTH.id, date: DATE, status: "open" },
+        { outletId: BOTH.id, date: addDays(DATE, -1), status: "open" },
+      ],
+    });
+    expect(streak.findings.some((finding) => finding.code === "d_zero_orders")).toBe(true);
+  });
+
+  it("ZD-05 a closed day is left out of the comparison", () => {
+    const dropped = evaluateDaily({
+      date: DATE,
+      outlets: [{ ...BOTH, platforms: ["zomato"] }],
+      days: [calm(BOTH, "zomato", DATE, 200_000), calm(BOTH, "zomato", WEEK, 2_000_000)],
+      outletDays: [{ outletId: BOTH.id, date: WEEK, status: "closed" }],
+    });
+    expect(dropped.findings.some((finding) => finding.code === "d_sales_drop")).toBe(false);
+    const week = weekSales(
+      DATE,
+      [
+        { date: DATE, outletId: BOTH.id, platform: "zomato", salesPaise: 100 },
+        { date: WEEK, outletId: BOTH.id, platform: "zomato", salesPaise: 400 },
+        { date: "2026-11-13", outletId: BOTH.id, platform: "zomato", salesPaise: 100 },
+        { date: "2026-11-06", outletId: BOTH.id, platform: "zomato", salesPaise: 100 },
+      ],
+      [{ outletId: BOTH.id, date: DATE }],
+    );
+    expect(week?.pendingLabel).toBeNull();
+    expect(week?.endLabel).toBe("Fri");
+  });
+
+  it("ZD-06 askOwner false skips the question and still waits", () => {
+    const result = pipeline({
+      id: "ZD-06",
+      outlets: [{ ...BOTH, platforms: ["zomato"] }],
+      config: resolveOpsRulesConfig({ zero: { askOwner: false } }),
+      days: [
+        day(BOTH.id, "zomato", DATE, {
+          ops_sales_paise: point(0),
+          delivered_orders: point(0),
+        }),
+        calm(BOTH, "zomato", WEEK, 2_000_000, 40),
+      ],
+    });
+    expect(result.current.ownerQuestions).toEqual([]);
+    expect(result.text).not.toContain("Was it closed or open?");
+    expect(result.current.findings.some((finding) => finding.code === "d_zero_orders")).toBe(false);
+  });
+
+  it("AD-01 the pending header is a config key", () => {
+    const named = pipeline({ id: "AD-01", days: pair(BOTH, "zomato") });
+    expect(named.text).toContain("🟢 Zomato healthy · Swiggy pending");
+    const generic = pipeline({
+      id: "AD-01b",
+      days: pair(BOTH, "zomato"),
+      config: resolveOpsRulesConfig({ header: { namePendingApp: false } }),
+    });
+    expect(generic.text).not.toContain("Swiggy pending");
+    expect(generic.text).toContain("pending");
+  });
+
+  it("AD-03 a same-colour Act now re-sends only when the key is on", () => {
+    const sent = nextReportDelivery(
+      { version: 1, status: "red", ready: true, text: "one" },
+      { status: "red", ready: true, text: "two", notifyUpdate: true },
+    );
+    expect(sent).toMatchObject({ shouldNotify: true, reason: "update" });
+    const held = nextReportDelivery(
+      { version: 1, status: "red", ready: true, text: "one" },
+      { status: "red", ready: true, text: "two", notifyUpdate: true, updateOnActNow: false },
+    );
+    expect(held.shouldNotify).toBe(false);
+    expect(DEFAULT_OPS_RULES_CONFIG.delivery.updateOnActNow).toBe(true);
+  });
+
+  it("AD-08 a listed holiday caps the drop at Watch", () => {
+    const result = pipeline({
+      id: "AD-08",
+      outlets: [{ ...BOTH, platforms: ["zomato"] }],
+      config: resolveOpsRulesConfig({ holidayDates: [DATE] }),
+      days: [calm(BOTH, "zomato", DATE, 200_000), calm(BOTH, "zomato", WEEK, 2_000_000)],
+    });
+    expect(result.text).toContain("(festival week)");
+    expect(result.text).toContain("🟡");
+    expect(result.text).not.toContain("🔴");
+  });
+
+  it("AD-09 an escalation stays Act now until it clears", () => {
+    expect(DEFAULT_OPS_RULES_CONFIG.escalation.stayActNow).toBe(true);
+    let alert: AlertState | null = null;
+    for (const date of ["2026-11-01", "2026-11-02", "2026-11-03", "2026-11-04"]) {
+      alert = stepAlert(alert, {
+        date,
+        dedupeKey: "daily:d_food_ready:out_test:swiggy",
+        ruleCode: "d_food_ready",
+        family: "d_food_ready",
+        outletId: BOTH.id,
+        platform: "swiggy",
+        outcome: {
+          kind: "fire",
+          severity: "watch",
+          value: 80,
+          threshold: 85,
+          baselineValue: null,
+          text: "Swiggy food ready 80.0%.",
+          fixKey: "d_food_ready",
+          fix: "Fix.",
+          evidence: [],
+          provisional: false,
+        },
+      }).alert;
+    }
+    expect(alert?.severity).toBe("act_now");
+    const loose = resolveOpsRulesConfig({ escalation: { stayActNow: false } });
+    let flipped: AlertState | null = alert;
+    for (const date of ["2026-11-05", "2026-11-06"]) {
+      flipped = stepAlert(flipped, {
+        date,
+        dedupeKey: "daily:d_food_ready:out_test:swiggy",
+        ruleCode: "d_food_ready",
+        family: "d_food_ready",
+        outletId: BOTH.id,
+        platform: "swiggy",
+        config: loose,
+        outcome: {
+          kind: "fire",
+          severity: "watch",
+          value: 80,
+          threshold: 85,
+          baselineValue: null,
+          text: "Swiggy food ready 80.0%.",
+          fixKey: "d_food_ready",
+          fix: "Fix.",
+          evidence: [],
+          provisional: false,
+        },
+      }).alert;
+    }
+    expect(flipped?.severity).toBe("watch");
+  });
+
   it("G1 a displayed mark matches a stored severity", () => {
     const probe = probes.find((item) => item.id === "MT-01");
     expect(probe?.text).toContain("🔴");

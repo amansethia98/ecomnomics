@@ -47,7 +47,9 @@ export function composeDailyBrief(view: DailyBriefView): {
 
   const callouts = view.callouts.slice(0, CALLOUT_LIMIT);
   const status = briefStatus(callouts.length > 0 ? callouts : statusCallouts(view));
-  const lines: Line[] = [{ text: greeting(view) }, { text: headline(view, callouts) }];
+  const lines: Line[] = [];
+  for (const correction of view.corrections ?? []) lines.push({ text: correction });
+  lines.push({ text: greeting(view) }, { text: headline(view, callouts) });
   const sales = salesLine(view);
   if (sales) lines.push({ text: sales });
   if (view.delivered != null) {
@@ -69,7 +71,6 @@ export function composeDailyBrief(view: DailyBriefView): {
   for (const extra of view.catchUp) lines.push({ text: extra });
   if (view.ongoing) lines.push({ text: view.ongoing, drop: "ongoing" });
   if (view.resolved) lines.push({ text: view.resolved, drop: "resolved" });
-  for (const correction of view.corrections ?? []) lines.push({ text: correction });
   const note = noteLine(view);
   if (note) lines.push({ text: note });
   return done(cap(lines, callouts.length > 0), status);
@@ -139,7 +140,13 @@ export function viewFromDaily(input: {
       fix: finding.fix,
     }));
   const counts = built?.counts ?? countMarks(callouts);
-  const statusText = headerStatus(counts, apps);
+  const asking = input.evaluation.ownerQuestions.length > 0;
+  let statusText = headerStatus(counts, apps, config.header.namePendingApp);
+  if (asking && statusText === "🟢 Healthy") statusText = "";
+  const closing =
+    asking && counts.act + counts.watch === 0
+      ? ""
+      : closingText(counts, apps, onlyApp, config.header.namePendingApp);
   const excluded = exclusionNote(input.evaluation);
   return {
     restaurantName: input.restaurantName,
@@ -170,9 +177,9 @@ export function viewFromDaily(input: {
     healthyOutlets: built?.healthyOutlets ?? healthyOutlets(input.evaluation, findings),
     outletCount: input.evaluation.snapshots.length,
     statusText,
-    closingText: closingText(counts, apps, onlyApp),
+    closingText: closing,
     overflow: built?.overflow ?? 0,
-    corrections: built?.corrections ?? [],
+    corrections: config.correction.inBrief ? (built?.corrections ?? []) : [],
     outletSummary: built?.outletSummary ?? null,
     exclusion: excluded,
     connect: connected.length === 0,
@@ -349,9 +356,10 @@ function countMarks(callouts: Array<{ severity: OpsAlertSeverity }>) {
 function headerStatus(
   counts: { act: number; watch: number },
   apps: DailyEvaluation["snapshots"][number]["apps"],
+  namePendingApp: boolean,
 ): string {
   const connected = apps.filter((app) => app.mode !== "absent");
-  const tails = uniqueTails(connected);
+  const tails = uniqueTails(connected, namePendingApp);
   const mark =
     counts.act > 0 && counts.watch > 0
       ? `🔴 Act now (${counts.act}) · 🟡 Watch (${counts.watch})`
@@ -372,7 +380,16 @@ function headerStatus(
   return tails.join(" · ");
 }
 
-function uniqueTails(apps: Array<{ platform: "zomato" | "swiggy"; mode: string }>): string[] {
+function uniqueTails(
+  apps: Array<{ platform: "zomato" | "swiggy"; mode: string }>,
+  namePendingApp = true,
+): string[] {
+  if (!namePendingApp) {
+    const tails: string[] = [];
+    if (apps.some((app) => app.mode === "lag_missing")) tails.push("pending");
+    if (apps.some((app) => app.mode === "failed")) tails.push("not updated");
+    return tails;
+  }
   const tails: string[] = [];
   for (const app of apps) {
     const label = appLabel(app.platform);
@@ -386,10 +403,11 @@ function closingText(
   counts: { act: number; watch: number },
   apps: DailyEvaluation["snapshots"][number]["apps"],
   onlyApp: "Zomato" | "Swiggy" | null,
+  namePendingApp = true,
 ): string {
   if (counts.act + counts.watch > 0) return "";
   const connected = apps.filter((app) => app.mode !== "absent");
-  const tails = uniqueTails(connected);
+  const tails = uniqueTails(connected, namePendingApp);
   if (tails.length === 0) return `All good on ${onlyApp ?? "both apps"}.`;
   const ready = [
     ...new Set(
@@ -426,9 +444,18 @@ function healthyOutlets(
 
 export function weekSales(
   date: string,
-  days: Array<{ date: string; platform?: "zomato" | "swiggy"; salesPaise: number | null }>,
+  days: Array<{
+    date: string;
+    platform?: "zomato" | "swiggy";
+    salesPaise: number | null;
+    outletId?: string;
+  }>,
+  closed: ReadonlyArray<{ outletId: string; date: string }> = [],
 ): DailyBriefView["week"] {
   if (weekMonday(date) === date) return null;
+  const closedKeys = new Set(closed.map((row) => `${row.outletId}|${row.date}`));
+  const skipped = (day: { date: string; outletId?: string }) =>
+    day.outletId != null && closedKeys.has(`${day.outletId}|${day.date}`);
   const start = weekMonday(date);
   let current = 0;
   let baseline = 0;
@@ -437,12 +464,15 @@ export function weekSales(
   let lastData: string | null = null;
   const used = new Set<string>();
   for (const day of days) {
+    if (skipped(day)) continue;
     if (day.date < start || day.date > date || day.salesPaise == null) continue;
     const prior = days.find(
       (item) =>
+        !skipped(item) &&
         item.date === addIso(day.date, -7) &&
         item.salesPaise != null &&
-        (item.platform ?? "all") === (day.platform ?? "all"),
+        (item.platform ?? "all") === (day.platform ?? "all") &&
+        (day.outletId == null || item.outletId === day.outletId),
     );
     if (!prior || prior.salesPaise == null) continue;
     current += day.salesPaise;
@@ -455,12 +485,14 @@ export function weekSales(
   if (pairs === 0 || baseline === 0 || !lastData || !firstData) return null;
   const change = pctChange(current, baseline);
   if (change == null) return null;
+  const today = days.filter((day) => day.date === date);
+  const todayClosed = today.length > 0 && today.every((day) => skipped(day));
   return {
     startLabel: formatWeekdayShort(firstData),
     endLabel: formatWeekdayShort(lastData),
     currentPaise: current,
     changePct: change,
-    pendingLabel: used.has(date) ? null : `${formatWeekdayShort(date)} not in yet`,
+    pendingLabel: used.has(date) || todayClosed ? null : `${formatWeekdayShort(date)} not in yet`,
   };
 }
 
@@ -549,7 +581,7 @@ function headline(view: DailyBriefView, callouts: DailyBriefView["callouts"]): s
   const compared = view.baselineDate ? comparedWith(view.date, view.baselineDate) : null;
   const when = compared ? `${formatCivilDay(view.date)} vs ${compared}` : formatCivilDay(view.date);
   const status = view.statusText ?? statusLabel(callouts);
-  return `${when} · ${status}`;
+  return status ? `${when} · ${status}` : when;
 }
 
 function comparedWith(date: string, baseline: string): string {

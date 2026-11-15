@@ -675,6 +675,91 @@ describePostgres("daily ops brief (PostgreSQL)", () => {
     }
   }
 
+  it("stores an outlet-day answer and asks before a zero day alerts", async () => {
+    await runAsSystem("ops zero day", async () => {
+      await seedDay(restaurantA, spaceA, outletA, "2026-04-04", 800_000, 700_000, 40);
+      for (const platform of ["zomato", "swiggy"] as const) {
+        const key = platform === "zomato" ? "ops_sales_paise" : "swiggy_net_sales_paise";
+        for (const [metric, value] of [
+          [key, 0],
+          ["delivered_orders", 0],
+        ] as const) {
+          await ownerDb.metricValue.create({
+            data: {
+              restaurantId: restaurantA,
+              spaceId: spaceA,
+              outletId: outletA,
+              platform,
+              granularity: "day",
+              periodStart: new Date("2026-04-11T00:00:00.000Z"),
+              periodEnd: new Date("2026-04-12T00:00:00.000Z"),
+              key: metric,
+              value,
+              rowRole: "fact",
+              runId: "ops-zero",
+              source: "fixture",
+              capturedAt: new Date("2026-04-12T00:18:00.000Z"),
+            },
+          });
+        }
+      }
+    });
+    const asked = await call(agent, "POST", "/agent/v1/ops/runs", tokenA, {
+      kind: "daily",
+      date: "2026-04-11",
+      runId: "zero-ask",
+    });
+    expect(asked.status).toBe(200);
+    const askedBody = (await asked.json()) as {
+      message: { text: string };
+      ownerQuestions: Array<{ outletId: string; platform: string; date: string; kind: string }>;
+    };
+    expect(askedBody.message.text).toContain("Was it closed or open?");
+    expect(askedBody.message.text).not.toContain("had no orders");
+    expect(askedBody.ownerQuestions.map((question) => question.platform)).toEqual([
+      "zomato",
+      "swiggy",
+    ]);
+    expect(askedBody.ownerQuestions.every((question) => question.kind === "zero_day")).toBe(true);
+
+    const saved = await call(agent, "POST", "/agent/v1/outlet-days", tokenA, {
+      outletId: outletA,
+      date: "2026-04-11",
+      status: "closed",
+      source: "whatsapp",
+    });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({
+      outletId: outletA,
+      date: "2026-04-11",
+      status: "closed",
+    });
+    const again = await call(agent, "POST", "/agent/v1/outlet-days", tokenA, {
+      outletId: outletA,
+      date: "2026-04-11",
+      status: "open",
+      source: "in_app",
+    });
+    expect((await again.json()) as { status: string }).toMatchObject({ status: "open" });
+    const outsider = await call(agent, "POST", "/agent/v1/outlet-days", tokenB, {
+      outletId: outletA,
+      date: "2026-04-11",
+      status: "closed",
+      source: "whatsapp",
+    });
+    expect(outsider.status).toBe(422);
+    expect(
+      await runAsTenant({ spaceId: spaceB, userId: userB }, () =>
+        db.outletDayAnswer.count({ where: { outletId: outletA } }),
+      ),
+    ).toBe(0);
+    expect(
+      await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+        db.outletDayAnswer.count({ where: { outletId: outletA } }),
+      ),
+    ).toBe(1);
+  });
+
   async function seedDay(
     restaurantId: string,
     spaceId: string,

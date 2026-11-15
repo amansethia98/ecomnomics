@@ -18,6 +18,7 @@ import {
   METRIC_KEYS,
   OpsDeliveryRequestSchema,
   OpsRunRequestSchema,
+  OutletDayRequestSchema,
   OwnerMetricsQuerySchema,
   ownerMetricsErrorMessage,
   PatchActionSchema,
@@ -47,6 +48,7 @@ import {
   readOwnerMetrics,
   readRestaurant,
   recordOpsDelivery,
+  recordOutletDay,
   reportFileForUpload,
   runAsTenant,
   runDailyOps,
@@ -110,6 +112,7 @@ export function restaurantAgentRoutes(options: RestaurantAgentRouteOptions) {
   app.use("/agent/v1/actions/:actionId", jsonLimit);
   app.use("/agent/v1/runs", jsonLimit);
   app.use("/agent/v1/ops/runs", jsonLimit);
+  app.use("/agent/v1/outlet-days", jsonLimit);
   app.use("/agent/v1/ops/reports/:reportId/deliveries", jsonLimit);
 
   app.use("/agent/v1/*", async (c, next) => {
@@ -354,6 +357,15 @@ export function restaurantAgentRoutes(options: RestaurantAgentRouteOptions) {
       const input = CreateJobRunSchema.parse(await readJson(c));
       const run = await upsertJobRun(options.prisma, scopeOf(c), input);
       return c.json(run);
+    } catch (error) {
+      return agentFailure(c, error);
+    }
+  });
+
+  app.post("/agent/v1/outlet-days", async (c) => {
+    try {
+      const input = OutletDayRequestSchema.parse(await readJson(c));
+      return c.json(await recordOutletDay(options.prisma, scopeOf(c), input));
     } catch (error) {
       return agentFailure(c, error);
     }

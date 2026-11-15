@@ -177,6 +177,15 @@ export interface DailyEvaluationInput {
    * Defaults to the day after `date`.
    */
   asOf?: string;
+  /** Owner answers for an outlet on a civil date. Latest answer wins. */
+  outletDays?: ReadonlyArray<{ outletId: string; date: string; status: "closed" | "open" }>;
+}
+
+export interface OwnerQuestion {
+  outletId: string;
+  platform: OpsPlatform;
+  date: string;
+  kind: "zero_day";
 }
 
 export interface OpsCell {
@@ -224,8 +233,10 @@ export interface DailyClear {
   dedupeKey: string;
   outletId: string;
   platform: OpsScopePlatform;
-  /** Set when this clear withdraws a same-day alert. */
+  /** Set when this clear withdraws an alert that was already sent. */
   correction?: string;
+  /** Resolve on this run instead of waiting out the clear window. */
+  withdraw?: boolean;
 }
 
 export interface DailyHold {
@@ -280,6 +291,7 @@ export interface DailyEvaluation {
   snapshots: DailySnapshot[];
   ready: boolean;
   notes: string[];
+  ownerQuestions: OwnerQuestion[];
 }
 
 export interface OpsBlock {
@@ -373,7 +385,7 @@ export type AlertOutcome =
       evidence: OpsCell[];
       provisional: boolean;
     }
-  | { kind: "clear" }
+  | { kind: "clear"; withdraw?: boolean }
   | { kind: "frozen" };
 
 export interface AlertTransition {
@@ -441,6 +453,8 @@ export interface OpsRunResult {
   /** Read from ops config. The runner does not push while this is true. */
   shadowMode: boolean;
   alerts: { opened: string[]; escalated: string[]; resolved: string[]; ongoing: string[] };
+  /** Unanswered zero or offline days the runner should ask about. */
+  ownerQuestions: OwnerQuestion[];
 }
 
 export interface OpsReport {
@@ -480,6 +494,16 @@ export interface OpsAlertView {
   evidence: OpsCell[];
   snoozedUntil: string | null;
 }
+
+export const OutletDayRequestSchema = z
+  .object({
+    outletId: z.string().min(1),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    status: z.enum(["closed", "open"]),
+    source: z.string().min(1).max(200),
+  })
+  .strict();
+export type OutletDayRequest = z.infer<typeof OutletDayRequestSchema>;
 
 export const OpsRunRequestSchema = z.object({
   kind: z.enum(["daily", "weekly", "payout_check"]),
