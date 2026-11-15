@@ -57,16 +57,14 @@ ALTER TABLE "metric_label_events" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "metric_relabel_attempts" ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY metric_label_events_system ON "metric_label_events"
-  USING ((SELECT app_rls_bypass()))
-  WITH CHECK ((SELECT app_rls_bypass()));
+  USING ((SELECT app_rls_bypass()));
 
 CREATE POLICY metric_relabel_attempts_tenant_read ON "metric_relabel_attempts"
   FOR SELECT USING ("spaceId" = NULLIF(current_setting('app.space_id', true), ''));
 CREATE POLICY metric_relabel_attempts_tenant_insert ON "metric_relabel_attempts"
   FOR INSERT WITH CHECK ("spaceId" = NULLIF(current_setting('app.space_id', true), ''));
 CREATE POLICY metric_relabel_attempts_system ON "metric_relabel_attempts"
-  USING ((SELECT app_rls_bypass()))
-  WITH CHECK ((SELECT app_rls_bypass()));
+  USING ((SELECT app_rls_bypass()));
 
 -- Findings were select-only for an admin. Approving one updates the row and may open an absent finding.
 DO $$
