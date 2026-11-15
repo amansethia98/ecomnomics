@@ -78,9 +78,10 @@ export function viewFromDaily(input: {
 }): DailyBriefView {
   const findings = displayFindings(input.evaluation.findings);
   const apps = input.evaluation.snapshots.flatMap((snapshot) => snapshot.apps);
-  const ready = apps.filter((app) => app.mode === "ready");
-  const failed = apps.filter((app) => app.mode === "failed" || app.mode === "lag_missing");
-  const noData = ready.length === 0 && failed.length > 0;
+  const connected = apps.filter((app) => app.mode !== "absent");
+  const ready = connected.filter((app) => app.mode === "ready");
+  const failed = connected.filter((app) => app.mode === "failed" || app.mode === "lag_missing");
+  const noData = connected.length === 0 || (ready.length === 0 && failed.length > 0);
   const lagOnly =
     findings.length === 0 &&
     ready.some((app) => app.platform === "zomato") &&
@@ -215,7 +216,17 @@ function notesFor(evaluation: DailyEvaluation): string[] {
       );
     }
   }
-  return notes;
+  return [...new Set(notes)];
+}
+
+/** Add the sales that are present. A missing outlet or app is left out, not stored as zero. */
+export function combinedDaySales(rows: Array<{ salesPaise: number | null }>): number | null {
+  let total: number | null = null;
+  for (const row of rows) {
+    if (row.salesPaise == null) continue;
+    total = (total ?? 0) + row.salesPaise;
+  }
+  return total;
 }
 
 function greeting(view: DailyBriefView): string {
@@ -270,7 +281,7 @@ function weekLine(view: DailyBriefView): string {
 
 function closing(view: DailyBriefView): string {
   const who = view.onlyApp ? view.onlyApp : "both apps";
-  const stamp = view.dataAsOf ? ` Data as of ${view.dataAsOf}.` : "";
+  const stamp = view.notes.length === 0 && view.dataAsOf ? ` Data as of ${view.dataAsOf}.` : "";
   return `All good on ${who}.${stamp}`;
 }
 
@@ -281,11 +292,12 @@ function calloutLine(callout: { severity: OpsAlertSeverity; text: string; fix: s
 }
 
 function noteLine(view: DailyBriefView): string | null {
-  if (view.notes.length === 0 && !view.dataAsOf) return null;
-  if (view.callouts.length === 0) return null;
-  const note = view.notes.join(" ");
+  if (view.notes.length === 0) {
+    if (view.callouts.length === 0 || !view.dataAsOf) return null;
+    return `Data as of ${view.dataAsOf}.`;
+  }
   const stamp = view.dataAsOf ? `Data as of ${view.dataAsOf}.` : "";
-  return [note, stamp].filter((part) => part.length > 0).join(" ");
+  return [view.notes.join(" "), stamp].filter((part) => part.length > 0).join(" ");
 }
 
 function lagSentence(view: DailyBriefView): string {

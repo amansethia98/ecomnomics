@@ -756,8 +756,43 @@ function isReady(snapshots: DailySnapshot[]): boolean {
   const connected = snapshots.flatMap((snapshot) =>
     snapshot.apps.filter((app) => app.mode !== "absent"),
   );
-  if (connected.length === 0) return true;
+  if (connected.length === 0) return false;
   return connected.some((app) => app.mode === "ready");
+}
+
+/** Sales and delivered orders add across outlets. Rates stay on each outlet. */
+export function rollupDailyApps(snapshots: DailySnapshot[]): DailyAppSnapshot[] {
+  return (["zomato", "swiggy"] as const).map((platform) => {
+    const ready = snapshots.flatMap((snapshot) =>
+      snapshot.apps.filter((app) => app.platform === platform && app.mode === "ready"),
+    );
+    if (ready.length === 0) {
+      const present = snapshots.some((snapshot) =>
+        snapshot.apps.some((app) => app.platform === platform && app.mode !== "absent"),
+      );
+      return present ? { ...absentApp(platform), mode: "failed" as const } : absentApp(platform);
+    }
+    return {
+      platform,
+      mode: "ready",
+      ingest: null,
+      retryable: false,
+      lagBanner: ready.some((app) => app.lagBanner),
+      salesPaise: sumPresent(ready.map((app) => app.salesPaise)),
+      baselineSalesPaise: sumPresent(ready.map((app) => app.baselineSalesPaise)),
+      baselineDate: ready.find((app) => app.baselineDate)?.baselineDate ?? null,
+      delivered: sumPresent(ready.map((app) => app.delivered)),
+      onlinePct: null,
+      prepMinutes: null,
+      prepBaseline: null,
+    };
+  });
+}
+
+function sumPresent(values: Array<number | null>): number | null {
+  const present = values.filter((value): value is number => value != null);
+  if (present.length === 0) return null;
+  return present.reduce((total, value) => total + value, 0);
 }
 
 function cell(

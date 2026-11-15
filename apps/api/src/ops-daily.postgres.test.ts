@@ -30,6 +30,7 @@ describePostgres("daily ops brief (PostgreSQL)", () => {
   let restaurantA = "";
   let restaurantB = "";
   let outletA = "";
+  let outletB = "";
   const spaceA = `ops-a-${suffix}`;
   const spaceB = `ops-b-${suffix}`;
   const userA = `ops-user-a-${suffix}`;
@@ -120,12 +121,23 @@ describePostgres("daily ops brief (PostgreSQL)", () => {
         swiggyRid: "S-TEST-0001",
       });
       outletA = outlet.id;
-      await createOutlet(ownerDb, restaurantB, {
-        name: "Other",
+      const other = await createOutlet(ownerDb, restaurantB, {
+        name: "Park Street",
         city: "Testcity",
         zomatoResId: "Z-TEST-0002",
         swiggyRid: "S-TEST-0002",
       });
+      outletB = other.id;
+      const second = await createOutlet(ownerDb, restaurantB, {
+        name: "New Town",
+        city: "Testcity",
+        zomatoResId: "Z-TEST-0003",
+        swiggyRid: "S-TEST-0003",
+      });
+      await seedDay(restaurantB, spaceB, outletB, "2026-02-14", 200_000, 100_000, 20);
+      await seedDay(restaurantB, spaceB, outletB, "2026-02-07", 400_000, 200_000, 20);
+      await seedDay(restaurantB, spaceB, second.id, "2026-02-14", 300_000, 150_000, 20);
+      await seedDay(restaurantB, spaceB, second.id, "2026-02-07", 500_000, 250_000, 20);
       tokenA = await mintAgentToken(ownerDb, restaurantA, "ops");
       tokenB = await mintAgentToken(ownerDb, restaurantB, "ops");
       await seedDay(restaurantA, spaceA, outletA, "2026-03-14", 570_000, 720_000, 20);
@@ -345,6 +357,55 @@ describePostgres("daily ops brief (PostgreSQL)", () => {
     expect(heldBody.readiness.blockers).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: "fetch_held", retryable: false })]),
     );
+  });
+
+  it("rolls two outlets into one brief and lets a second run wait", async () => {
+    const [left, right] = await Promise.all([
+      call(agent, "POST", "/agent/v1/ops/runs", tokenB, {
+        kind: "daily",
+        date: "2026-02-14",
+        runId: "run-left",
+      }),
+      call(agent, "POST", "/agent/v1/ops/runs", tokenB, {
+        kind: "daily",
+        date: "2026-02-14",
+        runId: "run-right",
+      }),
+    ]);
+    expect(left.status).toBe(200);
+    expect(right.status).toBe(200);
+    const body = (await left.json()) as { reportId: string; message: { text: string } };
+    expect(body.message.text).toContain("Zomato ₹5,000");
+    const stored = (await (
+      await call(agent, "GET", `/agent/v1/ops/reports/${body.reportId}`, tokenB)
+    ).json()) as {
+      restaurant: {
+        metrics: {
+          zomato: Array<{ key: string; value: number }>;
+          swiggy: Array<{ key: string; value: number }>;
+        };
+      } | null;
+      outlets: Array<{ outletId: string }>;
+    };
+    expect(stored.outlets).toHaveLength(2);
+    expect(
+      stored.restaurant?.metrics.zomato.find((cell) => cell.key === "ops_sales_paise")?.value,
+    ).toBe(500_000);
+    expect(
+      stored.restaurant?.metrics.swiggy.find((cell) => cell.key === "swiggy_net_sales_paise")
+        ?.value,
+    ).toBe(250_000);
+    const alerts = (await (
+      await call(agent, "GET", "/agent/v1/ops/alerts?status=open", tokenB)
+    ).json()) as { alerts: Array<{ occurrences: number }> };
+    expect(alerts.alerts.length).toBeGreaterThan(0);
+    expect(alerts.alerts.every((alert) => alert.occurrences === 1)).toBe(true);
+    const opened = await runAsSystem("ops overlap check", () =>
+      ownerDb.opsAlertEvent.count({
+        where: { restaurantId: restaurantB, kind: "opened" },
+      }),
+    );
+    expect(opened).toBe(alerts.alerts.length);
   });
 
   it("rejects a weekly run, a bad date, and a day that is not finished", async () => {

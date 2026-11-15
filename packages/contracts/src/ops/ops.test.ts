@@ -6,13 +6,14 @@ import {
   snoozeAlert,
   stepAlert,
 } from "./alerts.js";
-import { composeDailyBrief, viewFromDaily } from "./brief.js";
+import { combinedDaySales, composeDailyBrief, viewFromDaily, weekSales } from "./brief.js";
 import { addDays } from "./format.js";
 import {
   displayFindings,
   evaluateDaily,
   findingsUseOnlyDailyPrep,
   noCombinedNonSummable,
+  rollupDailyApps,
 } from "./rules.js";
 import type { AlertOutcome, AlertState, DailyOutlet, OpsAppDay, OpsMetricPoint } from "./types.js";
 import {
@@ -515,6 +516,45 @@ describe("alert lifecycle", () => {
     expect(second.alerts[0]?.lastValue).toBe(12);
     expect(second.notify).toEqual([]);
   });
+
+  it("does not replay an older day after the report day is already applied", () => {
+    const finding = (value: number) => ({
+      code: "d_delayed" as const,
+      family: "d_delayed",
+      dedupeKey: identity.dedupeKey,
+      outletId: OUTLET.id,
+      outletName: OUTLET.name,
+      platform: "swiggy" as const,
+      severity: "watch" as const,
+      provisional: false,
+      value,
+      threshold: 8,
+      baselineValue: null,
+      baselineDate: null,
+      fixKey: "d_delayed",
+      fix: dailyFix("d_delayed", "swiggy"),
+      text: "Swiggy delayed orders 2 of 18 delivered (11.1%).",
+      evidence: [],
+    });
+    const pass = (date: string, value: number, existing: AlertState[]) =>
+      applyDailyAlerts({
+        date,
+        findings: [finding(value)],
+        clears: [],
+        holds: [],
+        frozenScopes: [],
+        existing,
+      });
+    const first = pass("2026-11-13", 11, []);
+    const report = pass("2026-11-14", 12, first.alerts);
+    const replayedEarlier = pass("2026-11-13", 11, report.alerts);
+    const replayed = pass("2026-11-14", 13, replayedEarlier.alerts);
+    expect(replayed.alerts[0]?.occurrences).toBe(2);
+    expect(replayed.alerts[0]?.consecutiveDays).toBe(2);
+    expect(replayed.alerts[0]?.lastValue).toBe(13);
+    expect(replayed.notify).toEqual([]);
+    expect(replayedEarlier.events).toEqual([]);
+  });
 });
 
 describe("daily brief", () => {
@@ -662,6 +702,49 @@ Note: Swiggy figures for Sat may change within 48 hours. Data as of 05:48.`;
       "Swiggy: not updated this morning (login expired, we're reconnecting).",
     );
     expect(one.onlyApp).toBe("Zomato");
+    expect(composeDailyBrief(one).text).toContain(
+      "Swiggy: not updated this morning (login expired, we're reconnecting).",
+    );
+
+    const quiet = viewFromDaily({
+      restaurantName: "Sample Kitchen",
+      evaluation: run([
+        day("zomato", DATE, {
+          ops_sales_paise: point(1_120_000),
+          delivered_orders: point(26),
+          online_pct: point(96),
+        }),
+        day("zomato", WEEK, { ops_sales_paise: point(1_070_000), delivered_orders: point(20) }),
+        day(
+          "swiggy",
+          DATE,
+          {
+            swiggy_net_sales_paise: point(720_000),
+            delivered_orders: point(16),
+            online_pct: point(96),
+            lag_banner: point(null),
+          },
+          { lagBanner: true },
+        ),
+        day("swiggy", WEEK, {
+          swiggy_net_sales_paise: point(663_000),
+          delivered_orders: point(16),
+        }),
+      ]),
+    });
+    expect(quiet.callouts).toEqual([]);
+    expect(composeDailyBrief(quiet).text).toContain(
+      "Note: Swiggy figures for Sat may change within 48 hours.",
+    );
+    expect(composeDailyBrief(quiet).text).toContain("All good on both apps.");
+
+    const empty = run([], [{ id: "out_empty", name: "Empty", platforms: [] }]);
+    expect(empty.ready).toBe(false);
+    expect(empty.blockers).toEqual([]);
+    expect(
+      composeDailyBrief(viewFromDaily({ restaurantName: "Sample Kitchen", evaluation: empty }))
+        .text,
+    ).toBe("No new data this morning; we'll update this when it lands.");
   });
 
   it("cuts a brief at 1,200 characters", () => {
@@ -725,6 +808,74 @@ Note: Swiggy figures for Sat may change within 48 hours. Data as of 05:48.`;
 
   it("leaves weekly and payout evaluation for the next release", () => {
     expect(weeklyRuleSet.evaluate({ weekStart: "2026-11-09" })).toBeNull();
+  });
+
+  it("adds sales across outlets and leaves rates on the outlet", () => {
+    const second = { ...OUTLET, id: "out_second", name: "Park Street" };
+    const days = [
+      day("zomato", DATE, { ops_sales_paise: point(200_000), delivered_orders: point(10) }),
+      day("swiggy", DATE, { swiggy_net_sales_paise: point(100_000), delivered_orders: point(4) }),
+      {
+        ...day("zomato", DATE, {
+          ops_sales_paise: point(300_000),
+          delivered_orders: point(12),
+          online_pct: point(60),
+        }),
+        outletId: second.id,
+      },
+      {
+        ...day("swiggy", DATE, {
+          swiggy_net_sales_paise: point(150_000),
+          delivered_orders: point(6),
+        }),
+        outletId: second.id,
+      },
+      day("zomato", WEEK, { ops_sales_paise: point(400_000), delivered_orders: point(10) }),
+      day("swiggy", WEEK, { swiggy_net_sales_paise: point(200_000), delivered_orders: point(4) }),
+      {
+        ...day("zomato", WEEK, { ops_sales_paise: point(500_000), delivered_orders: point(12) }),
+        outletId: second.id,
+      },
+      {
+        ...day("swiggy", WEEK, {
+          swiggy_net_sales_paise: point(250_000),
+          delivered_orders: point(6),
+        }),
+        outletId: second.id,
+      },
+    ];
+    expect(combinedDaySales(days.map(() => ({ salesPaise: null })))).toBeNull();
+    expect(
+      combinedDaySales([
+        { salesPaise: 200_000 },
+        { salesPaise: 100_000 },
+        { salesPaise: 300_000 },
+        { salesPaise: 150_000 },
+      ]),
+    ).toBe(750_000);
+    const evaluation = run(days, [OUTLET, second]);
+    const rolled = rollupDailyApps(evaluation.snapshots);
+    expect(rolled.find((app) => app.platform === "zomato")?.salesPaise).toBe(500_000);
+    expect(rolled.find((app) => app.platform === "zomato")?.delivered).toBe(22);
+    expect(rolled.find((app) => app.platform === "zomato")?.onlinePct).toBeNull();
+    const week = weekSales(
+      DATE,
+      ["2026-11-14", "2026-11-07"].map((date) => ({
+        date,
+        salesPaise: combinedDaySales(
+          days
+            .filter((item) => item.date === date)
+            .map((item) => ({
+              salesPaise:
+                item.platform === "zomato"
+                  ? (item.metrics.ops_sales_paise?.value ?? null)
+                  : (item.metrics.swiggy_net_sales_paise?.value ?? null),
+            })),
+        ),
+      })),
+    );
+    expect(week?.currentPaise).toBe(750_000);
+    expect(week?.changePct).toBeCloseTo(-44.4, 1);
   });
 
   it("does not put a UTR-like token in a brief", () => {

@@ -78,6 +78,10 @@ export function stepAlert(
     if (input.outcome.kind !== "fire") return ignore(null);
     return openNew(input.date, input, input.outcome);
   }
+  // A retry evaluates the previous day before the report day. Once a later
+  // day is already on the row, that older day must not move it again.
+  const applied = laterDate(existing.book.evaluatedOn, existing.book.frozenOn);
+  if (applied && input.date < applied) return ignore(existing);
   if (existing.book.evaluatedOn === input.date && input.outcome.kind === "fire") {
     return restate(existing, input.date, input.outcome);
   }
@@ -554,6 +558,12 @@ function stillSnoozed(alert: AlertState, date: string): boolean {
 
 function ignore(alert: AlertState | null): AlertTransition {
   return { action: "ignore", alert, events: [], notify: false, notifyReason: null };
+}
+
+function laterDate(left: string | undefined, right: string | undefined): string | null {
+  if (!left) return right ?? null;
+  if (!right) return left;
+  return left > right ? left : right;
 }
 
 function rank(severity: OpsAlertSeverity): number {

@@ -21,6 +21,7 @@ import {
   applyDailyAlerts,
   catchUpLine,
   civilRangeBounds,
+  combinedDaySales,
   composeDailyBrief,
   dailyFix,
   dismissAlert,
@@ -31,6 +32,7 @@ import {
   nextReportDelivery,
   ongoingLine,
   resolvedLine,
+  rollupDailyApps,
   snoozeAlert,
   utcMidnight,
   viewFromDaily,
@@ -92,59 +94,60 @@ export async function runDailyOps(
   const previousDate = addIsoDays(input.date, -1);
   const earlier = evaluateDaily({ date: previousDate, outlets: loaded.outlets, days: loaded.days });
   const current = evaluateDaily({ date: input.date, outlets: loaded.outlets, days: loaded.days });
-  const existing = await db.opsAlert.findMany({
-    where: { restaurantId: scope.restaurantId, spaceId: scope.spaceId, cadence: "daily" },
-  });
-  let alerts = existing.map(toAlertState);
-  const earlierStep = applyDailyAlerts({
-    date: previousDate,
-    findings: earlier.findings,
-    clears: earlier.clears,
-    holds: earlier.holds,
-    frozenScopes: earlier.frozenScopes,
-    existing: alerts,
-  });
-  alerts = earlierStep.alerts;
-  const step = applyDailyAlerts({
-    date: input.date,
-    findings: current.findings,
-    clears: current.clears,
-    holds: current.holds,
-    frozenScopes: current.frozenScopes,
-    existing: alerts,
-  });
-  const catchUp = earlier.findings
-    .filter((finding) => earlierStep.notify.includes(finding.dedupeKey))
-    .map((finding) => catchUpLine(previousDate, appLabel(finding.platform), finding.text));
-  const ongoingKeys = new Set(earlierStep.notify);
-  const ongoing = ongoingLine(
-    step.alerts
-      .filter(
-        (alert) =>
-          step.ongoing.includes(alert.dedupeKey) &&
-          !ongoingKeys.has(alert.dedupeKey) &&
-          alert.status !== "resolved",
-      )
-      .map((alert) => `${alert.text.replace(/\.$/, "")} (day ${alert.consecutiveDays})`),
-  );
-  const resolved = resolvedLine(
-    step.alerts
-      .filter((alert) => alert.resolvedReason === "cleared" && alert.resolvedAt === input.date)
-      .map((alert) => `${appLabel(alert.platform)} ${RESOLVED_NAME[alert.ruleCode] ?? "alert"}`),
-  );
-  const week = weekSales(input.date, weekDays(loaded.days));
-  const view = viewFromDaily({
-    restaurantName: loaded.name,
-    evaluation: current,
-    catchUp,
-    ongoing,
-    resolved,
-    dataAsOf: loaded.dataAsOf ? istClock(loaded.dataAsOf) : null,
-    week,
-  });
-  const brief = composeDailyBrief(view);
-  const payload = payloadOf(current);
   return db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`ops-daily:${scope.restaurantId}`}, 0))::text AS "lock"`;
+    const existing = await tx.opsAlert.findMany({
+      where: { restaurantId: scope.restaurantId, spaceId: scope.spaceId, cadence: "daily" },
+    });
+    let alerts = existing.map(toAlertState);
+    const earlierStep = applyDailyAlerts({
+      date: previousDate,
+      findings: earlier.findings,
+      clears: earlier.clears,
+      holds: earlier.holds,
+      frozenScopes: earlier.frozenScopes,
+      existing: alerts,
+    });
+    alerts = earlierStep.alerts;
+    const step = applyDailyAlerts({
+      date: input.date,
+      findings: current.findings,
+      clears: current.clears,
+      holds: current.holds,
+      frozenScopes: current.frozenScopes,
+      existing: alerts,
+    });
+    const catchUp = earlier.findings
+      .filter((finding) => earlierStep.notify.includes(finding.dedupeKey))
+      .map((finding) => catchUpLine(previousDate, appLabel(finding.platform), finding.text));
+    const ongoingKeys = new Set(earlierStep.notify);
+    const ongoing = ongoingLine(
+      step.alerts
+        .filter(
+          (alert) =>
+            step.ongoing.includes(alert.dedupeKey) &&
+            !ongoingKeys.has(alert.dedupeKey) &&
+            alert.status !== "resolved",
+        )
+        .map((alert) => `${alert.text.replace(/\.$/, "")} (day ${alert.consecutiveDays})`),
+    );
+    const resolved = resolvedLine(
+      step.alerts
+        .filter((alert) => alert.resolvedReason === "cleared" && alert.resolvedAt === input.date)
+        .map((alert) => `${appLabel(alert.platform)} ${RESOLVED_NAME[alert.ruleCode] ?? "alert"}`),
+    );
+    const week = weekSales(input.date, weekDays(loaded.days));
+    const view = viewFromDaily({
+      restaurantName: loaded.name,
+      evaluation: current,
+      catchUp,
+      ongoing,
+      resolved,
+      dataAsOf: loaded.dataAsOf ? istClock(loaded.dataAsOf) : null,
+      week,
+    });
+    const brief = composeDailyBrief(view);
+    const payload = payloadOf(current);
     const nonce = `daily_brief-${input.date}`;
     const prior = await tx.report.findUnique({
       where: { reportNonce: { restaurantId: scope.restaurantId, clientNonce: nonce } },
@@ -190,7 +193,14 @@ export async function runDailyOps(
             dataAsOf: loaded.dataAsOf,
           },
         });
-    await writeAlerts(tx, scope, step.alerts, step.events, report.id, input.date);
+    await writeAlerts(
+      tx,
+      scope,
+      step.alerts,
+      [...earlierStep.events, ...step.events],
+      report.id,
+      input.date,
+    );
     return {
       reportId: report.id,
       version: report.version,
@@ -203,9 +213,9 @@ export async function runDailyOps(
       workbook: { available: false, fileName: null },
       deliver: { shouldNotify: delivery.shouldNotify, reason: delivery.reason },
       alerts: {
-        opened: step.opened,
-        escalated: step.escalated,
-        resolved: step.resolved,
+        opened: [...new Set([...earlierStep.opened, ...step.opened])],
+        escalated: [...new Set([...earlierStep.escalated, ...step.escalated])],
+        resolved: [...new Set([...earlierStep.resolved, ...step.resolved])],
         ongoing: step.ongoing,
       },
     };
@@ -649,22 +659,21 @@ function covers(
 
 function weekDays(days: OpsAppDay[]): Array<{ date: string; salesPaise: number | null }> {
   const dates = [...new Set(days.map((day) => day.date))];
-  return dates.map((date) => {
-    const zomato = days.find(
-      (day) => day.date === date && day.platform === "zomato" && day.stored && !day.ingest,
-    );
-    const swiggy = days.find(
-      (day) => day.date === date && day.platform === "swiggy" && day.stored && !day.ingest,
-    );
-    const z =
-      zomato?.metrics.ops_sales_paise?.state === "ok" ? zomato.metrics.ops_sales_paise.value : null;
-    const s =
-      swiggy?.metrics.swiggy_net_sales_paise?.state === "ok"
-        ? swiggy.metrics.swiggy_net_sales_paise.value
-        : null;
-    if (z == null && s == null) return { date, salesPaise: null };
-    return { date, salesPaise: (z ?? 0) + (s ?? 0) };
-  });
+  return dates.map((date) => ({
+    date,
+    salesPaise: combinedDaySales(
+      days
+        .filter((day) => day.date === date && day.stored && !day.ingest)
+        .map((day) => ({ salesPaise: salesPaise(day) })),
+    ),
+  }));
+}
+
+function salesPaise(day: OpsAppDay): number | null {
+  const metric =
+    day.platform === "zomato" ? day.metrics.ops_sales_paise : day.metrics.swiggy_net_sales_paise;
+  if (metric?.state !== "ok") return null;
+  return metric.value;
 }
 
 function payloadOf(evaluation: DailyEvaluation): StoredPayload {
@@ -676,7 +685,7 @@ function payloadOf(evaluation: DailyEvaluation): StoredPayload {
   const restaurant =
     outlets.length > 1
       ? {
-          ...block(shown, evaluation.snapshots[0] ?? { apps: [] }),
+          ...block(shown, { apps: rollupDailyApps(evaluation.snapshots) }),
           status: worst(outlets.map((outlet) => outlet.status)),
           flagCount: outlets.reduce((sum, outlet) => sum + outlet.flagCount, 0),
         }
