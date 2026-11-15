@@ -9,7 +9,7 @@ import type { ObservedReportIdentity } from "./metric-parse.js";
 import { costPaise, discountPaise, rupeesToPaise, signedPaise } from "./payout-money.js";
 import { openPayoutWorkbook } from "./payout-workbook.js";
 
-export const PAYOUT_PARSER_VERSION = "2026-11-14.payout.4";
+export const PAYOUT_PARSER_VERSION = "2026-11-15.payout.5";
 
 export interface PayoutOrderAmounts {
   grossSalesPaise: number;
@@ -39,6 +39,8 @@ export interface ParsedPayoutOrder extends PayoutOrderAmounts {
   mfrAccurate: boolean | null;
   /// Bank paid amount for this order, when the file has a per-order settled amount.
   paidAmountPaise: number | null;
+  /// GST Swiggy deducted on this order. Null when that column is missing or the cell is blank.
+  gstDeductionPaise: number | null;
   recomputedNetPaise: number;
 }
 
@@ -350,6 +352,7 @@ function parseZomato(
       tcsPaise: tcs,
       cvPaise: cv,
       gstCollectedPaise: gstCollected,
+      gstDeductionPaise: null,
       complaintsCancellationChargesPaise: complaints,
       netPayoutPaise: printed,
       paidAmountPaise: rupeesToPaise(cell(row, paidCol)),
@@ -506,6 +509,12 @@ function parseSwiggy(
     "swiggy.payout_annexure.order_level.gst_collected",
     () => colIncludes(head, "gst collected"),
   );
+  const gstDeductionCol = columnFor(
+    book,
+    head,
+    "swiggy.payout_annexure.order_level.gst_deduction",
+    () => colIncludes(head, "gst deduction"),
+  );
   const payoutCol = columnFor(book, head, "swiggy.payout_annexure.order_level.net_payout", () =>
     colIncludes(head, "net payout"),
   );
@@ -540,11 +549,19 @@ function parseSwiggy(
     const cv = cvParsed == null ? Math.max(0, gross - discount) : Math.abs(cvParsed);
     const status = orderStatus(cell(row, orderStatusCol));
     const cancelledBy = blankToNull(cell(row, cancelledByCol));
-    // A customer cancellation settles without the complaint charge. The charge
-    // stays on the row. A restaurant cancellation still deducts it.
-    const payoutCharge =
-      status === "CANCELLED" && norm(cancelledBy ?? "").includes("customer") ? 0 : complaints;
-    const recomputed = cv - commission - platformFees - gstOnFees - tds - tcs - payoutCharge;
+    const gstCollected = costPaise(cell(row, gstCollectedCol));
+    const gstDeductionPaise = swiggyGstDeductionPaise(gstDeductionCol, row);
+    const recomputed = swiggyRecomputedNet({
+      cvPaise: cv,
+      gstCollectedPaise: gstCollected,
+      gstDeductionPaise,
+      commissionPaise: commission,
+      platformFeesPaise: platformFees,
+      taxesPaise: gstOnFees,
+      tdsPaise: tds,
+      tcsPaise: tcs,
+      complaintsCancellationChargesPaise: complaints,
+    });
     const settlementDate = parseCivilDate(cell(row, settlementDateCol), null);
     draft.push({
       platformOrderId,
@@ -566,7 +583,8 @@ function parseSwiggy(
       tdsPaise: tds,
       tcsPaise: tcs,
       cvPaise: cv,
-      gstCollectedPaise: costPaise(cell(row, gstCollectedCol)),
+      gstCollectedPaise: gstCollected,
+      gstDeductionPaise,
       complaintsCancellationChargesPaise: complaints,
       netPayoutPaise: signedPaise(cell(row, payoutCol)),
       paidAmountPaise: rupeesToPaise(cell(row, paidCol)),
@@ -653,6 +671,38 @@ function finish(
   };
 }
 
+/** Null when the GST Deduction slot is absent or this cell is blank. Zero is stored. */
+function swiggyGstDeductionPaise(index: number | null, row: string[]): number | null {
+  if (index == null) return null;
+  const parsed = rupeesToPaise(cell(row, index));
+  return parsed == null ? null : Math.abs(parsed);
+}
+
+/** A null GST deduction means Swiggy deducted the GST it collected. */
+function swiggyRecomputedNet(order: {
+  cvPaise: number;
+  gstCollectedPaise: number;
+  gstDeductionPaise: number | null;
+  commissionPaise: number;
+  platformFeesPaise: number;
+  taxesPaise: number;
+  tdsPaise: number;
+  tcsPaise: number;
+  complaintsCancellationChargesPaise: number;
+}): number {
+  const gstDeduction = order.gstDeductionPaise ?? order.gstCollectedPaise;
+  return (
+    order.cvPaise +
+    (order.gstCollectedPaise - gstDeduction) -
+    order.commissionPaise -
+    order.platformFeesPaise -
+    order.taxesPaise -
+    order.tdsPaise -
+    order.tcsPaise -
+    order.complaintsCancellationChargesPaise
+  );
+}
+
 function buildChecks(
   _platform: MetricPlatform,
   orders: ParsedPayoutOrder[],
@@ -661,7 +711,8 @@ function buildChecks(
 ): PayoutCheck[] {
   const checks: PayoutCheck[] = [];
   for (const order of orders) {
-    checks.push(moneyCheck("net_payout_paise", order.recomputedNetPaise, order.netPayoutPaise));
+    const rebuilt = _platform === "swiggy" ? swiggyRecomputedNet(order) : order.recomputedNetPaise;
+    checks.push(moneyCheck("net_payout_paise", rebuilt, order.netPayoutPaise));
   }
   const sum = (pick: (order: ParsedPayoutOrder) => number) =>
     orders.reduce((total, order) => total + pick(order), 0);

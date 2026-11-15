@@ -440,7 +440,7 @@ describe("payout workbooks", () => {
     expect(blank.check.pass).toBe(true);
   });
 
-  it("does not deduct a Swiggy complaint charge from a customer cancellation", async () => {
+  it("rebuilds a Swiggy refund from the GST Swiggy deducted", async () => {
     const parsed = await parsePayoutWorkbook(await swiggyCancelRows(), "swiggy", SALT);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
@@ -453,12 +453,17 @@ describe("payout workbooks", () => {
       return { order, check };
     };
 
+    // Customer paid ₹197.40. Swiggy deducted 0 GST and the full paid amount.
     const customer = row("9200001");
     expect(customer.order.orderStatus).toBe("CANCELLED");
     expect(customer.order.cancelledBy).toBe("CUSTOMER");
-    expect(customer.order.complaintsCancellationChargesPaise).toBe(940);
+    expect(customer.order.cvPaise).toBe(18800);
+    expect(customer.order.gstCollectedPaise).toBe(940);
+    expect(customer.order.gstDeductionPaise).toBe(0);
+    expect(customer.order.complaintsCancellationChargesPaise).toBe(19740);
     expect(customer.order.netPayoutPaise).toBe(0);
     expect(customer.order.recomputedNetPaise).toBe(0);
+    expect(customer.order.recomputedNetPaise).not.toBe(18800);
     expect(customer.check.pass).toBe(true);
     expect(customer.check.tolerance).toBe(100);
 
@@ -468,6 +473,21 @@ describe("payout workbooks", () => {
     expect(restaurant.order.netPayoutPaise).toBe(-940);
     expect(restaurant.order.recomputedNetPaise).toBe(-940);
     expect(restaurant.check.pass).toBe(true);
+
+    const delivered = row("9200004");
+    expect(delivered.order.orderStatus).toBe("DELIVERED");
+    expect(delivered.order.gstCollectedPaise).toBe(500);
+    expect(delivered.order.gstDeductionPaise).toBe(500);
+    expect(delivered.order.recomputedNetPaise).toBe(10000);
+    expect(delivered.order.netPayoutPaise).toBe(10000);
+    expect(delivered.check.pass).toBe(true);
+
+    const blankDeduction = row("9200005");
+    expect(blankDeduction.order.gstCollectedPaise).toBe(1250);
+    expect(blankDeduction.order.gstDeductionPaise).toBeNull();
+    expect(blankDeduction.order.recomputedNetPaise).toBe(25000);
+    expect(blankDeduction.order.recomputedNetPaise).not.toBe(26250);
+    expect(blankDeduction.check.pass).toBe(true);
 
     const wrong = row("9200003");
     expect(wrong.order.recomputedNetPaise).toBe(10000);
@@ -482,11 +502,26 @@ describe("payout workbooks", () => {
     for (const [bytes, platform] of [
       [await zomatoGstRows(), "zomato"],
       [await swiggyCancelRows(), "swiggy"],
+      [await swiggyWithoutGstDeduction(), "swiggy"],
     ] as const) {
       expect(await parsePayoutWorkbook(bytes, platform, SALT, book)).toEqual(
         await parsePayoutWorkbook(bytes, platform, SALT),
       );
     }
+  });
+
+  it("keeps today's Swiggy rebuild when the file has no GST Deduction column", async () => {
+    const parsed = await parsePayoutWorkbook(await swiggyWithoutGstDeduction(), "swiggy", SALT);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const order = parsed.payout.orders.find((row) => row.platformOrderId === "9200006");
+    const check = parsed.payout.checks.find((row) => row.key === "net_payout_paise");
+    expect(order?.gstCollectedPaise).toBe(1250);
+    expect(order?.gstDeductionPaise).toBeNull();
+    expect(order?.recomputedNetPaise).toBe(25000);
+    expect(order?.recomputedNetPaise).not.toBe(26250);
+    expect(order?.netPayoutPaise).toBe(25000);
+    expect(check?.pass).toBe(true);
   });
 });
 
@@ -634,38 +669,76 @@ function swiggyCancelRows(): Promise<Uint8Array> {
       "Order Status",
       "Cancelled By",
       "Item Total",
+      "Net Bill",
+      "GST collected",
+      "GST Deduction",
       "Complaint & Cancellation Charges",
       "Net Payout",
       "Settlement Date",
     ]);
+    const line = (
+      id: string,
+      date: string,
+      status: string,
+      cancelledBy: string,
+      bill: string,
+      gst: string | null,
+      deduction: string | null,
+      charge: string,
+      payout: string,
+    ) =>
+      orders.addRow([
+        id,
+        date,
+        status,
+        cancelledBy,
+        bill,
+        bill,
+        gst,
+        deduction,
+        charge,
+        payout,
+        "2026-11-03",
+      ]);
+    line("9200001", "2026-10-25", "cancelled", "CUSTOMER", "188.00", "9.40", "0", "197.40", "0.00");
+    line("9200002", "2026-10-26", "cancelled", "RESTAURANT", "0.00", null, null, "9.40", "-9.40");
+    line("9200003", "2026-10-31", "delivered", "", "100.00", null, null, "0.00", "0.00");
+    line("9200004", "2026-10-27", "delivered", "", "100.00", "5.00", "5.00", "0.00", "100.00");
+    line("9200005", "2026-10-28", "delivered", "", "250.00", "12.50", null, "0.00", "250.00");
+  });
+}
+
+function swiggyWithoutGstDeduction(): Promise<Uint8Array> {
+  return syntheticWorkbook((book) => {
+    const summary = book.addWorksheet("Summary");
+    for (const line of [
+      "Test Kitchen",
+      "Test Area",
+      "Testcity",
+      "Rest. ID - 900004",
+      "25 October - 31 October",
+    ]) {
+      summary.addRow([line]);
+    }
+    const orders = book.addWorksheet("Order Level");
     orders.addRow([
-      "9200001",
-      "2026-10-25",
-      "cancelled",
-      "CUSTOMER",
-      "0.00",
-      "9.40",
-      "0.00",
-      "2026-11-03",
+      "Order ID",
+      "Order Date",
+      "Order Status",
+      "Item Total",
+      "Net Bill",
+      "GST collected",
+      "Net Payout",
+      "Settlement Date",
     ]);
     orders.addRow([
-      "9200002",
-      "2026-10-26",
-      "cancelled",
-      "RESTAURANT",
-      "0.00",
-      "9.40",
-      "-9.40",
-      "2026-11-03",
-    ]);
-    orders.addRow([
-      "9200003",
-      "2026-10-31",
+      "9200006",
+      "2026-10-28",
       "delivered",
-      "",
-      "100.00",
-      "0.00",
-      "0.00",
+      "250.00",
+      "250.00",
+      "12.50",
+      "250.00",
       "2026-11-03",
     ]);
   });
