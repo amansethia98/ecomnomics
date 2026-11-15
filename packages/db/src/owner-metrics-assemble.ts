@@ -86,6 +86,7 @@ export interface OwnerMetricFact {
   date: string;
   value: number | null;
   valueBoolean: boolean | null;
+  state?: "ok" | "pending_label" | "label_unrecoverable";
   granularity: string;
   periodEnd: string;
 }
@@ -322,6 +323,10 @@ export function coveredCivilDays(
   const covered = new Set<string>();
   for (const fact of input.facts) {
     if (fact.outletId !== outletId || !platforms.includes(fact.platform)) continue;
+    if (fact.state === "pending_label" || fact.state === "label_unrecoverable") {
+      if (fact.granularity === "day") covered.add(fact.date);
+      continue;
+    }
     if (fact.value == null && fact.valueBoolean == null) continue;
     if (fact.granularity === "day") covered.add(fact.date);
   }
@@ -1041,12 +1046,98 @@ function finish(
   });
   const lagged =
     lagBanner(input, from, to, included) === true && (platform === "swiggy" || platform === "all");
+  return applyLabelRead(
+    input,
+    {
+      ...value,
+      platform,
+      provisional: value.status === "ok" && (refetch || pending || lagged),
+      restated: restated(input, key, platform, from, to, included),
+    },
+    key,
+    platform,
+    from,
+    to,
+    included,
+  );
+}
+
+function applyLabelRead(
+  input: OwnerMetricsInput,
+  value: OwnerMetricValue,
+  key: string,
+  platform: OwnerPlatform,
+  from: string,
+  to: string,
+  included: ReadonlySet<string>,
+): OwnerMetricValue {
+  const dates = labelDates(input, key, platform, from, to, included);
+  if (dates.updating.length > 0) {
+    const updatingDates = dates.updating;
+    const known = value.value != null && updatingDates.length < value.expectedDays;
+    return {
+      ...value,
+      status: "updating",
+      value: known ? value.value : null,
+      reason: undefined,
+      missingDates: value.missingDates.filter((date) => !updatingDates.includes(date)),
+      updatingDates,
+      partialDates: [...new Set([...value.partialDates, ...updatingDates])],
+    };
+  }
+  if (dates.unrecoverable.length === 0 || value.value != null)
+    return { ...value, updatingDates: value.updatingDates ?? [] };
+  const window = windowTotal(input, key, platform, from, to, included);
   return {
     ...value,
-    platform,
-    provisional: value.status === "ok" && (refetch || pending || lagged),
-    restated: restated(input, key, platform, from, to, included),
+    status: "not_available",
+    value: window,
+    reason: undefined,
+    updatingDates: [],
   };
+}
+
+function labelDates(
+  input: OwnerMetricsInput,
+  key: string,
+  platform: OwnerPlatform,
+  from: string,
+  to: string,
+  included: ReadonlySet<string>,
+): { updating: string[]; unrecoverable: string[] } {
+  const updating = new Set<string>();
+  const unrecoverable = new Set<string>();
+  for (const fact of input.facts) {
+    if (fact.key !== key || !included.has(fact.outletId) || fact.granularity !== "day") continue;
+    if (platform !== "all" && fact.platform !== platform) continue;
+    if (fact.date < from || fact.date >= to) continue;
+    if (fact.state === "pending_label") updating.add(fact.date);
+    if (fact.state === "label_unrecoverable") unrecoverable.add(fact.date);
+  }
+  return { updating: [...updating].sort(), unrecoverable: [...unrecoverable].sort() };
+}
+
+function windowTotal(
+  input: OwnerMetricsInput,
+  key: string,
+  platform: OwnerPlatform,
+  from: string,
+  to: string,
+  included: ReadonlySet<string>,
+): number | null {
+  const match = input.facts.find(
+    (fact) =>
+      fact.key === key &&
+      included.has(fact.outletId) &&
+      (platform === "all" || fact.platform === platform) &&
+      (fact.granularity === "week" || fact.granularity === "month") &&
+      fact.state !== "pending_label" &&
+      fact.state !== "label_unrecoverable" &&
+      fact.value != null &&
+      fact.date <= from &&
+      fact.periodEnd >= to,
+  );
+  return match?.value ?? null;
 }
 
 function restated(
@@ -1321,6 +1412,7 @@ function fromRollup(value: RollupValue, expectedDays: number): OwnerMetricValue 
     coverageDays: value.coverageDays,
     expectedDays: value.expectedDays || expectedDays,
     missingDates: value.missingDays,
+    updatingDates: [],
     partialDates: value.partialDays,
     provisional: false,
     restated: false,
@@ -1348,6 +1440,7 @@ function okValue(
     coverageDays: expectedDays - missingDates.length,
     expectedDays,
     missingDates,
+    updatingDates: [],
     partialDates: [],
     provisional: false,
     restated: false,
@@ -1373,6 +1466,7 @@ function unavailable(
     coverageDays: 0,
     expectedDays,
     missingDates: [],
+    updatingDates: [],
     partialDates: [],
     provisional: false,
     restated: false,

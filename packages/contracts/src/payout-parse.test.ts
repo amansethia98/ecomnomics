@@ -338,7 +338,7 @@ describe("payout workbooks", () => {
     if (!parsed.ok) throw new Error(parsed.reason);
     const dayGross = parsed.payout.orders
       .filter((order) => order.orderDate === "2026-10-26")
-      .reduce((total, order) => total + order.grossSalesPaise, 0);
+      .reduce((total, order) => total + (order.grossSalesPaise ?? 0), 0);
     expect(dayGross).toBeGreaterThan(0);
     const rollup = rollupMetrics(
       [
@@ -416,7 +416,7 @@ describe("payout workbooks", () => {
     const tcs = row("9100001");
     expect(tcs.order.tcsPaise).toBe(100);
     expect(tcs.order.gstCollectedPaise).toBe(1000);
-    expect(Math.abs(19900 - tcs.order.netPayoutPaise)).toBeGreaterThan(100);
+    expect(Math.abs(19900 - (tcs.order.netPayoutPaise ?? 0))).toBeGreaterThan(100);
     expect(tcs.order.netPayoutPaise).toBe(20570);
     expect(tcs.order.recomputedNetPaise).toBe(20570);
     expect(tcs.check.pass).toBe(true);
@@ -429,13 +429,13 @@ describe("payout workbooks", () => {
     expect(equal.check.pass).toBe(true);
 
     const small = row("9100003");
-    expect(Math.abs(10000 - small.order.netPayoutPaise)).toBeLessThanOrEqual(100);
+    expect(Math.abs(10000 - (small.order.netPayoutPaise ?? 0))).toBeLessThanOrEqual(100);
     expect(small.order.recomputedNetPaise).toBe(10040);
     expect(small.check.pass).toBe(true);
     expect(small.check.tolerance).toBe(100);
 
     const blank = row("9100004");
-    expect(Math.abs(20000 - blank.order.netPayoutPaise)).toBeGreaterThan(100);
+    expect(Math.abs(20000 - (blank.order.netPayoutPaise ?? 0))).toBeGreaterThan(100);
     expect(blank.order.recomputedNetPaise).toBe(20670);
     expect(blank.check.pass).toBe(true);
   });
@@ -772,17 +772,17 @@ function factsOf(payout: ParsedPayoutFile): {
       settlementStatus: order.settlementStatus,
       settlementDate: order.settlementDate,
       customerHash: order.customerHash,
-      grossSalesPaise: order.grossSalesPaise,
-      discountPaise: order.discountPaise,
-      commissionPaise: order.commissionPaise,
-      platformFeesPaise: order.platformFeesPaise,
-      taxesPaise: order.taxesPaise,
-      tdsPaise: order.tdsPaise,
-      tcsPaise: order.tcsPaise,
-      cvPaise: order.cvPaise,
-      gstCollectedPaise: order.gstCollectedPaise,
-      complaintsCancellationChargesPaise: order.complaintsCancellationChargesPaise,
-      netPayoutPaise: order.netPayoutPaise,
+      grossSalesPaise: order.grossSalesPaise ?? 0,
+      discountPaise: order.discountPaise ?? 0,
+      commissionPaise: order.commissionPaise ?? 0,
+      platformFeesPaise: order.platformFeesPaise ?? 0,
+      taxesPaise: order.taxesPaise ?? 0,
+      tdsPaise: order.tdsPaise ?? 0,
+      tcsPaise: order.tcsPaise ?? 0,
+      cvPaise: order.cvPaise ?? 0,
+      gstCollectedPaise: order.gstCollectedPaise ?? 0,
+      complaintsCancellationChargesPaise: order.complaintsCancellationChargesPaise ?? 0,
+      netPayoutPaise: order.netPayoutPaise ?? 0,
       paidAmountPaise: order.paidAmountPaise,
     })),
     adjustments: payout.adjustments.map((row) => ({

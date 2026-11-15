@@ -377,6 +377,9 @@ describe("payout label columns", () => {
       true,
     );
     const finding = parsed.payout.labelFindings?.find((item) => item.slotId.endsWith("commission"));
+    expect(parsed.payout.orders[0]?.commissionPaise).toBeNull();
+    expect(parsed.payout.orders[0]?.pendingFields).toContain("commissionPaise");
+    expect(parsed.payout.orders[0]?.netPayoutPaise).toBe(9000);
     expect(finding?.candidateLabel).toBe("Commission Fee");
     expect(finding?.evidence.valueEvidence).toEqual({
       method: "none",

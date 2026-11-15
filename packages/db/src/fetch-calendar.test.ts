@@ -467,4 +467,31 @@ describe("fetch calendar", () => {
     expect(chunks.swiggy).toEqual([{ periodStart: "2026-01-01", periodEnd: "2026-01-03" }]);
     expect(chunks.zomato).toEqual([{ periodStart: "2026-01-02", periodEnd: "2026-01-03" }]);
   });
+
+  it("adds a relabel window for the newest thirty days and keeps a held outlet empty", () => {
+    const days = Array.from({ length: 40 }, (_, index) => addIsoDays("2026-08-01", index)).map(
+      (date) => ({ date, findingIds: ["finding-1"] }),
+    );
+    const result = plan({
+      date: "2026-11-14",
+      relabel: [{ platform: "swiggy", days }],
+    });
+    const windows = of(result, "swiggy", "daily").filter((window) =>
+      window.reasons.includes("relabel"),
+    );
+    const covered = new Set<string>();
+    for (const window of windows) {
+      for (const day of daysBetween(window.periodStart, window.periodEnd)) covered.add(day);
+      expect(window.relabel).toEqual({ findingIds: ["finding-1"] });
+    }
+    expect([...covered].filter((day) => day >= "2026-08-01" && day < "2026-09-10")).toHaveLength(
+      30,
+    );
+    const held = plan({
+      date: "2026-11-14",
+      held: new Set(["swiggy"]),
+      relabel: [{ platform: "swiggy", days }],
+    });
+    expect(of(held, "swiggy", "daily")).toEqual([]);
+  });
 });

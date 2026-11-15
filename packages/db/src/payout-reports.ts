@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { IngestPayoutReportInput } from "@rakazo/contracts";
 import {
   checkObservedIdentity,
+  indiaCivilDate,
   layoutChangeFinding,
   missingPlatformIdReason,
   utcMidnight,
@@ -15,6 +16,11 @@ import type {
 import type { PrismaClient } from "./client.js";
 import { assertFetchOpen, noteIdentityMismatch } from "./fetch-holds.js";
 import type { Prisma } from "./generated/prisma/client.js";
+import {
+  fetchCoversCurrentLabels,
+  labelRegistryVersion,
+  noteRelabelFailures,
+} from "./metric-label-aging.js";
 import type { RecordedLabelFinding } from "./metric-label-findings.js";
 import { recordLabelFindings } from "./metric-label-findings.js";
 import { loadLabelBook } from "./metric-labels.js";
@@ -52,6 +58,7 @@ export interface IngestPayoutReportResult {
   checks: PayoutCheck[];
   warnings: string[];
   layoutChanged?: boolean;
+  reingested?: boolean;
   labels?: {
     pendingSlots: number;
     findings: Array<{ findingId: string; slotId: string; kind: string; status: string }>;
@@ -185,10 +192,12 @@ export async function ingestPayoutReport(
     adjustments?: number;
     superseded?: number;
     labelFindings?: RecordedLabelFinding[];
+    reingested?: boolean;
   };
   try {
     stored = await db.$transaction(async (tx) => {
       await lockMetricWindow(tx, `payout\t${input.outletId}\t${input.platform}`);
+      const registryVersion = await labelRegistryVersion(tx);
       const duplicate = await tx.metricFetch.findFirst({
         where: {
           outletId: input.outletId,
@@ -200,9 +209,11 @@ export async function ingestPayoutReport(
           requestedPeriodEnd: requestedEnd,
           status: "stored",
         },
-        select: { id: true },
+        orderBy: [{ capturedAt: "desc" }, { createdAt: "desc" }],
+        select: { id: true, pendingLabels: true, labelSetVersion: true },
       });
-      if (duplicate) {
+      const reingested = duplicate != null && !fetchCoversCurrentLabels(duplicate, registryVersion);
+      if (duplicate && !reingested) {
         const fetch = await tx.metricFetch.create({
           data: fetchData(scope, input, {
             ...base,
@@ -213,7 +224,7 @@ export async function ingestPayoutReport(
             observed: payout.observed,
           }),
         });
-        return { fetchId: fetch.id, skipped: true as const };
+        return { fetchId: fetch.id, skipped: true as const, reingested: false };
       }
       const fetch = await tx.metricFetch.create({
         data: fetchData(scope, input, {
@@ -223,6 +234,8 @@ export async function ingestPayoutReport(
           attempt: input.attempt ?? 1,
           reason: warnings.length > 0 ? warnings.join(" ") : null,
           observed: payout.observed,
+          labelSetVersion: registryVersion,
+          pendingLabels: payout.totals.pendingFields.length,
         }),
       });
       const written = await replaceCycle(tx, scope, input, payout, fetch.id);
@@ -256,7 +269,26 @@ export async function ingestPayoutReport(
             periods: [payout.cycleStart],
           })
         : [];
-      return { fetchId: fetch.id, skipped: false as const, ...written, labelFindings };
+      if (reingested && payout.totals.pendingFields.length > 0 && labelFindings.length > 0) {
+        await noteRelabelFailures(
+          tx,
+          scope,
+          indiaCivilDate(capturedAt),
+          labelFindings.map((finding) => ({
+            outletId: input.outletId,
+            platform: input.platform,
+            findingId: finding.findingId,
+            periodStart: payout.cycleStart,
+          })),
+        );
+      }
+      return {
+        fetchId: fetch.id,
+        skipped: false as const,
+        ...written,
+        labelFindings,
+        reingested,
+      };
     });
   } catch (error) {
     const reason = payoutAdjustmentKeyFailure(error);
@@ -296,6 +328,7 @@ export async function ingestPayoutReport(
     checks: payout.checks,
     warnings,
     labels: labelSummary(payout.skippedChecks?.length ?? 0, stored.labelFindings ?? []),
+    ...(stored.reingested ? { reingested: true } : {}),
   };
 }
 
@@ -426,9 +459,12 @@ async function replaceCycle(
       gstCollectedPaise: payout.totals.gstCollectedPaise,
       complaintsCancellationChargesPaise: payout.totals.complaintsCancellationChargesPaise,
       adSpendPaise: payout.totals.adSpendPaise,
-      netPayoutPaise: payout.orders.reduce((total, order) => total + order.netPayoutPaise, 0),
+      netPayoutPaise: payout.totals.pendingFields.includes("netPayoutPaise")
+        ? null
+        : payout.orders.reduce((total, order) => total + (order.netPayoutPaise ?? 0), 0),
       platformNetPayoutPaise: payout.totals.platformNetPayoutPaise,
       paidAmountPaise: payout.totals.paidAmountPaise,
+      pendingFields: payout.totals.pendingFields,
       fetchId,
     },
   });
@@ -451,18 +487,19 @@ function sameOrder(
     orderStatus: string;
     category: string | null;
     cancelledBy: string | null;
-    grossSalesPaise: number;
-    discountPaise: number;
-    commissionPaise: number;
-    platformFeesPaise: number;
-    taxesPaise: number;
-    tdsPaise: number;
-    tcsPaise: number;
-    cvPaise: number;
-    gstCollectedPaise: number;
+    grossSalesPaise: number | null;
+    discountPaise: number | null;
+    commissionPaise: number | null;
+    platformFeesPaise: number | null;
+    taxesPaise: number | null;
+    tdsPaise: number | null;
+    tcsPaise: number | null;
+    cvPaise: number | null;
+    gstCollectedPaise: number | null;
     gstDeductionPaise: number | null;
-    complaintsCancellationChargesPaise: number;
-    netPayoutPaise: number;
+    complaintsCancellationChargesPaise: number | null;
+    netPayoutPaise: number | null;
+    pendingFields: string[];
     paidAmountPaise: number | null;
     mfrMarked: boolean | null;
     mfrAccurate: boolean | null;
@@ -497,6 +534,7 @@ function sameOrder(
     current.gstDeductionPaise === order.gstDeductionPaise &&
     current.complaintsCancellationChargesPaise === order.complaintsCancellationChargesPaise &&
     current.netPayoutPaise === order.netPayoutPaise &&
+    current.pendingFields.join("\t") === order.pendingFields.join("\t") &&
     current.paidAmountPaise === order.paidAmountPaise &&
     current.mfrMarked === order.mfrMarked &&
     current.mfrAccurate === order.mfrAccurate &&
@@ -539,6 +577,7 @@ function orderInput(
     gstDeductionPaise: order.gstDeductionPaise,
     complaintsCancellationChargesPaise: order.complaintsCancellationChargesPaise,
     netPayoutPaise: order.netPayoutPaise,
+    pendingFields: order.pendingFields,
     paidAmountPaise: order.paidAmountPaise,
     mfrMarked: order.mfrMarked,
     mfrAccurate: order.mfrAccurate,
@@ -603,6 +642,8 @@ function fetchData(
     capturedAt: Date;
     parserVersion: string;
     identityMismatch?: boolean;
+    labelSetVersion?: number;
+    pendingLabels?: number;
   },
 ) {
   const first = details.observed?.periods[0];
@@ -631,6 +672,8 @@ function fetchData(
     identityMismatch: details.identityMismatch ?? null,
     source: input.source,
     parserVersion: details.parserVersion,
+    labelSetVersion: details.labelSetVersion ?? null,
+    pendingLabels: details.pendingLabels ?? 0,
     reason: details.reason,
     runId: input.runId,
     capturedAt: details.capturedAt,

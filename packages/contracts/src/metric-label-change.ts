@@ -215,15 +215,21 @@ export function detectBusinessLabels(input: {
     (slot) =>
       slot.platform === input.platform &&
       slot.reportKind === "business" &&
+      !slot.retiredFrom &&
       input.expectedLabels.has(`${slot.section}\t${primaryAlias(input.book, slot)}`),
   );
   const aliasOf = new Map<string, LabelSlot>();
+  const ignored = new Set<string>();
   for (const slot of input.book.slots) {
     if (slot.platform !== input.platform || slot.reportKind !== "business") continue;
     for (const alias of input.book.aliases) {
-      if (alias.slotId === slot.id && (alias.role === "read" || alias.role === "item_pattern")) {
-        aliasOf.set(`${slot.section}\t${alias.normLabel}`, slot);
+      if (alias.slotId !== slot.id) continue;
+      const key = `${slot.section}\t${alias.normLabel}`;
+      if (alias.role === "ignore") {
+        ignored.add(key);
+        continue;
       }
+      if (alias.role === "read" || alias.role === "item_pattern") aliasOf.set(key, slot);
     }
   }
   const suffix = itemSuffixOrNull(input.book, input.platform);
@@ -233,7 +239,9 @@ export function detectBusinessLabels(input: {
   for (const row of input.rows) {
     if (!row.metric.trim()) continue;
     if (suffix && row.metric.endsWith(suffix)) continue;
-    const slot = aliasOf.get(`${row.section}\t${normaliseLabel(row.metric)}`);
+    const key = `${row.section}\t${normaliseLabel(row.metric)}`;
+    if (ignored.has(key)) continue;
+    const slot = aliasOf.get(key);
     if (slot) {
       resolved.set(slot.id, row);
       continue;
@@ -812,9 +820,8 @@ export function headerIsKnown(
   const folded = looseNorm(header);
   if (!folded) return true;
   return book.aliases.some((alias) => {
-    if (alias.platform !== platform || alias.reportKind !== reportKind || alias.role !== "read") {
-      return false;
-    }
+    if (alias.platform !== platform || alias.reportKind !== reportKind) return false;
+    if (alias.role !== "read" && alias.role !== "ignore") return false;
     if (section && book.slots.find((slot) => slot.id === alias.slotId)?.section !== section)
       return false;
     if (alias.excludeTokens.some((token) => folded.includes(token))) return false;

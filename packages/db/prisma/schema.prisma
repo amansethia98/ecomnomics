@@ -2780,6 +2780,7 @@ model Restaurant {
   jobRuns        JobRun[]
   fetchHolds     FetchHold[]
   labelObservations MetricLabelObservation[]
+  relabelAttempts MetricRelabelAttempt[]
 
   @@unique([id, spaceId])
   @@map("restaurants")
@@ -2811,6 +2812,7 @@ model Outlet {
   jobRuns             JobRun[]
   fetchHolds          FetchHold[]
   labelObservations   MetricLabelObservation[]
+  relabelAttempts     MetricRelabelAttempt[]
 
   @@unique([id, spaceId])
   @@index([spaceId])
@@ -2869,8 +2871,8 @@ model MetricFetch {
   reportKind            String
   /// stored, skipped, rejected_mismatch, needs_owner, parse_failed, or a log
   /// with no file: signed_out, download_failed, ui_changed, local_mismatch,
-  /// missing_platform_id. A hold counts local_mismatch, and rejected_mismatch
-  /// only when identityMismatch is true.
+  /// missing_platform_id, layout_changed. A hold counts local_mismatch, and
+  /// rejected_mismatch only when identityMismatch is true. layout_changed does not.
   status                String
   requestedRestaurantId String?
   requestedName         String?
@@ -2896,6 +2898,10 @@ model MetricFetch {
   missingPeriods        String?   @db.Text
   source                String
   parserVersion         String
+  /// Registry version this file was parsed with. Null on rows from older releases.
+  labelSetVersion       Int?      @map("label_set_version")
+  /// Pending metric rows this parse left behind. Zero means the file has no pending label.
+  pendingLabels         Int       @default(0) @map("pending_labels")
   reason                String?   @db.Text
   runId                 String
   capturedAt            DateTime
@@ -3005,19 +3011,22 @@ model PayoutOrder {
   orderStatus      String
   category         String?
   cancelledBy      String?     @map("cancelled_by")
-  grossSalesPaise  Int         @map("gross_sales_paise")
-  discountPaise    Int         @map("discount_paise")
-  commissionPaise  Int         @map("commission_paise")
-  platformFeesPaise Int        @map("platform_fees_paise")
-  taxesPaise       Int         @map("taxes_paise")
-  tdsPaise         Int         @map("tds_paise")
-  tcsPaise         Int         @map("tcs_paise")
-  cvPaise          Int         @map("cv_paise")
-  gstCollectedPaise Int        @map("gst_collected_paise")
+  /// Null when the column was renamed and is still pending. A blank cell stays 0.
+  grossSalesPaise  Int?        @map("gross_sales_paise")
+  discountPaise    Int?        @map("discount_paise")
+  commissionPaise  Int?        @map("commission_paise")
+  platformFeesPaise Int?       @map("platform_fees_paise")
+  taxesPaise       Int?        @map("taxes_paise")
+  tdsPaise         Int?        @map("tds_paise")
+  tcsPaise         Int?        @map("tcs_paise")
+  cvPaise          Int?        @map("cv_paise")
+  gstCollectedPaise Int?       @map("gst_collected_paise")
   /// GST Swiggy deducted on this order. Null when the annexure has no GST Deduction column or the cell is blank.
   gstDeductionPaise Int?       @map("gst_deduction_paise")
-  complaintsCancellationChargesPaise Int @map("complaints_cancellation_charges_paise")
-  netPayoutPaise   Int         @map("net_payout_paise")
+  complaintsCancellationChargesPaise Int? @map("complaints_cancellation_charges_paise")
+  netPayoutPaise   Int?        @map("net_payout_paise")
+  /// Amount fields still waiting on a renamed column. Empty when every amount is known.
+  pendingFields    String[]    @default([]) @map("pending_fields")
   /// Bank paid amount for this order. Null when the file has no per-order settled amount.
   paidAmountPaise  Int?        @map("paid_amount_paise")
   /// Swiggy marked-food-ready flags. Null on Zomato and when the annexure has no column.
@@ -3107,6 +3116,8 @@ model PayoutCycle {
   platformNetPayoutPaise Int?    @map("platform_net_payout_paise")
   /// Summary settled amount. Null when that platform's file has no bank-paid figure.
   paidAmountPaise    Int?        @map("paid_amount_paise")
+  /// Cycle totals still waiting on a renamed column.
+  pendingFields      String[]    @default([]) @map("pending_fields")
   fetchId            String?
   fetch              MetricFetch? @relation(fields: [fetchId], references: [id], onDelete: SetNull)
   supersededAt       DateTime?
@@ -3282,6 +3293,8 @@ model MetricLabelSlot {
   summable       Boolean
   allowAutoApply Boolean
   collect        String
+  /// Set when an admin retires the metric. Parsers stop expecting it from this date.
+  retiredFrom    DateTime?
   aliases        MetricLabelAlias[]
   findings       MetricLabelFinding[]
 
@@ -3305,6 +3318,8 @@ model MetricLabelAlias {
   source        String
   createdAt     DateTime        @default(now())
   createdBy     String?
+  /// Set when an admin retires a wrong alias. A retired alias is not used.
+  retiredAt     DateTime?
 
   @@index([slotId])
   @@index([platform, reportKind, normLabel])
@@ -3372,4 +3387,43 @@ model MetricLabelObservation {
   @@index([spaceId], map: "metric_label_observations_space_idx")
   @@index([findingId], map: "metric_label_observations_finding_idx")
   @@map("metric_label_observations")
+}
+
+/// Append-only record of an admin label decision. Tenants cannot read it.
+model MetricLabelEvent {
+  id               String   @id @default(cuid())
+  at               DateTime @default(now())
+  actor            String
+  action           String
+  findingId        String?
+  aliasId          String?
+  slotId           String?
+  before           Json?
+  after            Json?
+  registryVersion  Int
+
+  @@index([findingId], map: "metric_label_events_finding_idx")
+  @@map("metric_label_events")
+}
+
+/// One failed re-read of a pending day. Three different nights end the retry.
+model MetricRelabelAttempt {
+  id           String   @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId      String
+  outletId     String
+  outlet       Outlet @relation(fields: [outletId, spaceId], references: [id, spaceId], onDelete: Cascade)
+  platform     String
+  findingId    String
+  /// UTC midnight of the pending civil day.
+  periodStart  DateTime
+  /// Asia/Kolkata civil date of the night that failed.
+  night        String
+  outcome      String
+  createdAt    DateTime @default(now())
+
+  @@unique([outletId, findingId, periodStart, night], map: "metric_relabel_attempts_night_key")
+  @@index([spaceId], map: "metric_relabel_attempts_space_idx")
+  @@map("metric_relabel_attempts")
 }

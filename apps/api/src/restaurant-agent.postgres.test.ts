@@ -1,14 +1,18 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type { ObjectStorage } from "@rakazo/adapter-kit";
+import { addIsoDays, METRIC_PARSER_VERSION } from "@rakazo/contracts";
 import { writeSwiggyWorkbook } from "@rakazo/contracts/swiggy-workbook";
 import type { PrismaClient } from "@rakazo/db";
 import {
+  addLabelAlias,
+  approveLabelFinding,
   createDb,
   createOutlet,
   ensureRestaurant,
   hashAgentToken,
   mintAgentToken,
+  rejectLabelFinding,
   revokeAgentTokens,
   runAsSystem,
   runAsTenant,
@@ -2363,5 +2367,558 @@ describePostgres("restaurant agent API (PostgreSQL)", () => {
         db.metricValue.count({ where: { outletId: outlet.id } }),
       ),
     ).toBe(0);
+  });
+
+  it("re-reads an approved rename and clears Updating", async () => {
+    const original = await readFile(
+      new URL(
+        "../../../packages/contracts/fixtures/metrics/swiggy_daily_sample.csv",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const csv = original.replaceAll("Carts Builds", "Cart Builds");
+    const outlet = await createOutlet(ownerDb, await restaurantA(), {
+      name: "Test Kitchen",
+      city: "Testcity",
+      swiggyRid: "900001",
+    });
+    const post = (runId: string) =>
+      call("POST", "/agent/v1/metric-reports", tokenA, {
+        outletId: outlet.id,
+        platform: "swiggy",
+        report: "daily",
+        periodStart: "2026-11-02",
+        periodEnd: "2026-11-09",
+        csv,
+        runId: `${runId}-${suffix}`,
+        source: "export",
+        capturedAt: "2026-11-09T05:00:00.000Z",
+      });
+    const first = await post("rename-loop");
+    expect(first.status).toBe(200);
+    const opened = (await first.json()) as {
+      labels: { pendingSlots: number; findings: Array<{ findingId: string; status: string }> };
+    };
+    expect(opened.labels.pendingSlots).toBeGreaterThan(0);
+    const findingId = opened.labels.findings[0]?.findingId ?? "";
+    const summary = await call("GET", "/agent/v1/label-summary", tokenA);
+    expect(summary.status).toBe(200);
+    const summaryBody = await summary.json();
+    expect(JSON.stringify(summaryBody)).not.toContain("valueEvidence");
+    expect(summaryBody).toMatchObject({
+      open: expect.any(Number),
+      layout: expect.any(Number),
+      wouldApply: expect.any(Number),
+      findings: expect.arrayContaining([
+        expect.objectContaining({
+          findingId,
+          kind: "metric_label_change",
+          platform: "swiggy",
+          status: "open",
+        }),
+      ]),
+    });
+    const versionBefore = await runAsSystem("registry before approve", () =>
+      db.metricLabelRegistry.findUnique({ where: { id: "global" } }),
+    );
+    const approved = await runAsSystem("approve the rename", () =>
+      approveLabelFinding(db, findingId, `admin-${suffix}`),
+    );
+    expect(approved.ok).toBe(true);
+    if (!approved.ok) return;
+    expect(approved.value.registryVersion).toBe((versionBefore?.version ?? 1) + 1);
+    const alias = await runAsSystem("read the approved alias", () =>
+      db.metricLabelAlias.findUnique({ where: { id: approved.value.aliasId } }),
+    );
+    expect(alias).toMatchObject({ label: "Cart Builds", role: "read", source: "admin" });
+    const digest = createHash("sha256").update(csv).digest("hex");
+    const checked = await call("POST", "/agent/v1/fetches/check", tokenA, {
+      outletId: outlet.id,
+      platform: "swiggy",
+      files: [
+        {
+          sha256: digest,
+          rawSha256: digest,
+          report: "daily",
+          periodStart: "2026-11-02",
+          periodEnd: "2026-11-09",
+          parserVersion: METRIC_PARSER_VERSION,
+        },
+      ],
+    });
+    expect(await checked.json()).toMatchObject({
+      files: [{ stored: false, reingest: true }],
+    });
+    const plan = await call(
+      "GET",
+      `/agent/v1/fetch-plan?outletId=${outlet.id}&date=2026-11-14`,
+      tokenA,
+    );
+    const planBody = (await plan.json()) as {
+      platforms: Array<{
+        platform: string;
+        windows: Array<{ reasons: string[]; relabel?: { findingIds: string[] } }>;
+      }>;
+    };
+    const relabel = planBody.platforms
+      .find((item) => item.platform === "swiggy")
+      ?.windows.filter((window) => window.reasons.includes("relabel"));
+    expect(relabel?.some((window) => window.relabel?.findingIds.includes(findingId))).toBe(true);
+    const again = await post("rename-reread");
+    expect(again.status).toBe(200);
+    expect(await again.json()).toMatchObject({ status: "stored", reingested: true });
+    const pending = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricValue.count({
+        where: {
+          outletId: outlet.id,
+          key: "cart_builds",
+          state: "pending_label",
+          supersededAt: null,
+        },
+      }),
+    );
+    expect(pending).toBe(0);
+    const third = await post("rename-again");
+    expect(await third.json()).toMatchObject({ status: "skipped" });
+    const metrics = await call(
+      "GET",
+      `/agent/v1/metrics?outletId=${outlet.id}&platform=swiggy&from=2026-11-02&to=2026-11-09&keys=cart_builds`,
+      tokenA,
+    );
+    const read = (await metrics.json()) as {
+      values: Array<{ key: string; status: string; updatingDates: string[]; value: number | null }>;
+    };
+    expect(read.values.find((value) => value.key === "cart_builds")).toMatchObject({
+      status: "ok",
+      updatingDates: [],
+    });
+    expect(read.values.find((value) => value.key === "cart_builds")?.value).not.toBeNull();
+  });
+
+  it("rejects a rename, refuses a colliding alias, and keeps the agent from writing one", async () => {
+    const csv = (
+      await readFile(
+        new URL(
+          "../../../packages/contracts/fixtures/metrics/swiggy_daily_sample.csv",
+          import.meta.url,
+        ),
+        "utf8",
+      )
+    ).replaceAll("Menu Opens", "Menu Views");
+    const outlet = await createOutlet(ownerDb, await restaurantA(), {
+      name: "Test Kitchen",
+      city: "Testcity",
+      swiggyRid: "900001",
+    });
+    const response = await call("POST", "/agent/v1/metric-reports", tokenA, {
+      outletId: outlet.id,
+      platform: "swiggy",
+      report: "daily",
+      periodStart: "2026-11-02",
+      periodEnd: "2026-11-09",
+      csv,
+      runId: `reject-${suffix}`,
+      source: "export",
+      capturedAt: "2026-11-09T05:00:00.000Z",
+    });
+    expect(response.status).toBe(200);
+    const posted = (await response.json()) as {
+      labels?: { findings: Array<{ findingId: string; kind: string }> };
+    };
+    const findingId =
+      posted.labels?.findings.find((finding) => finding.kind === "metric_label_change")
+        ?.findingId ?? "";
+    expect(findingId, JSON.stringify(posted)).not.toBe("");
+    const aliases = await runAsSystem("count aliases", () => db.metricLabelAlias.count());
+    const rejected = await runAsSystem("reject not a rename", () =>
+      rejectLabelFinding(db, findingId, `admin-${suffix}`, "not_rename"),
+    );
+    expect(rejected).toMatchObject({ ok: true, value: { status: "rejected_not_rename" } });
+    expect(await runAsSystem("aliases unchanged", () => db.metricLabelAlias.count())).toBe(aliases);
+    const collision = await runAsSystem("colliding alias", () =>
+      addLabelAlias(
+        db,
+        "swiggy.business.CONVERSION_FUNNEL.cart_builds",
+        "Delivered Orders",
+        `admin-${suffix}`,
+      ),
+    );
+    expect(collision).toMatchObject({ ok: false, error: "collision" });
+    const ignored = await runAsSystem("ignore a second finding", async () => {
+      const finding = await db.metricLabelFinding.create({
+        data: {
+          kind: "metric_label_change",
+          platform: "swiggy",
+          family: "business",
+          reportKind: "daily",
+          section: "CONVERSION_FUNNEL",
+          slotId: "swiggy.business.CONVERSION_FUNNEL.menu_opens",
+          oldLabel: "Menu Opens",
+          candidateLabel: "Menu Views",
+          candidateNorm: "menu views",
+          evidence: { wouldApply: false },
+          confidence: "low",
+          status: "open",
+        },
+      });
+      return rejectLabelFinding(db, finding.id, `admin-${suffix}`, "ignore_label");
+    });
+    expect(ignored).toMatchObject({ ok: true, value: { status: "rejected_ignored" } });
+    const removed = await runAsSystem("retire a metric", async () => {
+      const finding = await db.metricLabelFinding.create({
+        data: {
+          kind: "metric_label_change",
+          platform: "swiggy",
+          family: "business",
+          reportKind: "daily",
+          section: "CONVERSION_FUNNEL",
+          slotId: "swiggy.business.CONVERSION_FUNNEL.impressions",
+          oldLabel: "Impressions",
+          candidateLabel: "Ad Views",
+          candidateNorm: "ad views",
+          evidence: { wouldApply: false },
+          confidence: "low",
+          status: "open",
+        },
+      });
+      await db.metricValue.create({
+        data: {
+          restaurantId: await restaurantA(),
+          spaceId: spaceA,
+          outletId: outlet.id,
+          platform: "swiggy",
+          granularity: "day",
+          periodStart: new Date("2026-08-01T00:00:00.000Z"),
+          periodEnd: new Date("2026-08-02T00:00:00.000Z"),
+          key: "impressions",
+          state: "pending_label",
+          runId: `removed-${suffix}`,
+          source: `pending_label:${finding.id}`,
+          capturedAt: new Date("2026-08-02T00:00:00.000Z"),
+        },
+      });
+      return rejectLabelFinding(db, finding.id, `admin-${suffix}`, "metric_removed");
+    });
+    expect(removed).toMatchObject({ ok: true, value: { status: "metric_removed" } });
+    const retired = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricValue.findFirst({
+        where: { outletId: outlet.id, key: "impressions", supersededAt: null },
+      }),
+    );
+    expect(retired?.state).toBe("label_unrecoverable");
+  });
+
+  it("stops retrying after three nights and after fourteen days in two outlets", async () => {
+    const restaurantId = await restaurantA();
+    const outlet = await createOutlet(ownerDb, restaurantId, {
+      name: "Test Kitchen",
+      city: "Testcity",
+      swiggyRid: "900001",
+    });
+    const other = await createOutlet(ownerDb, restaurantId, {
+      name: "Other Kitchen",
+      city: "Testcity",
+      swiggyRid: "900002",
+    });
+    const finding = await runAsSystem("absent finding", () =>
+      db.metricLabelFinding.create({
+        data: {
+          kind: "metric_absent",
+          platform: "swiggy",
+          family: "business",
+          reportKind: "daily",
+          section: "CONVERSION_FUNNEL",
+          slotId: "swiggy.business.CONVERSION_FUNNEL.cart_builds",
+          oldLabel: "Carts Builds",
+          evidence: { wouldApply: false },
+          confidence: "high",
+          status: "open",
+        },
+      }),
+    );
+    const start = "2026-08-01";
+    const dates = Array.from({ length: 14 }, (_, index) => addIsoDays(start, index));
+    await runAsTenant({ spaceId: spaceA, userId: userA }, async () => {
+      for (const day of dates) {
+        for (const id of [outlet.id, other.id]) {
+          await db.metricValue.create({
+            data: {
+              restaurantId,
+              spaceId: spaceA,
+              outletId: id,
+              platform: "swiggy",
+              granularity: "day",
+              periodStart: new Date(`${day}T00:00:00.000Z`),
+              periodEnd: new Date(`${addIsoDays(day, 1)}T00:00:00.000Z`),
+              key: "cart_builds",
+              state: "pending_label",
+              runId: `absent-${suffix}`,
+              source: `pending_label:${finding.id}`,
+              capturedAt: new Date("2026-08-20T00:00:00.000Z"),
+            },
+          });
+        }
+      }
+    });
+    const metrics = await call(
+      "GET",
+      `/agent/v1/metrics?outletId=${outlet.id}&platform=swiggy&from=2026-08-01&to=2026-08-15&keys=cart_builds`,
+      tokenA,
+    );
+    const body = (await metrics.json()) as {
+      values: Array<{ status: string; value: number | null; updatingDates: string[] }>;
+    };
+    expect(body.values[0]).toMatchObject({
+      status: "not_available",
+      value: null,
+      updatingDates: [],
+    });
+    const left = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricValue.count({
+        where: { outletId: other.id, key: "cart_builds", state: "label_unrecoverable" },
+      }),
+    );
+    expect(left).toBe(14);
+  });
+
+  it("gives up on a day after three failed nights", async () => {
+    const restaurantId = await restaurantA();
+    const outlet = await createOutlet(ownerDb, restaurantId, {
+      name: "Test Kitchen",
+      city: "Testcity",
+      swiggyRid: "900001",
+    });
+    const finding = await runAsSystem("retry finding", () =>
+      db.metricLabelFinding.create({
+        data: {
+          kind: "metric_label_change",
+          platform: "swiggy",
+          family: "business",
+          reportKind: "daily",
+          section: "SALES",
+          slotId: "swiggy.business.SALES.delivered_orders",
+          oldLabel: "Net Sales",
+          candidateLabel: "Sales",
+          candidateNorm: "sales",
+          evidence: { wouldApply: false },
+          confidence: "low",
+          status: "open",
+        },
+      }),
+    );
+    await runAsTenant({ spaceId: spaceA, userId: userA }, async () => {
+      await db.metricValue.create({
+        data: {
+          restaurantId,
+          spaceId: spaceA,
+          outletId: outlet.id,
+          platform: "swiggy",
+          granularity: "day",
+          periodStart: new Date("2026-07-01T00:00:00.000Z"),
+          periodEnd: new Date("2026-07-02T00:00:00.000Z"),
+          key: "delivered_orders",
+          state: "pending_label",
+          runId: `nights-${suffix}`,
+          source: `pending_label:${finding.id}`,
+          capturedAt: new Date("2026-07-02T00:00:00.000Z"),
+        },
+      });
+      for (const night of ["2026-07-02", "2026-07-03", "2026-07-04"]) {
+        await db.metricRelabelAttempt.create({
+          data: {
+            restaurantId,
+            spaceId: spaceA,
+            outletId: outlet.id,
+            platform: "swiggy",
+            findingId: finding.id,
+            periodStart: new Date("2026-07-01T00:00:00.000Z"),
+            night,
+            outcome: "failed",
+          },
+        });
+      }
+    });
+    const metrics = await call(
+      "GET",
+      `/agent/v1/metrics?outletId=${outlet.id}&platform=swiggy&from=2026-07-01&to=2026-07-02&keys=delivered_orders`,
+      tokenA,
+    );
+    expect(metrics.status).toBe(200);
+    const body = (await metrics.json()) as {
+      values: Array<{ status: string; value: number | null }>;
+    };
+    expect(body.values[0]).toMatchObject({ status: "not_available", value: null });
+  });
+
+  it("marks a total partial while some days are still updating", async () => {
+    const restaurantId = await restaurantA();
+    const outlet = await createOutlet(ownerDb, restaurantId, {
+      name: "Test Kitchen",
+      city: "Testcity",
+      swiggyRid: "900001",
+    });
+    await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricValue.createMany({
+        data: [
+          {
+            restaurantId,
+            spaceId: spaceA,
+            outletId: outlet.id,
+            platform: "swiggy",
+            granularity: "day",
+            periodStart: new Date("2026-09-01T00:00:00.000Z"),
+            periodEnd: new Date("2026-09-02T00:00:00.000Z"),
+            key: "delivered_orders",
+            value: 10,
+            state: "ok",
+            runId: `partial-${suffix}`,
+            source: "report",
+            capturedAt: new Date("2026-09-03T00:00:00.000Z"),
+          },
+          {
+            restaurantId,
+            spaceId: spaceA,
+            outletId: outlet.id,
+            platform: "swiggy",
+            granularity: "day",
+            periodStart: new Date("2026-09-02T00:00:00.000Z"),
+            periodEnd: new Date("2026-09-03T00:00:00.000Z"),
+            key: "delivered_orders",
+            state: "pending_label",
+            runId: `partial-${suffix}`,
+            source: "pending_label:partial",
+            capturedAt: new Date("2026-09-03T00:00:00.000Z"),
+          },
+        ],
+      }),
+    );
+    const metrics = await call(
+      "GET",
+      `/agent/v1/metrics?outletId=${outlet.id}&platform=swiggy&from=2026-09-01&to=2026-09-03&keys=delivered_orders`,
+      tokenA,
+    );
+    const body = (await metrics.json()) as {
+      values: Array<{
+        status: string;
+        value: number | null;
+        updatingDates: string[];
+        partialDates: string[];
+      }>;
+    };
+    expect(body.values[0]).toMatchObject({
+      status: "updating",
+      value: 10,
+      updatingDates: ["2026-09-02"],
+      partialDates: ["2026-09-02"],
+    });
+    const combined = await call(
+      "GET",
+      `/agent/v1/metrics?outletId=${outlet.id}&platform=all&from=2026-09-01&to=2026-09-03&keys=delivered_orders`,
+      tokenA,
+    );
+    const both = (await combined.json()) as {
+      values: Array<{ status: string; partialDates: string[] }>;
+    };
+    expect(both.values[0]?.status).toBe("updating");
+    expect(both.values[0]?.partialDates).toContain("2026-09-02");
+  });
+
+  it("asks for at most thirty relabel days in one night", async () => {
+    const restaurantId = await restaurantA();
+    const outlet = await createOutlet(ownerDb, restaurantId, {
+      name: "Test Kitchen",
+      city: "Testcity",
+      swiggyRid: "900001",
+    });
+    const finding = await runAsSystem("open a capped rename", () =>
+      db.metricLabelFinding.create({
+        data: {
+          kind: "metric_label_change",
+          platform: "swiggy",
+          family: "business",
+          reportKind: "daily",
+          section: "SALES",
+          slotId: "swiggy.business.SALES.delivered_orders",
+          oldLabel: "Delivered Orders",
+          candidateLabel: "Orders Delivered",
+          candidateNorm: "orders delivered",
+          evidence: { wouldApply: true },
+          confidence: "high",
+          status: "open",
+        },
+      }),
+    );
+    const approved = await runAsSystem("approve the capped rename", () =>
+      approveLabelFinding(db, finding.id, `admin-${suffix}`),
+    );
+    expect(approved.ok).toBe(true);
+    const fetch = await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricFetch.create({
+        data: {
+          restaurantId,
+          spaceId: spaceA,
+          outletId: outlet.id,
+          platform: "swiggy",
+          reportKind: "daily",
+          status: "stored",
+          requestedPeriodStart: new Date("2026-10-05T00:00:00.000Z"),
+          requestedPeriodEnd: new Date("2026-11-14T00:00:00.000Z"),
+          sha256: "d".repeat(64),
+          attemptCount: 1,
+          source: "export",
+          parserVersion: METRIC_PARSER_VERSION,
+          labelSetVersion: 1,
+          pendingLabels: 40,
+          runId: `cap-${suffix}`,
+          capturedAt: new Date("2026-08-01T00:00:00.000Z"),
+        },
+      }),
+    );
+    const days = Array.from({ length: 40 }, (_, index) => addIsoDays("2026-10-05", index));
+    await runAsTenant({ spaceId: spaceA, userId: userA }, () =>
+      db.metricValue.createMany({
+        data: days.map((day) => ({
+          restaurantId,
+          spaceId: spaceA,
+          outletId: outlet.id,
+          platform: "swiggy",
+          granularity: "day",
+          periodStart: new Date(`${day}T00:00:00.000Z`),
+          periodEnd: new Date(`${addIsoDays(day, 1)}T00:00:00.000Z`),
+          key: "delivered_orders",
+          state: "pending_label",
+          runId: `cap-${suffix}`,
+          source: `pending_label:${finding.id}`,
+          capturedAt: new Date("2026-08-01T00:00:00.000Z"),
+          fetchId: fetch.id,
+        })),
+      }),
+    );
+    const plan = await call(
+      "GET",
+      `/agent/v1/fetch-plan?outletId=${outlet.id}&date=2026-11-14`,
+      tokenA,
+    );
+    const body = (await plan.json()) as {
+      platforms: Array<{
+        platform: string;
+        windows: Array<{ reasons: string[]; periodStart: string; periodEnd: string }>;
+      }>;
+    };
+    const windows =
+      body.platforms
+        .find((item) => item.platform === "swiggy")
+        ?.windows.filter((window) => window.reasons.includes("relabel")) ?? [];
+    const covered = new Set<string>();
+    for (const window of windows) {
+      let cursor = window.periodStart;
+      while (cursor < window.periodEnd) {
+        if (days.includes(cursor)) covered.add(cursor);
+        cursor = addIsoDays(cursor, 1);
+      }
+    }
+    expect(covered.size).toBeLessThanOrEqual(30);
+    expect(covered.size).toBeGreaterThan(0);
   });
 });

@@ -42,6 +42,8 @@ export * from "./history-retrieval.js";
 export * from "./memory-config.js";
 export * from "./messages.js";
 export * from "./messaging.js";
+export * from "./metric-label-admin.js";
+export * from "./metric-label-aging.js";
 export * from "./metric-labels.js";
 export * from "./metric-reports.js";
 export * from "./model-credentials.js";

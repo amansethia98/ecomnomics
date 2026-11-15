@@ -40,6 +40,7 @@ export const LOG_FETCH_STATUSES = [
   "ui_changed",
   "local_mismatch",
   "missing_platform_id",
+  "layout_changed",
 ] as const;
 export type LogFetchStatus = (typeof LOG_FETCH_STATUSES)[number];
 
@@ -53,7 +54,13 @@ export const FETCH_STATUSES = [
 ] as const;
 export type FetchStatus = (typeof FETCH_STATUSES)[number];
 
-export const FETCH_WINDOW_REASONS = ["scheduled", "pending", "lag_banner", "backfill"] as const;
+export const FETCH_WINDOW_REASONS = [
+  "scheduled",
+  "pending",
+  "lag_banner",
+  "backfill",
+  "relabel",
+] as const;
 export type FetchWindowReason = (typeof FETCH_WINDOW_REASONS)[number];
 
 export const Sha256Schema = z
@@ -86,6 +93,8 @@ export interface FetchPlanWindow {
   periodStart: string;
   /** Exclusive civil date, the day after the last day. */
   periodEnd: string;
+  /** Set when this window re-reads days whose label was approved. */
+  relabel?: { findingIds: string[] };
 }
 
 export interface FetchPlanPlatform {
@@ -161,6 +170,8 @@ export interface StoredFetchCheck {
   periodStart: string;
   periodEnd: string;
   stored: boolean;
+  /** True when the bytes are stored but were parsed before the current labels, with metrics still pending. */
+  reingest: boolean;
   fetchId: string | null;
 }
 

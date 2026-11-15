@@ -11,6 +11,7 @@ import {
   runAsPlatformAdmin,
   runAsSystem,
   runAsTenant,
+  seedMetricLabels,
 } from "@rakazo/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { platformAdminRoutes } from "./platform-admin-routes.js";
@@ -262,5 +263,43 @@ describePostgres("platform admin is a separate role (PostgreSQL)", () => {
       body,
     });
     expect(again.status).toBe(404);
+  });
+
+  it("does not let an agent token or a non-admin add a label alias", async () => {
+    await seedMetricLabels(owner.prisma);
+    const store = createPlatformAdminStore(admin.prisma);
+    const path = "/admin/v1/metric-labels/slots/swiggy.business.SALES.net_sales/aliases";
+    const body = JSON.stringify({ label: "Net Revenue" });
+    const routes = platformAdminRoutes({
+      allowlist: ["auditor@example.com"],
+      store,
+      getSession: async () => ({
+        user: { id: `auditor-${suffix}`, email: "auditor@example.com", emailVerified: true },
+      }),
+    });
+    const agent = await routes.request(path, {
+      method: "POST",
+      headers: { authorization: "Bearer ecom_agent_example", "content-type": "application/json" },
+      body,
+    });
+    expect(agent.status).toBe(403);
+    const stranger = platformAdminRoutes({
+      allowlist: ["auditor@example.com"],
+      store,
+      getSession: async () => ({
+        user: { id: `other-${suffix}`, email: "other@example.com", emailVerified: true },
+      }),
+    });
+    const denied = await stranger.request(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    expect(denied.status).toBe(403);
+    expect(
+      await runAsSystem("alias was not written", () =>
+        owner.prisma.metricLabelAlias.findFirst({ where: { label: "Net Revenue" } }),
+      ),
+    ).toBeNull();
   });
 });

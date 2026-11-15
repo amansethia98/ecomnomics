@@ -37,7 +37,7 @@ export async function loadLabelBook(db: PrismaClient): Promise<LabelBook> {
     if (cached?.version === registry.version) return cached.book;
     const [slots, aliases] = await Promise.all([
       db.metricLabelSlot.findMany(),
-      db.metricLabelAlias.findMany(),
+      db.metricLabelAlias.findMany({ where: { retiredAt: null } }),
     ]);
     if (slots.length === 0 || aliases.length === 0) return seedLabelBook();
     const book: LabelBook = {
@@ -93,6 +93,7 @@ function asSlot(slot: {
   summable: boolean;
   allowAutoApply: boolean;
   collect: string;
+  retiredFrom?: Date | null;
 }): LabelSlot {
   return {
     id: slot.id,
@@ -104,6 +105,7 @@ function asSlot(slot: {
     summable: slot.summable,
     allowAutoApply: slot.allowAutoApply,
     collect: slot.collect === "all" ? "all" : "first",
+    retiredFrom: slot.retiredFrom?.toISOString() ?? null,
   };
 }
 
