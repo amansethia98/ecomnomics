@@ -495,7 +495,7 @@ function reopen(
   const alert: AlertState = {
     ...applyFire(existing, input.date, input.outcome, false),
     status: "open",
-    severity: existing.severity,
+    severity: input.outcome.severity,
     reopenCount: existing.reopenCount + 1,
     resolvedAt: null,
     resolvedReason: null,
@@ -504,7 +504,7 @@ function reopen(
     consecutiveDays: 1,
     clearDays: 0,
     lastNotifiedAt: notify ? input.date : existing.lastNotifiedAt,
-    notifiedSeverity: notify ? existing.severity : existing.notifiedSeverity,
+    notifiedSeverity: notify ? input.outcome.severity : existing.notifiedSeverity,
   };
   const events: AlertEventDraft[] = [
     {

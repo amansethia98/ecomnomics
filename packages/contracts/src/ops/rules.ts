@@ -429,7 +429,7 @@ function cancellations(
   const limits = config.cancellations;
   return countRate(day, key, config, (count, delivered, pct) => {
     const watch = count >= limits.watchCount.value && pct > limits.watchAbovePct.value;
-    const act = count >= limits.actNowCount.value || pct > limits.actNowAbovePct.value;
+    const act = count >= limits.actNowCount.value && pct > limits.actNowAbovePct.value;
     if (!watch && !act) return { kind: "clear" };
     const severity: OpsAlertSeverity = act ? "act_now" : "watch";
     return {
@@ -560,7 +560,7 @@ function prep(
     baselineValue: baseline?.value ?? null,
     baselineDate: baseline?.date ?? null,
     provisional: false,
-    text: `${appLabel(platform)} ${trimNumber(minutes)} min${was}`,
+    text: `${appLabel(platform)} prep time ${trimNumber(minutes)} min${was}`,
     evidence: [
       cell(
         "kpt_minutes",
@@ -645,12 +645,10 @@ function rateGuard(
   numerator: number,
   config: OpsRulesConfig,
 ): RuleDecision | null {
-  if (
-    delivered < config.guards.rateMinDelivered.value ||
-    numerator < config.guards.rateMinNumerator.value
-  ) {
-    return { kind: "hold", reason: "guard" };
-  }
+  if (delivered < config.guards.rateMinDelivered.value) return { kind: "hold", reason: "guard" };
+  // One bad order cannot cross the rate lines once the day is large enough, so
+  // the open alert can clear. Too few delivered orders stay frozen.
+  if (numerator < config.guards.rateMinNumerator.value) return { kind: "clear" };
   return null;
 }
 
@@ -729,6 +727,14 @@ function pointState(day: OpsAppDay | undefined, key: string): OpsMetricPoint["st
   return point(day, key)?.state ?? "missing";
 }
 
+/** A stored day of zeros, or a 0.00 rating / 0% online, has not arrived yet. */
+function blankDay(platform: OpsPlatform, day: OpsAppDay | undefined): boolean {
+  if (!day?.stored || day.ingest) return false;
+  if (pointValue(day, "rating") === 0 || pointValue(day, "online_pct") === 0) return true;
+  const salesKey = platform === "zomato" ? "ops_sales_paise" : "swiggy_net_sales_paise";
+  return pointValue(day, salesKey) === 0 && pointValue(day, "delivered_orders") === 0;
+}
+
 function pointValue(day: OpsAppDay | undefined, key: string): number | null {
   const metric = point(day, key);
   if (metric?.state !== "ok") return null;
@@ -744,6 +750,14 @@ function appMode(
   retryable: boolean;
   blocker: Omit<DailyBlocker, "outletId" | "dates"> | null;
 } {
+  if (blankDay(platform, day)) {
+    return {
+      mode: "lag_missing",
+      ingest: null,
+      retryable: true,
+      blocker: { platform, code: "lag_missing", retryable: true },
+    };
+  }
   if (day?.ingest) {
     return {
       mode: "failed",
@@ -867,11 +881,14 @@ function cell(
   };
 }
 
-/** One call-out per family. The highest severity is the one shown. */
+/** One call-out per family. Combined sales is its own call-out. The highest severity is shown. */
 export function displayFindings(findings: DailyFinding[]): DailyFinding[] {
   const groups = new Map<string, DailyFinding[]>();
   for (const finding of findings) {
-    const key = `${finding.outletId}:${finding.family}`;
+    const key =
+      finding.platform === "combined"
+        ? `${finding.outletId}:combined:${finding.family}`
+        : `${finding.outletId}:${finding.family}`;
     const list = groups.get(key) ?? [];
     list.push(finding);
     groups.set(key, list);
@@ -882,7 +899,7 @@ export function displayFindings(findings: DailyFinding[]): DailyFinding[] {
     const winner = ranked[0];
     if (!winner) continue;
     if (winner.family === "prep") {
-      const text = `Prep time ${members.map((member) => member.text.replace(/\.$/, "")).join(", ")}.`;
+      const text = `${members.map((member) => member.text.replace(/\.$/, "")).join(", ")}.`;
       shown.push({ ...winner, text });
     } else {
       shown.push(winner);

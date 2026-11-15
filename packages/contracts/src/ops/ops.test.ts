@@ -6,7 +6,14 @@ import {
   snoozeAlert,
   stepAlert,
 } from "./alerts.js";
-import { combinedDaySales, composeDailyBrief, viewFromDaily, weekSales } from "./brief.js";
+import {
+  carryForward,
+  catchUpLine,
+  combinedDaySales,
+  composeDailyBrief,
+  viewFromDaily,
+  weekSales,
+} from "./brief.js";
 import { DEFAULT_OPS_RULES_CONFIG, resolveOpsRulesConfig } from "./config.js";
 import { addDays } from "./format.js";
 import {
@@ -209,9 +216,11 @@ describe("daily thresholds", () => {
         }),
       ]).findings.find((finding) => finding.code === "d_food_ready");
     expect(ready(85)).toBeUndefined();
-    expect(ready(84.9)?.severity).toBe("watch");
+    expect(ready(84)?.severity).toBe("watch");
+    expect(ready(80)?.severity).toBe("watch");
     expect(ready(75)?.severity).toBe("watch");
     expect(ready(74.9)?.severity).toBe("act_now");
+    expect(ready(67)?.severity).toBe("act_now");
     expect(ready(70, 14)).toBeUndefined();
 
     const online = (pct: number, delivered = 15) =>
@@ -265,11 +274,12 @@ describe("daily thresholds", () => {
       ]).findings.find((finding) => finding.code === "d_cancel_reject");
     expect(rejected(3, 60)).toBeUndefined();
     expect(rejected(3, 59)?.severity).toBe("watch");
-    expect(rejected(6, 200)?.severity).toBe("act_now");
-    expect(rejected(2, 18)?.severity).toBe("act_now");
+    expect(rejected(6, 200)).toBeUndefined();
+    expect(rejected(6, 50)?.severity).toBe("act_now");
+    expect(rejected(2, 18)).toBeUndefined();
   });
 
-  it("shows one sales call-out and one prep call-out, and never a combined delayed total", () => {
+  it("shows the combined sales drop beside the outlet's, and one prep call-out", () => {
     const days = [
       day("zomato", DATE, {
         ops_sales_paise: point(570_000),
@@ -289,9 +299,10 @@ describe("daily thresholds", () => {
     const result = run(days);
     expect(noCombinedNonSummable(result.findings)).toBe(true);
     const shown = displayFindings(result.findings);
-    expect(shown.filter((finding) => finding.family === "sales")).toHaveLength(1);
-    expect(shown.find((finding) => finding.family === "sales")?.platform).toBe("zomato");
+    const sales = shown.filter((finding) => finding.family === "sales");
+    expect(sales.map((finding) => finding.platform).sort()).toEqual(["combined", "zomato"]);
     expect(shown.filter((finding) => finding.family === "prep")).toHaveLength(1);
+    expect(shown.find((finding) => finding.family === "prep")?.text).toContain("prep time");
     expect(shown.find((finding) => finding.family === "prep")?.text).toContain("Zomato");
     expect(shown.find((finding) => finding.family === "prep")?.text).toContain("Swiggy");
     expect(
@@ -299,6 +310,41 @@ describe("daily thresholds", () => {
         (finding) => finding.code === "d_delayed" && finding.platform === "combined",
       ),
     ).toBe(false);
+  });
+
+  it("treats a blank day as not in yet, and still flags a real closed day", () => {
+    const blank = run([
+      day("swiggy", DATE, {
+        swiggy_net_sales_paise: point(0),
+        delivered_orders: point(0),
+        food_ready_accuracy_pct: point(67),
+        online_pct: point(0),
+      }),
+      day("swiggy", WEEK, { swiggy_net_sales_paise: point(700_000), delivered_orders: point(20) }),
+    ]);
+    expect(blank.findings).toEqual([]);
+    expect(blank.snapshots[0]?.apps.find((app) => app.platform === "swiggy")?.mode).toBe(
+      "lag_missing",
+    );
+    expect(blank.frozenScopes).toContainEqual({ outletId: OUTLET.id, platform: "swiggy" });
+
+    const rated = run([
+      day("zomato", DATE, {
+        rating: point(0),
+        delivered_orders: point(20),
+        ops_sales_paise: point(500_000),
+      }),
+    ]);
+    expect(rated.findings).toEqual([]);
+    expect(rated.snapshots[0]?.apps.find((app) => app.platform === "zomato")?.mode).toBe(
+      "lag_missing",
+    );
+
+    const closed = run([
+      day("zomato", DATE, { ops_sales_paise: point(500_000), delivered_orders: point(0) }),
+      day("zomato", WEEK, { ops_sales_paise: point(500_000), delivered_orders: point(20) }),
+    ]);
+    expect(closed.findings.some((finding) => finding.code === "d_zero_orders")).toBe(true);
   });
 
   it("freezes an app that failed to ingest and does not retry a held fetch", () => {
@@ -455,7 +501,15 @@ describe("alert lifecycle", () => {
     }).alert!;
     const back = stepAlert(resolved, { date: "2026-11-06", ...identity, outcome: fire("act_now") });
     expect(back.events[0]?.kind).toBe("reopened");
-    expect(back.alert?.severity).toBe("watch");
+    expect(back.alert?.severity).toBe("act_now");
+    expect(back.events.some((event) => event.kind === "escalated")).toBe(false);
+    const nextDay = stepAlert(back.alert, {
+      date: "2026-11-07",
+      ...identity,
+      outcome: fire("act_now"),
+    });
+    expect(nextDay.events.some((event) => event.kind === "escalated")).toBe(false);
+    expect(nextDay.notifyReason).not.toBe("escalated");
     expect(back.notifyReason).toBe("back_again");
     const dismissed = dismissAlert(resolved, "2026-11-03");
     const held = stepAlert(dismissed, {
@@ -470,6 +524,63 @@ describe("alert lifecycle", () => {
       outcome: fire("act_now"),
     });
     expect(later.action).toBe("create");
+  });
+
+  it("resolves after two low-count days instead of waiting out the stale timeout", () => {
+    const heavy = evaluateDaily({
+      date: DATE,
+      outlets: [OUTLET],
+      days: [day("swiggy", DATE, { delayed_orders_gt10: point(4), delivered_orders: point(20) })],
+    });
+    const opened = applyDailyAlerts({
+      date: DATE,
+      findings: heavy.findings,
+      clears: heavy.clears,
+      holds: heavy.holds,
+      frozenScopes: heavy.frozenScopes,
+      existing: [],
+    });
+    expect(opened.alerts.find((alert) => alert.ruleCode === "d_delayed")?.status).toBe("open");
+    const light = (date: string) =>
+      evaluateDaily({
+        date,
+        outlets: [OUTLET],
+        days: [day("swiggy", date, { delayed_orders_gt10: point(1), delivered_orders: point(20) })],
+      });
+    const first = light("2026-11-15");
+    expect(first.clears.some((item) => item.code === "d_delayed")).toBe(true);
+    expect(first.holds.some((item) => item.code === "d_delayed")).toBe(false);
+    const mid = applyDailyAlerts({
+      date: "2026-11-15",
+      findings: first.findings,
+      clears: first.clears,
+      holds: first.holds,
+      frozenScopes: first.frozenScopes,
+      existing: opened.alerts,
+    });
+    expect(mid.alerts.find((alert) => alert.ruleCode === "d_delayed")?.status).toBe("open");
+    const second = light("2026-11-16");
+    const done = applyDailyAlerts({
+      date: "2026-11-16",
+      findings: second.findings,
+      clears: second.clears,
+      holds: second.holds,
+      frozenScopes: second.frozenScopes,
+      existing: mid.alerts,
+    });
+    const delayed = done.alerts.find((alert) => alert.ruleCode === "d_delayed");
+    expect(delayed?.status).toBe("resolved");
+    expect(delayed?.resolvedReason).toBe("cleared");
+    const few = evaluateDaily({
+      date: "2026-11-15",
+      outlets: [OUTLET],
+      days: [
+        day("swiggy", "2026-11-15", { delayed_orders_gt10: point(1), delivered_orders: point(10) }),
+      ],
+    });
+    expect(few.holds.some((item) => item.code === "d_delayed" && item.reason === "guard")).toBe(
+      true,
+    );
   });
 
   it("hides a snoozed Watch and still shows an escalation", () => {
@@ -594,7 +705,7 @@ Sat 14 Nov vs Sat 7 Nov · 🟢 Healthy
 Net sales ₹18,400 (+6.2%) · Zomato ₹11,200 (+4.7%) · Swiggy ₹7,200 (+8.6%)
 42 delivered · AOV ₹438
 Week so far (Mon–Sat): ₹1,02,300 (+2.1%)
-All good on both apps. Data as of 05:48.`;
+All good on both apps. Data as of 14 Nov, 05:48.`;
 
   const callouts = `*Good morning · Sample Kitchen*
 Sat 14 Nov vs Sat 7 Nov · 🔴 Act now (2) · 🟡 Watch (1)
@@ -605,7 +716,7 @@ Net sales ₹12,900 (−25.6%) · Zomato ₹5,700 (−46.7%) · Swiggy ₹7,200 
 🔴 Zomato online 68.0% yesterday. Fix: check the outlet stayed online through promised hours; look at the offline log.
 🟡 Swiggy delayed orders 2 of 18 delivered (11.1%). Fix: start prep on accept and mark food ready only when it is.
 Ongoing: Swiggy food ready below 85% (day 2).
-Note: Swiggy figures for Sat may change within 48 hours. Data as of 05:48.`;
+Note: Swiggy figures for Sat may change within 48 hours. Data as of 14 Nov, 05:48.`;
 
   it("matches the all-good and call-out samples and stays inside the length caps", () => {
     const healthy = composeDailyBrief({
@@ -681,6 +792,86 @@ Note: Swiggy figures for Sat may change within 48 hours. Data as of 05:48.`;
     expect(loud.text).toBe(callouts);
     expect(loud.chars).toBeLessThanOrEqual(BRIEF_CHAR_LIMIT);
     expect(loud.status).toBe("red");
+    const withWeek = composeDailyBrief({
+      restaurantName: "Sample Kitchen",
+      date: DATE,
+      baselineDate: WEEK,
+      form: "brief",
+      onlyApp: null,
+      sales: null,
+      delivered: 20,
+      aovPaise: null,
+      week: { startLabel: "Mon", endLabel: "Sat", currentPaise: 10_230_000, changePct: 2.1 },
+      callouts: [
+        {
+          severity: "watch",
+          text: "Zomato online 80.0% yesterday.",
+          fix: dailyFix("d_online", "zomato"),
+        },
+      ],
+      ongoing: null,
+      resolved: null,
+      notes: [],
+      dataAsOf: "05:48",
+      catchUp: [],
+      healthyOutlets: 0,
+      outletCount: 1,
+    });
+    expect(withWeek.text).toContain("Week so far (Mon–Sat)");
+    expect(withWeek.text).toContain("Data as of 14 Nov, 05:48.");
+    expect(withWeek.chars).toBeLessThanOrEqual(BRIEF_CHAR_LIMIT);
+  });
+
+  it("rebuilds catch-up and ongoing without repeating today's call-outs", () => {
+    expect(catchUpLine("2026-11-13", "Swiggy delayed orders 2 of 18 delivered (11.1%).")).toBe(
+      "Fri 13 Nov: Swiggy delayed orders 2 of 18 delivered (11.1%).",
+    );
+    const alerts = [
+      {
+        dedupeKey: "sales",
+        text: "Zomato sales down 46.7% vs last Saturday.",
+        consecutiveDays: 2,
+        status: "open",
+        lastNotifiedAt: "2026-11-13",
+      },
+      {
+        dedupeKey: "ready",
+        text: "Swiggy food ready 80.0% yesterday.",
+        consecutiveDays: 3,
+        status: "open",
+        lastNotifiedAt: "2026-11-12",
+      },
+    ];
+    const input = {
+      alerts,
+      ongoingKeys: ["sales", "ready"],
+      calloutKeys: new Set(["sales"]),
+      previousDate: "2026-11-13",
+    };
+    const first = carryForward(input);
+    const second = carryForward(input);
+    expect(second).toEqual(first);
+    expect(first.catchUp).toEqual([]);
+    expect(first.ongoing).toContain("Swiggy food ready 80.0% yesterday (day 3)");
+    expect(first.ongoing).not.toContain("sales down");
+    const earlier = carryForward({
+      alerts: [
+        {
+          dedupeKey: "delayed",
+          text: "Swiggy delayed orders 2 of 18 delivered (11.1%).",
+          consecutiveDays: 1,
+          status: "open",
+          lastNotifiedAt: "2026-11-13",
+        },
+      ],
+      ongoingKeys: ["delayed"],
+      calloutKeys: new Set<string>(),
+      previousDate: "2026-11-13",
+    });
+    expect(earlier.catchUp).toEqual([
+      "Fri 13 Nov: Swiggy delayed orders 2 of 18 delivered (11.1%).",
+    ]);
+    expect(earlier.ongoing).toBeNull();
   });
 
   it("builds the lag, one-app and both-down briefs from the evaluation", () => {

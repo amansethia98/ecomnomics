@@ -20,7 +20,8 @@ import {
   addIsoDays,
   appLabel,
   applyDailyAlerts,
-  catchUpLine,
+  CALLOUT_LIMIT,
+  carryForward,
   civilRangeBounds,
   combinedDaySales,
   composeDailyBrief,
@@ -32,7 +33,6 @@ import {
   indiaCivilDate,
   ingestRetryable,
   nextReportDelivery,
-  ongoingLine,
   resolvedLine,
   resolveOpsRulesConfig,
   rollupDailyApps,
@@ -134,20 +134,14 @@ export async function runDailyOps(
       existing: alerts,
       config,
     });
-    const catchUp = earlier.findings
-      .filter((finding) => earlierStep.notify.includes(finding.dedupeKey))
-      .map((finding) => catchUpLine(previousDate, appLabel(finding.platform), finding.text));
-    const ongoingKeys = new Set(earlierStep.notify);
-    const ongoing = ongoingLine(
-      step.alerts
-        .filter(
-          (alert) =>
-            step.ongoing.includes(alert.dedupeKey) &&
-            !ongoingKeys.has(alert.dedupeKey) &&
-            alert.status !== "resolved",
-        )
-        .map((alert) => `${alert.text.replace(/\.$/, "")} (day ${alert.consecutiveDays})`),
-    );
+    const carried = carryForward({
+      alerts: step.alerts,
+      ongoingKeys: step.ongoing,
+      calloutKeys: calloutDedupeKeys(current.findings),
+      previousDate,
+    });
+    const catchUp = carried.catchUp;
+    const ongoing = carried.ongoing;
     const resolved = resolvedLine(
       step.alerts
         .filter((alert) => alert.resolvedReason === "cleared" && alert.resolvedAt === input.date)
@@ -550,7 +544,7 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
         spaceId: scope.spaceId,
         granularity: "day",
         supersededAt: null,
-        rowRole: "fact",
+        rowRole: { in: ["fact", "platform_check"] },
         key: { in: [...DAILY_KEYS] },
         periodStart: { gte: range.start, lt: range.end },
       },
@@ -558,6 +552,7 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
         outletId: true,
         platform: true,
         key: true,
+        rowRole: true,
         periodStart: true,
         value: true,
         valueBoolean: true,
@@ -604,7 +599,10 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
     }
     return found;
   };
-  for (const row of metrics) {
+  const ordered = [...metrics].sort(
+    (left, right) => Number(left.rowRole === "fact") - Number(right.rowRole === "fact"),
+  );
+  for (const row of ordered) {
     const iso = indiaCivilDate(row.periodStart);
     const current = slot(row.outletId, row.platform, iso);
     if (!current) continue;
@@ -613,6 +611,7 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
       if (row.valueBoolean != null) current.stored = true;
       continue;
     }
+    // platform_check is applied first. A fact row for the same key replaces it.
     current.metrics[row.key] = {
       value: row.value == null ? null : row.value.toNumber(),
       state:
@@ -676,6 +675,18 @@ function covers(
   const end = indiaCivilDate(fetch.requestedPeriodEnd);
   if (iso < start || iso >= end) return false;
   return !fetch.missingPeriods?.includes(iso);
+}
+
+function calloutDedupeKeys(findings: DailyFinding[]): Set<string> {
+  const shown = displayFindings(findings).slice(0, CALLOUT_LIMIT);
+  const groupOf = (finding: DailyFinding) =>
+    finding.platform === "combined"
+      ? `${finding.outletId}:combined:${finding.family}`
+      : `${finding.outletId}:${finding.family}`;
+  const groups = new Set(shown.map(groupOf));
+  return new Set(
+    findings.filter((finding) => groups.has(groupOf(finding))).map((finding) => finding.dedupeKey),
+  );
 }
 
 function weekDays(days: OpsAppDay[]): Array<{ date: string; salesPaise: number | null }> {

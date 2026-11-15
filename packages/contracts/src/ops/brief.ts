@@ -37,7 +37,7 @@ export function composeDailyBrief(view: DailyBriefView): {
     const aov = view.aovPaise != null ? ` · AOV ${formatRupees(view.aovPaise)}` : "";
     lines.push(`${view.delivered} delivered${aov}`);
   }
-  if (view.week && callouts.length === 0) lines.push(weekLine(view));
+  if (view.week) lines.push(weekLine(view));
   if (view.outletCount > 1 && view.healthyOutlets > 0) {
     lines.push(`${view.healthyOutlets} outlets healthy`);
   }
@@ -281,8 +281,13 @@ function weekLine(view: DailyBriefView): string {
 
 function closing(view: DailyBriefView): string {
   const who = view.onlyApp ? view.onlyApp : "both apps";
-  const stamp = view.notes.length === 0 && view.dataAsOf ? ` Data as of ${view.dataAsOf}.` : "";
+  const stamp = view.notes.length === 0 ? ` ${dataStamp(view)}` : "";
   return `All good on ${who}.${stamp}`;
+}
+
+function dataStamp(view: DailyBriefView): string {
+  const day = formatCivilDay(view.date).replace(/^\S+\s/, "");
+  return view.dataAsOf ? `Data as of ${day}, ${view.dataAsOf}.` : `Data as of ${day}.`;
 }
 
 function calloutLine(callout: { severity: OpsAlertSeverity; text: string; fix: string }): string {
@@ -293,11 +298,10 @@ function calloutLine(callout: { severity: OpsAlertSeverity; text: string; fix: s
 
 function noteLine(view: DailyBriefView): string | null {
   if (view.notes.length === 0) {
-    if (view.callouts.length === 0 || !view.dataAsOf) return null;
-    return `Data as of ${view.dataAsOf}.`;
+    if (view.callouts.length === 0) return null;
+    return dataStamp(view);
   }
-  const stamp = view.dataAsOf ? `Data as of ${view.dataAsOf}.` : "";
-  return [view.notes.join(" "), stamp].filter((part) => part.length > 0).join(" ");
+  return [view.notes.join(" "), dataStamp(view)].filter((part) => part.length > 0).join(" ");
 }
 
 function lagSentence(view: DailyBriefView): string {
@@ -330,9 +334,46 @@ function done(text: string, status: OpsStatus): { text: string; chars: number; s
   return { text, chars: text.length, status };
 }
 
-export function catchUpLine(date: string, platform: string, text: string): string {
+export function catchUpLine(date: string, text: string): string {
   const sentence = text.endsWith(".") ? text : `${text}.`;
-  return `${platform}, ${formatCivilDay(date)}: ${sentence}`;
+  return `${formatCivilDay(date)}: ${sentence}`;
+}
+
+/** Catch-up and Ongoing, rebuilt from stored alerts so a second run writes the same lines. */
+export function carryForward(input: {
+  alerts: Array<{
+    dedupeKey: string;
+    text: string;
+    consecutiveDays: number;
+    status: string;
+    lastNotifiedAt: string | null;
+  }>;
+  ongoingKeys: readonly string[];
+  calloutKeys: ReadonlySet<string>;
+  previousDate: string;
+}): { catchUp: string[]; ongoing: string | null } {
+  const catchUpAlerts = input.alerts.filter(
+    (alert) =>
+      alert.lastNotifiedAt === input.previousDate &&
+      alert.status !== "resolved" &&
+      !input.calloutKeys.has(alert.dedupeKey),
+  );
+  const catchUpKeys = new Set(catchUpAlerts.map((alert) => alert.dedupeKey));
+  const ongoingKeys = new Set(input.ongoingKeys);
+  return {
+    catchUp: catchUpAlerts.map((alert) => catchUpLine(input.previousDate, alert.text)),
+    ongoing: ongoingLine(
+      input.alerts
+        .filter(
+          (alert) =>
+            ongoingKeys.has(alert.dedupeKey) &&
+            !input.calloutKeys.has(alert.dedupeKey) &&
+            !catchUpKeys.has(alert.dedupeKey) &&
+            alert.status !== "resolved",
+        )
+        .map((alert) => `${alert.text.replace(/\.$/, "")} (day ${alert.consecutiveDays})`),
+    ),
+  };
 }
 
 export function ongoingLine(parts: string[]): string | null {

@@ -143,6 +143,7 @@ describePostgres("daily ops brief (PostgreSQL)", () => {
       tokenB = await mintAgentToken(ownerDb, restaurantB, "ops");
       await seedDay(restaurantA, spaceA, outletA, "2026-03-14", 570_000, 720_000, 20);
       await seedDay(restaurantA, spaceA, outletA, "2026-03-07", 1_070_000, 663_000, 20);
+      await seedChecks(restaurantA, spaceA, outletA, "2026-03-14");
       for (const platform of ["zomato", "swiggy"] as const) {
         await ownerDb.metricFetch.create({
           data: {
@@ -191,6 +192,9 @@ describePostgres("daily ops brief (PostgreSQL)", () => {
     expect(body.workbook.available).toBe(false);
     expect(body.message.chars).toBeLessThanOrEqual(1200);
     expect(body.message.text).toContain("Zomato sales down");
+    expect(body.message.text).toContain("food ready");
+    expect(body.message.text).toContain("Data as of 14 Mar");
+    expect(body.message.text).toContain("Week so far");
     const stamped = await runAsSystem("ops config stamp", async () => {
       const report = await ownerDb.report.findUnique({ where: { id: body.reportId } });
       const alert = await ownerDb.opsAlert.findFirst({ where: { restaurantId: restaurantA } });
@@ -215,9 +219,16 @@ describePostgres("daily ops brief (PostgreSQL)", () => {
     const second = (await again.json()) as {
       version: number;
       deliver: { shouldNotify: boolean; reason: string };
+      message: { text: string };
     };
     expect(second.version).toBe(1);
     expect(second.deliver).toEqual({ shouldNotify: false, reason: "unchanged" });
+    expect(second.message.text).toBe(body.message.text);
+    const lines = second.message.text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    expect(new Set(lines).size).toBe(lines.length);
 
     const alerts = await call(agent, "GET", "/agent/v1/ops/alerts?status=open", tokenA);
     const listed = (await alerts.json()) as {
@@ -225,6 +236,9 @@ describePostgres("daily ops brief (PostgreSQL)", () => {
     };
     expect(listed.alerts.length).toBeGreaterThan(0);
     expect(listed.alerts.every((alert) => alert.occurrences === 1)).toBe(true);
+    expect(listed.alerts.some((alert) => alert.dedupeKey.includes("d_food_ready"))).toBe(true);
+    expect(listed.alerts.some((alert) => alert.dedupeKey.includes("d_online"))).toBe(false);
+    expect(listed.alerts.some((alert) => alert.dedupeKey.includes("d_rating"))).toBe(false);
 
     const report = await call(agent, "GET", `/agent/v1/ops/reports/${body.reportId}`, tokenA);
     expect(report.status).toBe(200);
@@ -457,6 +471,38 @@ describePostgres("daily ops brief (PostgreSQL)", () => {
       ).status,
     ).toBe(409);
   });
+
+  async function seedChecks(restaurantId: string, spaceId: string, outletId: string, date: string) {
+    const start = new Date(`${date}T00:00:00.000Z`);
+    const end = new Date(start.getTime() + 86_400_000);
+    const rows = [
+      ["swiggy", "food_ready_accuracy_pct", 80, "platform_check"],
+      ["zomato", "online_pct", 96, "fact"],
+      ["zomato", "online_pct", 40, "platform_check"],
+      ["zomato", "kpt_minutes", 12, "platform_check"],
+      ["zomato", "rating", 4.5, "fact"],
+      ["zomato", "rating", 3.5, "platform_check"],
+    ] as const;
+    for (const [platform, key, value, rowRole] of rows) {
+      await ownerDb.metricValue.create({
+        data: {
+          restaurantId,
+          spaceId,
+          outletId,
+          platform,
+          granularity: "day",
+          periodStart: start,
+          periodEnd: end,
+          key,
+          value,
+          rowRole,
+          runId: "ops-test",
+          source: "fixture",
+          capturedAt: new Date("2026-03-15T00:18:00.000Z"),
+        },
+      });
+    }
+  }
 
   async function seedDay(
     restaurantId: string,
