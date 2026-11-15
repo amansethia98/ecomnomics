@@ -454,6 +454,7 @@ function swiggyAnnexure(): void {
   ]);
   column(order, "mfr_accurate", "flag", false, [tokens("MFR accurate", ["mfr accurate"])]);
   column(order, "gst_collected", "money", true, [tokens("GST collected", ["gst collected"])]);
+  column(order, "gst_deduction", "money", true, [tokens("GST Deduction", ["gst deduction"])]);
   column(order, "net_payout", "money", true, [tokens("Net payout", ["net payout"])]);
   column(order, "paid_amount", "money", true, [
     tokens("Amount settled", ["amount settled"], ["unsettled"]),

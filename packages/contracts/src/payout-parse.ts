@@ -9,7 +9,7 @@ import type { ObservedReportIdentity } from "./metric-parse.js";
 import { costPaise, discountPaise, rupeesToPaise, signedPaise } from "./payout-money.js";
 import { openPayoutWorkbook } from "./payout-workbook.js";
 
-export const PAYOUT_PARSER_VERSION = "2026-11-14.payout.4";
+export const PAYOUT_PARSER_VERSION = "2026-11-15.payout.5";
 
 export interface PayoutOrderAmounts {
   grossSalesPaise: number;
@@ -506,6 +506,12 @@ function parseSwiggy(
     "swiggy.payout_annexure.order_level.gst_collected",
     () => colIncludes(head, "gst collected"),
   );
+  const gstDeductionCol = columnFor(
+    book,
+    head,
+    "swiggy.payout_annexure.order_level.gst_deduction",
+    () => colIncludes(head, "gst deduction"),
+  );
   const payoutCol = columnFor(book, head, "swiggy.payout_annexure.order_level.net_payout", () =>
     colIncludes(head, "net payout"),
   );
@@ -540,11 +546,21 @@ function parseSwiggy(
     const cv = cvParsed == null ? Math.max(0, gross - discount) : Math.abs(cvParsed);
     const status = orderStatus(cell(row, orderStatusCol));
     const cancelledBy = blankToNull(cell(row, cancelledByCol));
-    // A customer cancellation settles without the complaint charge. The charge
-    // stays on the row. A restaurant cancellation still deducts it.
-    const payoutCharge =
-      status === "CANCELLED" && norm(cancelledBy ?? "").includes("customer") ? 0 : complaints;
-    const recomputed = cv - commission - platformFees - gstOnFees - tds - tcs - payoutCharge;
+    // The bill is before GST. Swiggy's payout uses the GST it deducted, which
+    // is 0 on a refund. A missing or blank GST Deduction cell means it deducted
+    // the GST it collected, so the rebuild is unchanged.
+    const gstCollected = costPaise(cell(row, gstCollectedCol));
+    const gstDeductionParsed = rupeesToPaise(cell(row, gstDeductionCol));
+    const gstDeduction = gstDeductionParsed == null ? gstCollected : Math.abs(gstDeductionParsed);
+    const recomputed =
+      cv +
+      (gstCollected - gstDeduction) -
+      commission -
+      platformFees -
+      gstOnFees -
+      tds -
+      tcs -
+      complaints;
     const settlementDate = parseCivilDate(cell(row, settlementDateCol), null);
     draft.push({
       platformOrderId,
@@ -566,7 +582,7 @@ function parseSwiggy(
       tdsPaise: tds,
       tcsPaise: tcs,
       cvPaise: cv,
-      gstCollectedPaise: costPaise(cell(row, gstCollectedCol)),
+      gstCollectedPaise: gstCollected,
       complaintsCancellationChargesPaise: complaints,
       netPayoutPaise: signedPaise(cell(row, payoutCol)),
       paidAmountPaise: rupeesToPaise(cell(row, paidCol)),
