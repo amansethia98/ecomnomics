@@ -185,15 +185,17 @@ describePostgres("daily ops brief (PostgreSQL)", () => {
       readiness: { ready: boolean };
       message: { text: string; chars: number };
       workbook: { available: boolean };
+      shadowMode: boolean;
     };
     expect(body.status).toBe("red");
     expect(body.readiness.ready).toBe(true);
     expect(body.deliver).toEqual({ shouldNotify: true, reason: "first" });
+    expect(body.shadowMode).toBe(true);
     expect(body.workbook.available).toBe(false);
     expect(body.message.chars).toBeLessThanOrEqual(1200);
     expect(body.message.text).toContain("Zomato sales down");
     expect(body.message.text).toContain("food ready");
-    expect(body.message.text).toContain("Data as of 14 Mar");
+    expect(body.message.text).toContain("Data as of Sun 15 Mar, 05:48 IST");
     expect(body.message.text).toContain("Week so far");
     const stamped = await runAsSystem("ops config stamp", async () => {
       const report = await ownerDb.report.findUnique({ where: { id: body.reportId } });
@@ -322,14 +324,24 @@ describePostgres("daily ops brief (PostgreSQL)", () => {
     expect(row?.executedAt).toBeNull();
     expect(row?.type).toBe("other");
 
+    const actNowId =
+      listed.alerts.find((alert) => alert.dedupeKey.includes("d_sales_drop"))?.id ?? "";
+    const watchId =
+      listed.alerts.find((alert) => alert.dedupeKey.includes("d_food_ready"))?.id ?? "";
+    const rejected = await call(
+      owner,
+      "POST",
+      `/api/v1/restaurants/${restaurantA}/ops/alerts/${actNowId}/snooze`,
+      userA,
+      { days: 3 },
+    );
+    expect(rejected.status).toBe(422);
     const snoozed = await call(
       owner,
       "POST",
-      `/api/v1/restaurants/${restaurantA}/ops/alerts/${alertId}/snooze`,
+      `/api/v1/restaurants/${restaurantA}/ops/alerts/${watchId}/snooze`,
       userA,
-      {
-        days: 3,
-      },
+      { days: 3 },
     );
     expect(snoozed.status).toBe(200);
     expect(((await snoozed.json()) as { status: string }).status).toBe("snoozed");
@@ -578,7 +590,7 @@ describePostgres("daily ops brief (PostgreSQL)", () => {
     });
     expect(filled.status).toBe(200);
     const filledText = ((await filled.json()) as { message: { text: string } }).message.text;
-    expect(filledText).toContain("Zomato sales down");
+    expect(filledText).toContain("Zomato ₹4,000");
     expect(filledText).not.toContain("aren't in yet");
     expect(filledText).not.toContain("not updated this morning");
     const still = await runAsSystem("ops gap still frozen", () =>

@@ -20,10 +20,8 @@ import {
   addIsoDays,
   appLabel,
   applyDailyAlerts,
-  CALLOUT_LIMIT,
-  carryForward,
+  applyStoredMetric,
   civilRangeBounds,
-  combinedDaySales,
   composeDailyBrief,
   DEFAULT_OPS_RULES_CONFIG,
   dailyFix,
@@ -31,8 +29,8 @@ import {
   displayFindings,
   evaluateDaily,
   indiaCivilDate,
-  ingestRetryable,
   nextReportDelivery,
+  noteFailedFetch,
   resolvedLine,
   resolveOpsRulesConfig,
   rollupDailyApps,
@@ -87,6 +85,13 @@ interface StoredPayload {
   restaurant: OpsBlock | null;
   outlets: Array<OpsBlock & { outletId: string; name: string }>;
   configVersion?: string;
+  catchUp?: Array<{
+    dedupeKey: string;
+    severity: "act_now" | "watch";
+    text: string;
+    fix: string;
+    date: string;
+  }>;
 }
 
 /** Compute yesterday's brief, upsert alerts, and store the report. Idempotent per date. */
@@ -124,6 +129,7 @@ export async function runDailyOps(
       frozenScopes: earlier.frozenScopes,
       existing: alerts,
       config,
+      connected: loaded.outlets,
     });
     alerts = earlierStep.alerts;
     const step = applyDailyAlerts({
@@ -134,46 +140,67 @@ export async function runDailyOps(
       frozenScopes: current.frozenScopes,
       existing: alerts,
       config,
+      connected: loaded.outlets,
     });
-    const carried = carryForward({
-      alerts: step.alerts,
-      ongoingKeys: step.ongoing,
-      calloutKeys: calloutDedupeKeys(current.findings),
-      previousDate,
+    const nonce = `daily_brief-${input.date}`;
+    const prior = await tx.report.findUnique({
+      where: { reportNonce: { restaurantId: scope.restaurantId, clientNonce: nonce } },
     });
-    const catchUp = carried.catchUp;
-    const ongoing = carried.ongoing;
+    const storedCatchUp = (prior?.payload as unknown as StoredPayload | null)?.catchUp ?? [];
+    const notifiedCatchUp = earlierStep.notify.flatMap((key) => {
+      const finding = earlier.findings.find((item) => item.dedupeKey === key);
+      const alert = earlierStep.alerts.find((item) => item.dedupeKey === key);
+      if (!finding && !alert) return [];
+      return [
+        {
+          dedupeKey: key,
+          severity: alert?.severity ?? finding?.severity ?? "watch",
+          text: finding?.text ?? alert?.text ?? "",
+          fix: finding?.fix ?? alert?.fix ?? "",
+          date: previousDate,
+        },
+      ];
+    });
+    const catchUpItems = notifiedCatchUp.length > 0 ? notifiedCatchUp : storedCatchUp;
     const resolved = resolvedLine(
       step.alerts
         .filter((alert) => alert.resolvedReason === "cleared" && alert.resolvedAt === input.date)
         .map((alert) => `${appLabel(alert.platform)} ${RESOLVED_NAME[alert.ruleCode] ?? "alert"}`),
     );
-    const week = weekSales(input.date, weekDays(loaded.days));
+    const week = weekSales(input.date, weekPoints(loaded.days));
     const view = viewFromDaily({
       restaurantName: loaded.name,
       evaluation: current,
-      catchUp,
-      ongoing,
+      catchUpItems,
       resolved,
       dataAsOf: loaded.dataAsOf ? istClock(loaded.dataAsOf) : null,
+      capturedOn: loaded.dataAsOf ? istCivil(loaded.dataAsOf) : null,
       week,
+      alerts: step.alerts,
+      config,
     });
     const brief = composeDailyBrief(view);
-    const payload = { ...payloadOf(current), configVersion: config.configVersion };
-    const nonce = `daily_brief-${input.date}`;
-    const prior = await tx.report.findUnique({
-      where: { reportNonce: { restaurantId: scope.restaurantId, clientNonce: nonce } },
-    });
+    const payload = {
+      ...payloadOf(current),
+      configVersion: config.configVersion,
+      catchUp: catchUpItems,
+    };
     const previousReady = Boolean((prior?.payload as unknown as StoredPayload | null)?.ready);
+    const notifyUpdate = [earlierStep, step].some((pass) =>
+      pass.notify.some(
+        (key) => pass.alerts.find((alert) => alert.dedupeKey === key)?.severity === "act_now",
+      ),
+    );
     const delivery = nextReportDelivery(
       prior
         ? {
             version: prior.version,
             status: (prior.status ?? "green") as OpsStatus,
             ready: previousReady,
+            text: prior.summaryMarkdown ?? "",
           }
         : null,
-      { status: brief.status, ready: current.ready },
+      { status: brief.status, ready: current.ready, text: brief.text, notifyUpdate },
     );
     const report = prior
       ? await tx.report.update({
@@ -225,6 +252,7 @@ export async function runDailyOps(
       message: { text: brief.text, chars: brief.chars },
       workbook: { available: false, fileName: null },
       deliver: { shouldNotify: delivery.shouldNotify, reason: delivery.reason },
+      shadowMode: config.shadowMode,
       alerts: {
         opened: [...new Set([...earlierStep.opened, ...step.opened])],
         escalated: [...new Set([...earlierStep.escalated, ...step.escalated])],
@@ -418,6 +446,9 @@ export async function snoozeOpsAlertForMember(
   return changeAlert(db, userId, restaurantId, alertId, (alert) => {
     const today = indiaCivilDate(new Date());
     const next = snoozeAlert(alert, days, today);
+    if (!next) {
+      throw new RestaurantAgentError("snooze_rejected", 422, "An Act now alert can't be snoozed.");
+    }
     return { alert: next, kind: "snoozed" as const };
   });
 }
@@ -558,6 +589,7 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
         value: true,
         valueBoolean: true,
         state: true,
+        capturedAt: true,
       },
     }),
     db.metricFetch.findMany({
@@ -583,6 +615,7 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
     }),
   ]);
   const days = new Map<string, OpsAppDay>();
+  let dataAsOf: Date | null = null;
   const slot = (outletId: string, platform: string, iso: string) => {
     const key = `${outletId}|${platform}|${iso}`;
     let found = days.get(key);
@@ -608,13 +641,8 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
     const iso = indiaCivilDate(row.periodStart);
     const current = slot(row.outletId, row.platform, iso);
     if (!current) continue;
-    if (row.key === "lag_banner") {
-      current.lagBanner = row.valueBoolean === true;
-      if (row.valueBoolean != null) current.stored = true;
-      continue;
-    }
-    // platform_check is applied first. A fact row for the same key replaces it.
-    current.metrics[row.key] = {
+    applyStoredMetric(current, {
+      key: row.key,
       value: row.value == null ? null : row.value.toNumber(),
       state:
         row.state === "pending_label"
@@ -622,11 +650,12 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
           : row.state === "label_unrecoverable"
             ? "not_available"
             : "ok",
-    };
-    if (row.state === "ok" && row.value != null) current.stored = true;
+      rowRole: row.rowRole === "fact" ? "fact" : "platform_check",
+      valueBoolean: row.valueBoolean,
+    });
+    if (iso === date && (!dataAsOf || row.capturedAt > dataAsOf)) dataAsOf = row.capturedAt;
   }
   const live = new Set([date, addIsoDays(date, -1)]);
-  let dataAsOf: Date | null = null;
   for (const fetch of fetches) {
     const touchesLive = [...live].some((iso) => inRequestedWindow(fetch, iso));
     if (!touchesLive && !covers(fetch, date)) continue;
@@ -644,9 +673,8 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
         current.gap = false;
         current.ingest = null;
         if (iso === date && (!dataAsOf || fetch.capturedAt > dataAsOf)) dataAsOf = fetch.capturedAt;
-      } else if (!current.stored && FAILURES.has(fetch.status)) {
-        const code = fetch.status as OpsIngestCode;
-        current.ingest = { code, retryable: ingestRetryable(code) };
+      } else if (FAILURES.has(fetch.status)) {
+        noteFailedFetch(current, fetch.status as OpsIngestCode);
       }
     }
   }
@@ -699,28 +727,14 @@ function covers(
   return !listedGap(fetch.missingPeriods, iso);
 }
 
-function calloutDedupeKeys(findings: DailyFinding[]): Set<string> {
-  const shown = displayFindings(findings).slice(0, CALLOUT_LIMIT);
-  const groupOf = (finding: DailyFinding) =>
-    finding.platform === "combined"
-      ? `${finding.outletId}:combined:${finding.family}`
-      : `${finding.outletId}:${finding.family}`;
-  const groups = new Set(shown.map(groupOf));
-  return new Set(
-    findings.filter((finding) => groups.has(groupOf(finding))).map((finding) => finding.dedupeKey),
-  );
-}
-
-function weekDays(days: OpsAppDay[]): Array<{ date: string; salesPaise: number | null }> {
-  const dates = [...new Set(days.map((day) => day.date))];
-  return dates.map((date) => ({
-    date,
-    salesPaise: combinedDaySales(
-      days
-        .filter((day) => day.date === date && day.stored && !day.ingest)
-        .map((day) => ({ salesPaise: salesPaise(day) })),
-    ),
-  }));
+function weekPoints(
+  days: OpsAppDay[],
+): Array<{ date: string; platform: "zomato" | "swiggy"; salesPaise: number | null }> {
+  return days.flatMap((day) => {
+    if (!day.stored || day.ingest) return [];
+    if (day.platform !== "zomato" && day.platform !== "swiggy") return [];
+    return [{ date: day.date, platform: day.platform, salesPaise: salesPaise(day) }];
+  });
 }
 
 function salesPaise(day: OpsAppDay): number | null {
@@ -889,14 +903,19 @@ function toAlertState(row: AlertRow): AlertState {
     resolvedReason:
       row.resolvedReason === "cleared" ||
       row.resolvedReason === "stale" ||
-      row.resolvedReason === "owner_dismissed"
+      row.resolvedReason === "owner_dismissed" ||
+      row.resolvedReason === "revised" ||
+      row.resolvedReason === "scope_removed"
         ? row.resolvedReason
         : null,
     lastValue: row.lastValue?.toNumber() ?? null,
     threshold: row.threshold?.toNumber() ?? null,
     baselineValue: row.baselineValue?.toNumber() ?? null,
     fixKey: row.fixKey,
-    fix: dailyFix(row.fixKey, platform),
+    fix:
+      typeof (evidence as { fix?: string }).fix === "string"
+        ? (evidence as { fix: string }).fix
+        : dailyFix(row.fixKey, platform),
     text: row.text,
     lastNotifiedAt: row.lastNotifiedAt ? civil(row.lastNotifiedAt) : null,
     notifiedSeverity:
@@ -960,6 +979,7 @@ function alertWrite(alert: AlertState, configVersion: string): Prisma.OpsAlertUp
       cells: alert.evidence,
       book: alert.book,
       configVersion,
+      fix: alert.fix,
     } as unknown as Prisma.InputJsonValue,
     fixKey: alert.fixKey,
     text: alert.text,
@@ -1033,6 +1053,14 @@ function civil(value: Date): string {
 }
 
 function istClock(value: Date): string {
-  const shifted = new Date(value.getTime() + 5.5 * 60 * 60 * 1000);
+  const shifted = istShift(value);
   return `${String(shifted.getUTCHours()).padStart(2, "0")}:${String(shifted.getUTCMinutes()).padStart(2, "0")}`;
+}
+
+function istCivil(value: Date): string {
+  return istShift(value).toISOString().slice(0, 10);
+}
+
+function istShift(value: Date): Date {
+  return new Date(value.getTime() + 5.5 * 60 * 60 * 1000);
 }

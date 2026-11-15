@@ -67,6 +67,14 @@ export interface OpsRulesConfig {
     reopenDays: OpsThreshold;
     backAgainDays: OpsThreshold;
   };
+  /** Days a zero or missing day stays "not in yet" before it is treated as real. */
+  blank: { waitDays: OpsThreshold };
+  /** Delivered below this fraction of the comparison day is a partial day. */
+  partial: { deliveredRatio: OpsThreshold };
+  /** When true, the runner stores the brief and does not push it. */
+  shadowMode: boolean;
+  /** Empty until a holiday list is supplied. Sales comparisons are not softened. */
+  holidayDates: string[];
 }
 
 function placeholder(value: number): OpsThreshold {
@@ -75,7 +83,7 @@ function placeholder(value: number): OpsThreshold {
 
 /** The only numbers the daily rules and the alert windows read. */
 export const DEFAULT_OPS_RULES_CONFIG = {
-  configVersion: "ops-daily/2026-11-15.2",
+  configVersion: "ops-daily/2026-11-15.3",
   salesDrop: {
     watchAbovePct: placeholder(25),
     actNowAbovePct: placeholder(40),
@@ -132,6 +140,10 @@ export const DEFAULT_OPS_RULES_CONFIG = {
     reopenDays: placeholder(7),
     backAgainDays: placeholder(3),
   },
+  blank: { waitDays: placeholder(3) },
+  partial: { deliveredRatio: placeholder(0.5) },
+  shadowMode: true,
+  holidayDates: [],
 } satisfies OpsRulesConfig;
 
 const thresholdOverride = z.object({ value: z.number().finite() }).strict();
@@ -199,6 +211,10 @@ export const OpsRulesOverrideSchema = z
       reopenDays: thresholdOverride,
       backAgainDays: thresholdOverride,
     }).optional(),
+    blank: group({ waitDays: thresholdOverride }).optional(),
+    partial: group({ deliveredRatio: thresholdOverride }).optional(),
+    shadowMode: z.boolean().optional(),
+    holidayDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional(),
   })
   .strict();
 
@@ -219,6 +235,10 @@ export function resolveOpsRulesConfig(override?: OpsRulesOverride | null): OpsRu
     cancellations: mergeGroup(DEFAULT_OPS_RULES_CONFIG.cancellations, parsed.cancellations),
     guards: mergeGroup(DEFAULT_OPS_RULES_CONFIG.guards, parsed.guards),
     lifecycle: mergeGroup(DEFAULT_OPS_RULES_CONFIG.lifecycle, parsed.lifecycle),
+    blank: mergeGroup(DEFAULT_OPS_RULES_CONFIG.blank, parsed.blank),
+    partial: mergeGroup(DEFAULT_OPS_RULES_CONFIG.partial, parsed.partial),
+    shadowMode: parsed.shadowMode ?? DEFAULT_OPS_RULES_CONFIG.shadowMode,
+    holidayDates: parsed.holidayDates ?? DEFAULT_OPS_RULES_CONFIG.holidayDates,
   };
 }
 

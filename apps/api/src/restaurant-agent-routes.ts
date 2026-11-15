@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import type { ObjectStorage } from "@rakazo/adapter-kit";
 import type { IngestMetricReportInput } from "@rakazo/contracts";
 import {
+  businessDayFinished,
   CheckStoredFetchesSchema,
   CreateActionSchema,
   CreateJobRunSchema,
@@ -372,7 +373,7 @@ export function restaurantAgentRoutes(options: RestaurantAgentRouteOptions) {
       if (!input.date || !isIsoDate(input.date)) {
         return agentError(c, 400, "invalid_body", "date must be YYYY-MM-DD.");
       }
-      if (input.date >= indiaCivilDate(new Date())) {
+      if (!businessDayFinished(input.date, indiaCivilDate(new Date()))) {
         return agentError(c, 409, "not_finished", "That day is not finished.");
       }
       return c.json(

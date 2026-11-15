@@ -73,12 +73,19 @@ export function stepAlert(
   const config = input.config ?? DEFAULT_OPS_RULES_CONFIG;
   if (!existing) {
     if (input.outcome.kind !== "fire") return ignore(null);
-    return openNew(input.date, input, input.outcome);
+    return openNew(input.date, input, input.outcome, config);
   }
   // A retry evaluates the previous day before the report day. Once a later
   // day is already on the row, that older day must not move it again.
   const applied = laterDate(existing.book.evaluatedOn, existing.book.frozenOn);
   if (applied && input.date < applied) return ignore(existing);
+  if (
+    input.outcome.kind === "clear" &&
+    existing.book.evaluatedOn === input.date &&
+    existing.book.ruleSeverity
+  ) {
+    return revise(existing, input.date, config);
+  }
   if (existing.book.evaluatedOn === input.date && input.outcome.kind === "fire") {
     return restate(existing, input.date, input.outcome);
   }
@@ -98,6 +105,8 @@ export function applyDailyAlerts(input: {
   frozenScopes: Array<{ outletId: string; platform: OpsScopePlatform }>;
   existing: AlertState[];
   config?: OpsRulesConfig;
+  /** When set, alerts for an outlet or app that is no longer connected resolve quietly. */
+  connected?: ReadonlyArray<{ id: string; platforms: readonly string[] }>;
 }): {
   alerts: AlertState[];
   events: Array<{ dedupeKey: string; event: AlertEventDraft }>;
@@ -214,6 +223,23 @@ export function applyDailyAlerts(input: {
     );
   }
 
+  if (input.connected) {
+    for (const alert of byKey.values()) {
+      if (alert.status === "resolved" || !alert.outletId || touched.has(alert.dedupeKey)) continue;
+      const outlet = input.connected.find((item) => item.id === alert.outletId);
+      const gone =
+        !outlet ||
+        (alert.platform === "combined"
+          ? outlet.platforms.length < 2
+          : !outlet.platforms.includes(alert.platform));
+      if (!gone) continue;
+      take(
+        alert.dedupeKey,
+        resolveScope(alert, input.date, input.config ?? DEFAULT_OPS_RULES_CONFIG),
+      );
+    }
+  }
+
   const alerts = [...byKey.values()];
   const ongoing = alerts
     .filter(
@@ -226,8 +252,9 @@ export function applyDailyAlerts(input: {
   return { alerts, events, opened, escalated, resolved, ongoing, notify };
 }
 
-/** Hide a Watch for 1, 3, or 7 days. An Act now is still listed. */
-export function snoozeAlert(alert: AlertState, days: 1 | 3 | 7, today: string): AlertState {
+/** Hide a Watch for 1, 3, or 7 days. An Act now cannot be snoozed. */
+export function snoozeAlert(alert: AlertState, days: 1 | 3 | 7, today: string): AlertState | null {
+  if (alert.severity === "act_now") return null;
   return {
     ...alert,
     status: "snoozed",
@@ -268,8 +295,9 @@ function openNew(
     platform: OpsScopePlatform;
   },
   outcome: Extract<AlertOutcome, { kind: "fire" }>,
+  config: OpsRulesConfig = DEFAULT_OPS_RULES_CONFIG,
 ): AlertTransition {
-  const alert = applyFire(blankAlert(input), date, outcome, true);
+  const alert = applyFire(blankAlert(input), date, outcome, true, config);
   return {
     action: "create",
     alert,
@@ -292,6 +320,7 @@ function fireOpen(
   const consecutive = continued ? existing.consecutiveDays + 1 : 1;
   let severity = outcome.severity;
   let watchLevelDays = outcome.severity === "watch" ? (existing.book.watchLevelDays ?? 0) : 0;
+  let heldEscalation = existing.book.heldEscalation === true;
   const events: AlertEventDraft[] = [];
   let notify = false;
   let notifyReason: AlertTransition["notifyReason"] = null;
@@ -302,14 +331,19 @@ function fireOpen(
   ) {
     severity = "act_now";
     watchLevelDays = 0;
+    heldEscalation = true;
     notify = true;
     notifyReason = "escalated";
     events.push({ kind: "escalated", severity, value: outcome.value, businessDate: date });
+  } else if (heldEscalation && outcome.severity === "watch") {
+    severity = "act_now";
+    events.push({ kind: "seen", severity, value: outcome.value, businessDate: date });
   } else if (existing.severity === "act_now" && outcome.severity === "watch") {
     const previousWatch = existing.book.ruleSeverity === "watch";
     watchLevelDays = previousWatch ? (existing.book.watchLevelDays ?? 0) + 1 : 1;
     if (watchLevelDays >= config.lifecycle.watchDeescalateDays.value) {
       severity = "watch";
+      heldEscalation = false;
       events.push({ kind: "deescalated", severity, value: outcome.value, businessDate: date });
     } else {
       severity = "act_now";
@@ -318,10 +352,12 @@ function fireOpen(
   } else if (outcome.severity === "act_now" && existing.severity === "watch") {
     severity = "act_now";
     watchLevelDays = 0;
+    heldEscalation = false;
     notify = true;
     notifyReason = "escalated";
     events.push({ kind: "escalated", severity, value: outcome.value, businessDate: date });
   } else {
+    if (outcome.severity === "act_now") heldEscalation = false;
     events.push({ kind: "seen", severity, value: outcome.value, businessDate: date });
   }
   const snoozed = stillSnoozed(existing, date);
@@ -353,6 +389,9 @@ function fireOpen(
       watchLevelDays,
       lastEvaluableDate: date,
       provisional: outcome.provisional,
+      heldEscalation,
+      quiet: false,
+      configVersion: config.configVersion,
     },
   };
   return { action: "update", alert, events, notify, notifyReason: notify ? notifyReason : null };
@@ -487,15 +526,16 @@ function reopen(
   if (existing.resolvedReason === "owner_dismissed" && age < config.lifecycle.reopenDays.value) {
     return ignore(existing);
   }
-  if (age >= config.lifecycle.reopenDays.value) return openNew(input.date, input, input.outcome);
+  if (age >= config.lifecycle.reopenDays.value)
+    return openNew(input.date, input, input.outcome, config);
   const sinceNotify = existing.lastNotifiedAt
     ? isoDayDiff(existing.lastNotifiedAt, input.date)
     : config.lifecycle.backAgainDays.value;
   const notify = sinceNotify >= config.lifecycle.backAgainDays.value;
   const alert: AlertState = {
-    ...applyFire(existing, input.date, input.outcome, false),
+    ...applyFire(existing, input.date, input.outcome, false, config),
     status: "open",
-    severity: input.outcome.severity,
+    severity: existing.severity,
     reopenCount: existing.reopenCount + 1,
     resolvedAt: null,
     resolvedReason: null,
@@ -504,7 +544,18 @@ function reopen(
     consecutiveDays: 1,
     clearDays: 0,
     lastNotifiedAt: notify ? input.date : existing.lastNotifiedAt,
-    notifiedSeverity: notify ? input.outcome.severity : existing.notifiedSeverity,
+    notifiedSeverity: notify ? existing.severity : existing.notifiedSeverity,
+    book: {
+      ...existing.book,
+      evaluatedOn: input.date,
+      ruleSeverity: input.outcome.severity,
+      watchLevelDays: 0,
+      lastEvaluableDate: input.date,
+      provisional: input.outcome.provisional,
+      heldEscalation: false,
+      quiet: !notify,
+      configVersion: config.configVersion,
+    },
   };
   const events: AlertEventDraft[] = [
     {
@@ -530,6 +581,7 @@ function applyFire(
   date: string,
   outcome: Extract<AlertOutcome, { kind: "fire" }>,
   first: boolean,
+  config: OpsRulesConfig = DEFAULT_OPS_RULES_CONFIG,
 ): AlertState {
   return {
     ...existing,
@@ -555,7 +607,61 @@ function applyFire(
       watchLevelDays: 0,
       lastEvaluableDate: date,
       provisional: outcome.provisional,
+      heldEscalation: false,
+      quiet: false,
+      configVersion: config.configVersion,
     },
+  };
+}
+
+function revise(existing: AlertState, date: string, config: OpsRulesConfig): AlertTransition {
+  return {
+    action: "update",
+    alert: {
+      ...existing,
+      status: "resolved",
+      resolvedAt: date,
+      resolvedReason: "revised",
+      book: {
+        ...existing.book,
+        evaluatedOn: date,
+        ruleSeverity: null,
+        configVersion: config.configVersion,
+      },
+    },
+    events: [
+      {
+        kind: "resolved",
+        severity: existing.severity,
+        value: existing.lastValue,
+        businessDate: date,
+      },
+    ],
+    notify: false,
+    notifyReason: null,
+  };
+}
+
+function resolveScope(existing: AlertState, date: string, config: OpsRulesConfig): AlertTransition {
+  return {
+    action: "update",
+    alert: {
+      ...existing,
+      status: "resolved",
+      resolvedAt: date,
+      resolvedReason: "scope_removed",
+      book: { ...existing.book, evaluatedOn: date, configVersion: config.configVersion },
+    },
+    events: [
+      {
+        kind: "resolved",
+        severity: existing.severity,
+        value: existing.lastValue,
+        businessDate: date,
+      },
+    ],
+    notify: false,
+    notifyReason: null,
   };
 }
 
@@ -578,21 +684,38 @@ function rank(severity: OpsAlertSeverity): number {
 }
 
 export function nextReportDelivery(
-  existing: { version: number; status: "red" | "amber" | "green"; ready: boolean } | null,
-  next: { status: "red" | "amber" | "green"; ready: boolean },
-): { version: number; shouldNotify: boolean; reason: "first" | "severity_changed" | "unchanged" } {
-  if (!existing) {
+  existing: {
+    version: number;
+    status: "red" | "amber" | "green";
+    ready: boolean;
+    text?: string;
+  } | null,
+  next: {
+    status: "red" | "amber" | "green";
+    ready: boolean;
+    text?: string;
+    notifyUpdate?: boolean;
+  },
+): { version: number; shouldNotify: boolean; reason: "first" | "update" | "unchanged" } {
+  const textChanged = existing?.text != null && next.text != null && existing.text !== next.text;
+  if (!next.ready) {
+    const changed =
+      existing != null &&
+      (existing.status !== next.status || existing.ready !== next.ready || textChanged);
     return {
-      version: 1,
-      shouldNotify: next.ready,
-      reason: next.ready ? "first" : "unchanged",
+      version: existing ? (changed ? existing.version + 1 : existing.version) : 1,
+      shouldNotify: false,
+      reason: "unchanged",
     };
   }
-  if (existing.status !== next.status) {
-    return { version: existing.version + 1, shouldNotify: true, reason: "severity_changed" };
+  if (!existing?.ready) {
+    return { version: existing ? existing.version + 1 : 1, shouldNotify: true, reason: "first" };
   }
-  if (!existing.ready && next.ready) {
-    return { version: existing.version + 1, shouldNotify: true, reason: "first" };
+  if (next.notifyUpdate) {
+    return { version: existing.version + 1, shouldNotify: true, reason: "update" };
+  }
+  if (textChanged || existing.status !== next.status) {
+    return { version: existing.version + 1, shouldNotify: false, reason: "unchanged" };
   }
   return { version: existing.version, shouldNotify: false, reason: "unchanged" };
 }

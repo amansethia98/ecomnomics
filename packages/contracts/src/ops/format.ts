@@ -23,6 +23,11 @@ export function isIsoDate(iso: string): boolean {
   );
 }
 
+/** A business day can be briefed once the next civil day has started. */
+export function businessDayFinished(date: string, today: string): boolean {
+  return date < today;
+}
+
 /** Whole days from `from` to `to`. Negative when `to` is earlier. */
 export function isoDayDiff(from: string, to: string): number {
   const [fromYear, fromMonth, fromDay] = from.split("-").map(Number);

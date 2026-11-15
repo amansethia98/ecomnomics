@@ -1,7 +1,17 @@
 import { metricDefinition } from "../metric-dictionary.js";
 import type { OpsRulesConfig } from "./config.js";
 import { DEFAULT_OPS_RULES_CONFIG } from "./config.js";
-import { addDays, formatPct1, formatRupees, formatWeekdayName, pctChange } from "./format.js";
+import {
+  addDays,
+  formatCivilDay,
+  formatPct1,
+  formatRupees,
+  formatSignedPct,
+  formatWeekdayName,
+  formatWeekdayShort,
+  isoDayDiff,
+  pctChange,
+} from "./format.js";
 import type {
   DailyAppSnapshot,
   DailyBlocker,
@@ -56,7 +66,7 @@ type RuleDecision =
       evidence: OpsCell[];
       provisional: boolean;
     }
-  | { kind: "clear" }
+  | { kind: "clear"; correction?: string }
   | { kind: "hold"; reason: DailyHold["reason"] };
 
 /**
@@ -80,7 +90,7 @@ export function evaluateDaily(input: DailyEvaluationInput): DailyEvaluation {
         continue;
       }
       const current = findDay(input.days, outlet.id, platform, input.date);
-      const mode = appMode(platform, current);
+      const mode = appMode(platform, current, input);
       if (mode.mode !== "ready") {
         anyDown = true;
         frozenScopes.push({ outletId: outlet.id, platform });
@@ -94,6 +104,7 @@ export function evaluateDaily(input: DailyEvaluationInput): DailyEvaluation {
         ingest: mode.ingest,
         retryable: mode.retryable,
         gap: mode.gap,
+        waitedOut: mode.waitedOut,
         lagBanner: current?.lagBanner ?? false,
         salesPaise: mode.mode === "ready" ? pointValue(current, SALES_KEY[platform]) : null,
         baselineSalesPaise: baseline?.value ?? null,
@@ -104,7 +115,7 @@ export function evaluateDaily(input: DailyEvaluationInput): DailyEvaluation {
         prepBaseline: prepBaseline(input.days, outlet.id, platform, input.date),
       });
       if (mode.mode !== "ready") continue;
-      evaluateApp(input, outlet, platform, current, findings, clears, holds);
+      evaluateApp(input, outlet, platform, current, findings, clears, holds, rulesOf(input));
     }
     if (anyDown) frozenScopes.push({ outletId: outlet.id, platform: "combined" });
     if (!anyDown) evaluateCombinedSales(input, outlet, findings, clears, holds);
@@ -120,6 +131,7 @@ export function evaluateDaily(input: DailyEvaluationInput): DailyEvaluation {
     blockers,
     snapshots,
     ready: isReady(snapshots),
+    notes: collectNotes(input, snapshots),
   };
 }
 
@@ -131,6 +143,7 @@ function evaluateApp(
   findings: DailyFinding[],
   clears: DailyClear[],
   holds: DailyHold[],
+  config: OpsRulesConfig,
 ) {
   const decisions: Array<[DailyRuleCode, RuleDecision]> = [
     ["d_sales_drop", salesDrop(input, outlet.id, platform, day)],
@@ -145,7 +158,7 @@ function evaluateApp(
     ["d_rating", platform === "zomato" ? rating(input, outlet.id, day) : skipped()],
   ];
   for (const [code, decision] of decisions) {
-    record(outlet, platform, code, decision, findings, clears, holds);
+    record(outlet, platform, code, decision, findings, clears, holds, config);
   }
 }
 
@@ -161,6 +174,7 @@ function record(
   findings: DailyFinding[],
   clears: DailyClear[],
   holds: DailyHold[],
+  config: OpsRulesConfig,
 ) {
   if (decision.kind === "hold" && decision.reason === "missing" && !applies(code, platform)) return;
   const dedupeKey = dailyDedupeKey(code, outlet.id, platform);
@@ -179,7 +193,7 @@ function record(
       baselineValue: decision.baselineValue,
       baselineDate: decision.baselineDate,
       fixKey: code,
-      fix: dailyFix(code, platform),
+      fix: dailyFix(code, platform, config),
       text: decision.text,
       evidence: decision.evidence,
     });
@@ -187,7 +201,13 @@ function record(
   }
   if (decision.kind === "clear") {
     if (!applies(code, platform)) return;
-    clears.push({ code, dedupeKey, outletId: outlet.id, platform });
+    clears.push({
+      code,
+      dedupeKey,
+      outletId: outlet.id,
+      platform,
+      ...(decision.correction ? { correction: decision.correction } : {}),
+    });
     return;
   }
   if (!applies(code, platform)) return;
@@ -237,7 +257,10 @@ function evaluateCombinedSales(
     return;
   }
   const baseline = combinedNetSales(zBase.value, sBase.value);
-  const provisional = Boolean(zomato?.lagBanner || swiggy?.lagBanner);
+  const provisional =
+    Boolean(zomato?.lagBanner || swiggy?.lagBanner) ||
+    swiggy?.date === input.date ||
+    isPartial(input, outlet.id, "zomato", zomato);
   record(
     outlet,
     "combined",
@@ -246,6 +269,7 @@ function evaluateCombinedSales(
     findings,
     clears,
     holds,
+    config,
   );
 }
 
@@ -259,6 +283,9 @@ function salesDrop(
   if (pointState(day, SALES_KEY[platform]) === "updating")
     return { kind: "hold", reason: "updating" };
   if (current == null) return { kind: "hold", reason: "missing" };
+  if (current === 0 && pointValue(day, "delivered_orders") === 0) {
+    return { kind: "hold", reason: "missing" };
+  }
   const config = rulesOf(input);
   const baseline = salesBaseline(input.days, outletId, platform, input.date, config);
   if (!baseline) return { kind: "hold", reason: "guard" };
@@ -267,10 +294,21 @@ function salesDrop(
     baseline.value,
     baseline.date,
     platform,
-    Boolean(day?.lagBanner),
+    salesProvisional(input, outletId, platform, day),
     input.date,
     config,
   );
+}
+
+function salesProvisional(
+  input: DailyEvaluationInput,
+  outletId: string,
+  platform: OpsPlatform,
+  day: OpsAppDay | undefined,
+): boolean {
+  if (day?.lagBanner && platform === "swiggy") return true;
+  if (platform === "swiggy" && day?.date === input.date) return true;
+  return isPartial(input, outletId, platform, day);
 }
 
 function salesDecision(
@@ -282,6 +320,7 @@ function salesDecision(
   date: string,
   config: OpsRulesConfig,
 ): RuleDecision {
+  if (current < 0) return { kind: "hold", reason: "guard" };
   const watchAbove = config.salesDrop.watchAbovePct.value;
   const actAbove = config.salesDrop.actNowAbovePct.value;
   if (baseline < config.guards.salesBaselinePaise.value) return { kind: "hold", reason: "guard" };
@@ -289,10 +328,19 @@ function salesDecision(
   let severity: OpsAlertSeverity | null = null;
   if (drop > actAbove) severity = "act_now";
   else if (drop > watchAbove) severity = "watch";
-  if (!severity) return { kind: "clear" };
-  const provisional = lagBanner && (platform === "swiggy" || platform === "combined");
+  const change = pctChange(current, baseline);
+  const correction =
+    change == null
+      ? undefined
+      : `${formatWeekdayShort(date)}'s ${platform === "combined" ? "Total" : appLabel(platform)} sales are now ${formatRupees(current)} (${formatSignedPct(change)}); the earlier alert is withdrawn.`;
+  if (!severity) return { kind: "clear", ...(correction ? { correction } : {}) };
+  const provisional = lagBanner;
   if (provisional && severity === "act_now") severity = "watch";
-  const text = `${appLabel(platform)} sales down ${formatPct1(drop)}% vs last ${formatWeekdayName(baselineDate)} (${formatRupees(current)} vs ${formatRupees(baseline)}).`;
+  const holiday = config.holidayDates.includes(date) || config.holidayDates.includes(baselineDate);
+  if (holiday && severity === "act_now") severity = "watch";
+  const name = platform === "combined" ? "Total" : appLabel(platform);
+  const festival = holiday ? " (festival week)" : "";
+  const text = `${name} sales down ${formatPct1(drop)}% ${versus(date, baselineDate)} (${formatRupees(current)} vs ${formatRupees(baseline)})${festival}.`;
   return {
     kind: "fire",
     severity,
@@ -331,8 +379,9 @@ function zeroOrders(
   if (!baseline || baseline.value < rulesOf(input).guards.zeroOrdersBaselineDelivered.value)
     return { kind: "hold", reason: "guard" };
   if (delivered !== 0) return { kind: "clear" };
-  const provisional = Boolean(day.lagBanner);
-  const text = `${appLabel(platform)} had no delivered orders yesterday (usually ${baseline.value}).`;
+  if (genuineOffline(day)) return { kind: "hold", reason: "missing" };
+  const provisional = salesProvisional(input, outletId, platform, day);
+  const text = `${appLabel(platform)} had no orders on ${formatCivilDay(input.date)} (usually ${baseline.value}).`;
   return {
     kind: "fire",
     severity: provisional ? "watch" : "act_now",
@@ -513,6 +562,30 @@ function online(
   const pct = pointValue(day, "online_pct");
   const delivered = pointValue(day, "delivered_orders");
   if (pct == null || delivered == null) return { kind: "hold", reason: "missing" };
+  if (pct === 0 && delivered > 0) return { kind: "hold", reason: "missing" };
+  if (pct === 0 && delivered === 0 && genuineOffline(day)) {
+    if (day && ageOf(input, day.date) < rulesOf(input).blank.waitDays.value) {
+      return { kind: "hold", reason: "missing" };
+    }
+    const usual = countBaseline(
+      input.days,
+      day?.outletId ?? "",
+      platform,
+      input.date,
+      "delivered_orders",
+    );
+    return {
+      kind: "fire",
+      severity: "act_now",
+      value: 0,
+      threshold: 0,
+      baselineValue: usual?.value ?? null,
+      baselineDate: usual?.date ?? null,
+      provisional: false,
+      text: `${appLabel(platform)} was offline all day ${formatCivilDay(input.date)} (0 orders, usually ${usual?.value ?? 0}).`,
+      evidence: [cell("online_pct", "Online", "pct", pct, input.date, null, null, null)],
+    };
+  }
   const config = rulesOf(input);
   if (delivered < config.guards.rateMinDelivered.value) return { kind: "hold", reason: "guard" };
   const watchBelow = config.online.watchBelowPct.value;
@@ -529,7 +602,7 @@ function online(
     baselineValue: null,
     baselineDate: null,
     provisional: false,
-    text: `${appLabel(platform)} online ${formatPct1(pct)}% yesterday.`,
+    text: `${appLabel(platform)} online ${formatPct1(pct)}% on ${formatWeekdayShort(input.date)}.`,
     evidence: [cell("online_pct", "Online", "pct", pct, input.date, null, null, null)],
   };
 }
@@ -584,7 +657,7 @@ function rating(
 ): RuleDecision {
   if (pointState(day, "rating") === "updating") return { kind: "hold", reason: "updating" };
   const value = pointValue(day, "rating");
-  if (value == null) return { kind: "hold", reason: "missing" };
+  if (value == null || value === 0) return { kind: "hold", reason: "missing" };
   const config = rulesOf(input);
   const actBelow = config.rating.actNowBelow.value;
   const watchBelow = config.rating.watchBelow.value;
@@ -662,8 +735,9 @@ function salesBaseline(
 ): { date: string; value: number } | null {
   for (const back of [7, 14]) {
     const prior = findDay(days, outletId, platform, addDays(date, -back));
-    if (!prior?.stored || prior.ingest) continue;
+    if (!prior?.stored || prior.ingest || prior.gap || blankPattern(prior)) continue;
     if (pointState(prior, SALES_KEY[platform]) !== "ok") continue;
+    if (partialAgainstPrior(prior, days, outletId, platform, config)) continue;
     const value = pointValue(prior, SALES_KEY[platform]);
     if (value == null) continue;
     if (value < config.guards.salesBaselinePaise.value) continue;
@@ -728,12 +802,129 @@ function pointState(day: OpsAppDay | undefined, key: string): OpsMetricPoint["st
   return point(day, key)?.state ?? "missing";
 }
 
-/** A stored day of zeros, or a 0.00 rating / 0% online, has not arrived yet. */
-function blankDay(platform: OpsPlatform, day: OpsAppDay | undefined): boolean {
+/**
+ * A stored day with no orders, no sales, and no rating or online reading.
+ * Online at 0% with real orders is a feed gap, not a blank day.
+ */
+function blankPattern(day: OpsAppDay | undefined): boolean {
   if (!day?.stored || day.ingest) return false;
-  if (pointValue(day, "rating") === 0 || pointValue(day, "online_pct") === 0) return true;
-  const salesKey = platform === "zomato" ? "ops_sales_paise" : "swiggy_net_sales_paise";
-  return pointValue(day, salesKey) === 0 && pointValue(day, "delivered_orders") === 0;
+  if (pointValue(day, "delivered_orders") !== 0) return false;
+  const sales = pointValue(day, SALES_KEY[day.platform]);
+  if (sales != null && sales !== 0) return false;
+  if (pointValue(day, "online_pct") != null && pointValue(day, "online_pct") !== 0) return false;
+  const rating = pointValue(day, "rating");
+  return rating == null || rating === 0;
+}
+
+/** Online 0% and no orders, but some other real signal, so the day is not blank. */
+function genuineOffline(day: OpsAppDay | undefined): boolean {
+  if (!day?.stored) return false;
+  if (pointValue(day, "online_pct") !== 0) return false;
+  if (pointValue(day, "delivered_orders") !== 0) return false;
+  return !blankPattern(day);
+}
+
+function ageOf(input: DailyEvaluationInput, date: string): number {
+  return isoDayDiff(date, input.asOf ?? addDays(input.date, 1));
+}
+
+function versus(date: string, baselineDate: string): string {
+  if (isoDayDiff(baselineDate, date) <= 8) return `vs last ${formatWeekdayName(baselineDate)}`;
+  return `vs ${formatCivilDay(baselineDate)}`;
+}
+
+function isPartial(
+  input: DailyEvaluationInput,
+  outletId: string,
+  platform: OpsPlatform,
+  day: OpsAppDay | undefined,
+): boolean {
+  if (!day) return false;
+  return partialAgainstPrior(day, input.days, outletId, platform, rulesOf(input));
+}
+
+function partialAgainstPrior(
+  day: OpsAppDay,
+  days: OpsAppDay[],
+  outletId: string,
+  platform: OpsPlatform,
+  config: OpsRulesConfig,
+): boolean {
+  if (!day.stored || day.ingest) return false;
+  const delivered = pointValue(day, "delivered_orders");
+  if (delivered === 0) return false;
+  const prior = findDay(days, outletId, platform, addDays(day.date, -7));
+  const priorDelivered = pointValue(prior, "delivered_orders");
+  if (delivered == null || priorDelivered == null || priorDelivered <= 0) return false;
+  return delivered < config.partial.deliveredRatio.value * priorDelivered;
+}
+
+function collectNotes(input: DailyEvaluationInput, snapshots: DailySnapshot[]): string[] {
+  const notes: string[] = [];
+  const config = rulesOf(input);
+  let history = false;
+  for (const outlet of input.outlets) {
+    for (const platform of outlet.platforms) {
+      const day = findDay(input.days, outlet.id, platform, input.date);
+      if (!day?.stored || day.ingest) continue;
+      const sales = pointValue(day, SALES_KEY[platform]);
+      if (sales != null && sales < 0) {
+        notes.push(
+          `${appLabel(platform)} sales look wrong for ${formatWeekdayShort(input.date)}; we're checking.`,
+        );
+      }
+      const delivered = pointValue(day, "delivered_orders");
+      const online = pointValue(day, "online_pct");
+      if (online === 0 && delivered != null && delivered > 0) {
+        notes.push(
+          `${appLabel(platform)} online time not reported for ${formatWeekdayShort(input.date)}.`,
+        );
+      }
+      if (delivered != null && delivered > 0 && delivered < config.guards.rateMinDelivered.value) {
+        notes.push(`Too few orders on ${appLabel(platform)} yesterday to judge rates.`);
+      }
+      if (pointState(day, "kpt_minutes") === "updating") {
+        notes.push(`${appLabel(platform)} prep time is being re-read after a report change.`);
+      }
+      if (sales != null && !salesBaseline(input.days, outlet.id, platform, input.date, config)) {
+        history = true;
+      }
+    }
+  }
+  if (history && snapshots.some((snapshot) => snapshot.apps.some((app) => app.mode === "ready"))) {
+    notes.push("Comparisons start once we have a week of history.");
+  }
+  return [...new Set(notes)];
+}
+
+/** Fold one stored metric into a day. A banner alone does not make the day stored. A fact row replaces a platform check. */
+export function applyStoredMetric(
+  day: OpsAppDay,
+  row: {
+    key: string;
+    value: number | null;
+    state: OpsMetricPoint["state"];
+    rowRole: "fact" | "platform_check";
+    valueBoolean?: boolean | null;
+  },
+): void {
+  if (row.key === "lag_banner") {
+    day.lagBanner = row.valueBoolean === true;
+    return;
+  }
+  const current = day.metrics[row.key];
+  if (current && row.rowRole !== "fact") return;
+  day.metrics[row.key] = { value: row.value, state: row.state };
+  if (row.state === "ok" && row.value != null) day.stored = true;
+}
+
+/** A later failed fetch does not wipe a day that already has stored metrics. */
+export function noteFailedFetch(
+  day: OpsAppDay,
+  code: "signed_out" | "download_failed" | "layout_changed" | "needs_owner" | "fetch_held",
+): void {
+  if (day.stored || day.gap) return;
+  day.ingest = { code, retryable: code === "signed_out" || code === "download_failed" };
 }
 
 function pointValue(day: OpsAppDay | undefined, key: string): number | null {
@@ -745,30 +936,28 @@ function pointValue(day: OpsAppDay | undefined, key: string): number | null {
 function appMode(
   platform: OpsPlatform,
   day: OpsAppDay | undefined,
+  input: DailyEvaluationInput,
 ): {
   mode: DailyAppSnapshot["mode"];
   ingest: DailyAppSnapshot["ingest"];
   retryable: boolean;
   gap: boolean;
+  waitedOut: boolean;
   blocker: Omit<DailyBlocker, "outletId" | "dates"> | null;
 } {
-  if (day?.gap && !day.stored && !day.ingest) {
-    return {
-      mode: "lag_missing",
-      ingest: null,
-      retryable: true,
-      gap: true,
-      blocker: { platform, code: "lag_missing", retryable: true },
-    };
-  }
-  if (blankDay(platform, day)) {
-    return {
-      mode: "lag_missing",
-      ingest: null,
-      retryable: true,
-      gap: false,
-      blocker: { platform, code: "lag_missing", retryable: true },
-    };
+  const wait = rulesOf(input).blank.waitDays.value;
+  const age = ageOf(input, day?.date ?? input.date);
+  const waiting = (gap: boolean, waitedOut: boolean) => ({
+    mode: "lag_missing" as const,
+    ingest: null,
+    retryable: true,
+    gap,
+    waitedOut,
+    blocker: { platform, code: "lag_missing" as const, retryable: true },
+  });
+  if (day?.gap && !day.stored && !day.ingest) return waiting(true, age >= wait);
+  if (blankPattern(day) || genuineOffline(day)) {
+    if (age < wait) return waiting(true, false);
   }
   if (day?.ingest) {
     return {
@@ -781,27 +970,21 @@ function appMode(
         retryable: day.ingest.retryable,
       },
       gap: false,
+      waitedOut: false,
     };
   }
   if (!day?.stored) {
-    if (platform === "swiggy") {
-      return {
-        mode: "lag_missing",
-        ingest: null,
-        retryable: true,
-        gap: false,
-        blocker: { platform, code: "lag_missing", retryable: true },
-      };
-    }
-    return {
-      mode: "failed",
-      ingest: null,
-      retryable: true,
-      gap: false,
-      blocker: { platform, code: "days_missing", retryable: true },
-    };
+    if (platform === "swiggy") return waiting(false, age >= wait);
+    return waiting(true, age >= wait);
   }
-  return { mode: "ready", ingest: null, retryable: false, gap: false, blocker: null };
+  return {
+    mode: "ready",
+    ingest: null,
+    retryable: false,
+    gap: false,
+    waitedOut: false,
+    blocker: null,
+  };
 }
 
 function absentApp(platform: OpsPlatform): DailyAppSnapshot {
@@ -811,6 +994,7 @@ function absentApp(platform: OpsPlatform): DailyAppSnapshot {
     ingest: null,
     retryable: false,
     gap: false,
+    waitedOut: false,
     lagBanner: false,
     salesPaise: null,
     baselineSalesPaise: null,
@@ -848,6 +1032,7 @@ export function rollupDailyApps(snapshots: DailySnapshot[]): DailyAppSnapshot[] 
       ingest: null,
       retryable: false,
       gap: false,
+      waitedOut: false,
       lagBanner: ready.some((app) => app.lagBanner),
       salesPaise: sumPresent(ready.map((app) => app.salesPaise)),
       baselineSalesPaise: sumPresent(ready.map((app) => app.baselineSalesPaise)),
@@ -898,32 +1083,42 @@ function cell(
   };
 }
 
-/** One call-out per family. Combined sales is its own call-out. The highest severity is shown. */
+/** One line per outlet, app and rule. An app sales drop and the combined drop share one line. */
 export function displayFindings(findings: DailyFinding[]): DailyFinding[] {
-  const groups = new Map<string, DailyFinding[]>();
-  for (const finding of findings) {
-    const key =
-      finding.platform === "combined"
-        ? `${finding.outletId}:combined:${finding.family}`
-        : `${finding.outletId}:${finding.family}`;
-    const list = groups.get(key) ?? [];
-    list.push(finding);
-    groups.set(key, list);
-  }
   const shown: DailyFinding[] = [];
-  for (const members of groups.values()) {
-    const ranked = [...members].sort((a, b) => rank(b.severity) - rank(a.severity));
-    const winner = ranked[0];
-    if (!winner) continue;
-    if (winner.family === "prep") {
-      const text = `${members.map((member) => member.text.replace(/\.$/, "")).join(", ")}.`;
-      shown.push({ ...winner, text });
+  const outlets = [...new Set(findings.map((finding) => finding.outletId))];
+  for (const outletId of outlets) {
+    const members = findings.filter((finding) => finding.outletId === outletId);
+    const sales = members.filter((finding) => finding.family === "sales");
+    const rest = members.filter((finding) => finding.family !== "sales");
+    shown.push(...rest);
+    const combined = sales.find((finding) => finding.platform === "combined");
+    const apps = sales.filter((finding) => finding.platform !== "combined");
+    if (apps.length > 0 && combined) {
+      const worst = [...apps].sort((a, b) => rank(b.severity) - rank(a.severity))[0];
+      if (!worst) continue;
+      const base = worst.text.replace(/ \([^)]*\)\.$/, "").replace(/\.$/, "");
+      shown.push({
+        ...worst,
+        text: `${base} (total down ${formatPct1(combined.value ?? 0)}%).`,
+      });
     } else {
-      shown.push(winner);
+      shown.push(...sales);
     }
   }
-  shown.sort((a, b) => rank(b.severity) - rank(a.severity));
-  return shown;
+  return sortFindings(shown);
+}
+
+function sortFindings(findings: DailyFinding[]): DailyFinding[] {
+  return [...findings].sort((a, b) => {
+    const severity = rank(b.severity) - rank(a.severity);
+    if (severity !== 0) return severity;
+    const outlet = a.outletName.localeCompare(b.outletName);
+    if (outlet !== 0) return outlet;
+    const app = a.platform.localeCompare(b.platform);
+    if (app !== 0) return app;
+    return a.code.localeCompare(b.code);
+  });
 }
 
 function rank(severity: OpsAlertSeverity): number {

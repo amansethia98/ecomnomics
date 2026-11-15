@@ -40,6 +40,7 @@ export const OPS_BLOCKER_CODES = [
   "days_missing",
   "signed_out",
   "fetch_held",
+  "layout_changed",
   "updating",
   "lag_missing",
   "zomato_week_missing",
@@ -57,6 +58,7 @@ export function ingestRetryable(code: OpsIngestCode): boolean {
 export function ingestBlockerCode(code: OpsIngestCode): OpsBlockerCode {
   if (code === "fetch_held") return "fetch_held";
   if (code === "signed_out") return "signed_out";
+  if (code === "layout_changed") return "layout_changed";
   return "days_missing";
 }
 
@@ -95,16 +97,16 @@ export function combinedDailyValue(key: string, values: readonly number[]): numb
 
 export const DAILY_FIXES = {
   d_sales_drop: "Confirm the outlet was open and visible on {App} through dinner.",
-  d_zero_orders: "Confirm the outlet was open and visible on {App} yesterday.",
+  d_zero_orders: "Confirm the outlet was open and visible on {App} that day.",
   d_delayed: "Start prep on accept and mark food ready only when it is.",
-  d_bad_orders: "Read yesterday's bad orders in the partner app and fix the repeating cause.",
+  d_bad_orders: "Read the day's bad orders in the partner app and fix the repeating cause.",
   d_cancel_reject:
     "Check stock and staffing at peak; mark items out of stock instead of rejecting.",
   d_complaints:
-    "Read yesterday's complaints in the partner app; fix the repeating item or packing issue.",
+    "Read the day's complaints in the partner app; fix the repeating item or packing issue.",
   d_food_ready: "Mark food ready only when the order is packed.",
   d_online: "Check the outlet stayed online through promised hours; look at the offline log.",
-  d_prep: "Start prep on accept so kitchen time stays under 18 minutes.",
+  d_prep: "Start prep on accept so kitchen time stays under {Minutes} minutes.",
   d_rating: "Reply to recent low ratings and fix the dish or packing issue they name.",
 } as const;
 
@@ -126,10 +128,18 @@ export function appLabel(platform: OpsScopePlatform): string {
   return "Both apps";
 }
 
-export function dailyFix(code: string, platform: OpsScopePlatform): string {
+export function dailyFix(
+  code: string,
+  platform: OpsScopePlatform,
+  config?: { prep: { actNowAboveMinutes: { value: number } } },
+): string {
+  if (code === "d_sales_drop" && platform === "combined") {
+    return "Confirm the outlets were open and visible on both apps through dinner.";
+  }
   const template =
-    DAILY_FIXES[code as DailyRuleCode] ?? "Review yesterday's figures in the partner app.";
-  return template.replaceAll("{App}", appLabel(platform));
+    DAILY_FIXES[code as DailyRuleCode] ?? "Review the day's figures in the partner app.";
+  const minutes = config?.prep.actNowAboveMinutes.value ?? 22;
+  return template.replaceAll("{App}", appLabel(platform)).replaceAll("{Minutes}", String(minutes));
 }
 
 export interface OpsMetricPoint {
@@ -161,6 +171,12 @@ export interface DailyEvaluationInput {
   days: OpsAppDay[];
   /** Defaults when omitted. A restaurant override is already merged. */
   config?: OpsRulesConfig;
+  /**
+   * The morning the brief is built, as a civil date. A stored zero day is
+   * still "not in yet" until it is `blank.waitDays` old against this date.
+   * Defaults to the day after `date`.
+   */
+  asOf?: string;
 }
 
 export interface OpsCell {
@@ -208,6 +224,8 @@ export interface DailyClear {
   dedupeKey: string;
   outletId: string;
   platform: OpsScopePlatform;
+  /** Set when this clear withdraws a same-day alert. */
+  correction?: string;
 }
 
 export interface DailyHold {
@@ -233,6 +251,8 @@ export interface DailyAppSnapshot {
   retryable: boolean;
   /** A stored fetch listed this day as a gap. It is waiting, not a failed download. */
   gap: boolean;
+  /** The day is still inside the wait window, or a gap that aged out with no data. */
+  waitedOut: boolean;
   lagBanner: boolean;
   salesPaise: number | null;
   baselineSalesPaise: number | null;
@@ -259,6 +279,7 @@ export interface DailyEvaluation {
   blockers: DailyBlocker[];
   snapshots: DailySnapshot[];
   ready: boolean;
+  notes: string[];
 }
 
 export interface OpsBlock {
@@ -285,6 +306,11 @@ export interface AlertBook {
   watchLevelDays?: number;
   lastEvaluableDate?: string | null;
   provisional?: boolean;
+  /** Escalated because a Watch was held, and kept at Act now until it clears. */
+  heldEscalation?: boolean;
+  /** Reopened too soon to notify. The brief lists it as ongoing, not a call-out. */
+  quiet?: boolean;
+  configVersion?: string;
 }
 
 export interface AlertState {
@@ -306,7 +332,7 @@ export interface AlertState {
   escalatedAt: string | null;
   snoozedUntil: string | null;
   resolvedAt: string | null;
-  resolvedReason: "cleared" | "stale" | "owner_dismissed" | null;
+  resolvedReason: "cleared" | "stale" | "owner_dismissed" | "revised" | "scope_removed" | null;
   lastValue: number | null;
   threshold: number | null;
   baselineValue: number | null;
@@ -373,7 +399,13 @@ export interface DailyBriefView {
   } | null;
   delivered: number | null;
   aovPaise: number | null;
-  week: { startLabel: string; endLabel: string; currentPaise: number; changePct: number } | null;
+  week: {
+    startLabel: string;
+    endLabel: string;
+    currentPaise: number;
+    changePct: number;
+    pendingLabel?: string | null;
+  } | null;
   callouts: Array<{ severity: OpsAlertSeverity; text: string; fix: string }>;
   ongoing: string | null;
   resolved: string | null;
@@ -382,6 +414,17 @@ export interface DailyBriefView {
   catchUp: string[];
   healthyOutlets: number;
   outletCount: number;
+  /** Civil date of the capture, in IST. The stamp is omitted when this is missing. */
+  capturedOn?: string | null;
+  /** Full header fragment, including pending apps. */
+  statusText?: string;
+  closingText?: string;
+  overflow?: number;
+  corrections?: string[];
+  outletSummary?: string | null;
+  exclusion?: string | null;
+  /** No app is connected. The brief asks the owner to connect one. */
+  connect?: boolean;
 }
 
 export interface OpsRunResult {
@@ -394,7 +437,9 @@ export interface OpsRunResult {
   readiness: { ready: boolean; blockers: DailyBlocker[] };
   message: { text: string; chars: number };
   workbook: { available: boolean; fileName: string | null };
-  deliver: { shouldNotify: boolean; reason: "first" | "severity_changed" | "unchanged" };
+  deliver: { shouldNotify: boolean; reason: "first" | "update" | "unchanged" };
+  /** Read from ops config. The runner does not push while this is true. */
+  shadowMode: boolean;
   alerts: { opened: string[]; escalated: string[]; resolved: string[]; ongoing: string[] };
 }
 
