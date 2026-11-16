@@ -294,7 +294,7 @@ describe("fetch calendar", () => {
     expect(backfillDays("swiggy")).toHaveLength(openDays);
   });
 
-  it("backfills gaps in chunks and stops at 90 days across both platforms", () => {
+  it("backfills gaps in chunks, 90 days on each platform", () => {
     const date = "2026-10-05";
     const horizon = addIsoDays(date, -90);
     const dailyStart = addIsoDays(date, -7);
@@ -385,13 +385,15 @@ describe("fetch calendar", () => {
     ).toEqual([]);
 
     const open = plan({ date });
+    const openDays = daysBetween(horizon, dailyStart).length;
     const backfillDays = (platform: "zomato" | "swiggy") =>
       of(open, platform, "daily")
         .filter((window) => window.reasons.includes("backfill"))
         .flatMap((window) => daysBetween(window.periodStart, window.periodEnd));
     const zomatoDays = backfillDays("zomato");
     const swiggyDays = backfillDays("swiggy");
-    expect(zomatoDays.length + swiggyDays.length).toBe(90);
+    expect(zomatoDays).toHaveLength(openDays);
+    expect(swiggyDays).toHaveLength(openDays);
     expect(zomatoDays[0]).toBe(horizon);
     expect(swiggyDays[0]).toBe(horizon);
     expect(zomatoDays.some((day) => day >= dailyStart)).toBe(false);
@@ -458,14 +460,36 @@ describe("fetch calendar", () => {
     ).toEqual([]);
   });
 
-  it("prefers the older day, and Zomato on a tie, when the night is full", () => {
+  it("gives a new restaurant a full 90-day plan on each platform", () => {
+    const date = "2026-10-05";
+    const horizon = addIsoDays(date, -90);
+    const result = plan({ date, zomatoResId: "z-1", swiggyRid: "s-1" });
+    for (const platform of ["zomato", "swiggy"] as const) {
+      const windows = of(result, platform, "daily");
+      const covered = windows.flatMap((window) =>
+        daysBetween(window.periodStart, window.periodEnd),
+      );
+      expect([...covered].sort()).toEqual(daysBetween(horizon, date));
+      expect(new Set(covered).size).toBe(90);
+      expect(covered).not.toContain(date);
+      const limit = platform === "zomato" ? 30 : 7;
+      for (const window of windows) {
+        expect(window.periodEnd > window.periodStart).toBe(true);
+        if (window.reasons.includes("backfill")) {
+          expect(spanDays(window.periodStart, window.periodEnd)).toBeLessThanOrEqual(limit);
+        }
+      }
+    }
+  });
+
+  it("caps each platform on its own nightly budget, oldest days first", () => {
     const chunks = chunkBackfill(
-      ["2026-01-02", "2026-01-03"],
-      ["2026-01-01", "2026-01-02", "2026-01-03"],
-      3,
+      ["2026-01-04", "2026-01-02", "2026-01-03"],
+      ["2026-01-03", "2026-01-01", "2026-01-02"],
+      2,
     );
+    expect(chunks.zomato).toEqual([{ periodStart: "2026-01-02", periodEnd: "2026-01-04" }]);
     expect(chunks.swiggy).toEqual([{ periodStart: "2026-01-01", periodEnd: "2026-01-03" }]);
-    expect(chunks.zomato).toEqual([{ periodStart: "2026-01-02", periodEnd: "2026-01-03" }]);
   });
 
   it("adds a relabel window for the newest thirty days and keeps a held outlet empty", () => {

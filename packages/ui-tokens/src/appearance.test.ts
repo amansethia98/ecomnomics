@@ -219,6 +219,17 @@ describe("tokens.css", () => {
     expect(onDisk).toBe(renderTokensCss());
   });
 
+  it("keeps owner colours inside the owner shell", () => {
+    const css = renderTokensCss();
+    const shell = css.slice(css.indexOf(".ecomnomics"));
+    expect(shell).toContain("--owner-act-now: #9f1239;");
+    expect(shell).toContain("--owner-watch: #fef0c7;");
+    expect(shell).toContain("--owner-zomato: #e23744;");
+    expect(shell).toContain("--owner-swiggy: #fc8019;");
+    expect(shell).toContain("--primary: #4f46e5;");
+    expect(css.slice(0, css.indexOf(".ecomnomics"))).not.toContain("--owner-act-now");
+  });
+
   it("scopes light and dark under data-theme", () => {
     const css = renderTokensCss();
     expect(css).toContain('[data-theme="dark"] {\n  color-scheme: dark;');
