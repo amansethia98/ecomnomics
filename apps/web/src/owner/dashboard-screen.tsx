@@ -11,12 +11,12 @@ import {
   composeOwnerDashboard,
   DEFAULT_OPS_RULES_CONFIG,
   dashboardPlots,
+  dashReadingState,
   formatCompactRupees,
   formatPct1,
 } from "@rakazo/contracts";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { PlatformDot } from "./marks";
 import { NumberCard } from "./number-card";
 
 const KEYS = [
@@ -125,17 +125,19 @@ export function OwnerDashboard({
     );
   }
   const plots = dashboardPlots(model);
+  const openTile = (id: string) =>
+    setParams((current) => {
+      current.set("tile", id);
+      return current;
+    });
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-8">
       <Answer model={model} />
-      <div className="flex flex-col gap-2">
+      <section className="owner-panel flex flex-col gap-2 p-3">
         {plots
           .filter((plot) => plot.id.startsWith("sales-"))
           .map((plot) => (
-            <section key={plot.id}>
-              <PlatformDot platform={plot.id.endsWith("swiggy") ? "swiggy" : "zomato"} />
-              <PlotFigure plot={plot} />
-            </section>
+            <PlotFigure key={plot.id} plot={plot} />
           ))}
         {model.pins.length > 0 ? (
           <ol className="flex flex-wrap gap-3 text-body-sm text-muted-foreground">
@@ -147,28 +149,25 @@ export function OwnerDashboard({
           </ol>
         ) : null}
         <Notes model={model} />
-      </div>
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {model.tiles.map((item) => (
-          <NumberCard
-            key={item.id}
-            tile={item}
-            onOpen={() =>
-              setParams((current) => {
-                current.set("tile", item.id);
-                return current;
-              })
-            }
-          />
-        ))}
       </section>
-      <section>
-        <h2 className="text-label text-muted-foreground">{t`When you sell`}</h2>
-        <PlotFigure plot={plots.find((plot) => plot.id === "heatmap") ?? plots[0]!} />
+      <section className="owner-panel p-4">
+        <h2 className="text-label text-muted-foreground">{t`Key numbers · ${model.periodPhrase}`}</h2>
+        <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-6 lg:grid-cols-4">
+          {model.tiles.map((item) => (
+            <NumberCard key={item.id} tile={item} onOpen={() => openTile(item.id)} />
+          ))}
+        </div>
       </section>
-      <section>
-        <h2 className="text-label text-muted-foreground">{t`How customers find you`}</h2>
-        <div className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-6 lg:grid-cols-2">
+        <div>
+          <h2 className="text-label text-muted-foreground">{t`When you sell`}</h2>
+          {model.heatmapLine ? <p className="mt-1 font-medium">{model.heatmapLine}</p> : null}
+          <PlotFigure plot={plots.find((plot) => plot.id === "heatmap") ?? plots[0]!} />
+          <p className="text-body-sm text-muted-foreground">{t`Fewer · More orders`}</p>
+        </div>
+        <div>
+          <h2 className="text-label text-muted-foreground">{t`How customers find you`}</h2>
+          {model.funnelLine ? <p className="mt-1 font-medium">{model.funnelLine}</p> : null}
           {(["menu", "cart", "order"] as const).map((step) => (
             <div key={step}>
               <p className="text-body-sm">
@@ -186,22 +185,18 @@ export function OwnerDashboard({
 export function Answer({ model }: { model: OwnerDashboardModel }) {
   const { t } = useLingui();
   const pct = model.answer.pct == null ? null : `${formatPct1(Math.abs(model.answer.pct))}%`;
-  const span =
-    model.answer.unit === "day"
-      ? model.answer.weeks === 1
-        ? t`day`
-        : t`days`
-      : model.answer.weeks === 1
-        ? t`week`
-        : t`weeks`;
+  const basis = model.periodPhrase;
+  const hasSales = model.tiles.find((tile) => tile.id === "sales")?.state === "value";
   const lead =
     model.answer.direction === "up" && pct
-      ? t`Sales are growing: up ${pct} in ${model.answer.weeks} ${span}`
+      ? t`Sales are growing: up ${pct}, ${basis}`
       : model.answer.direction === "down" && pct
-        ? t`Sales are falling: down ${pct} in ${model.answer.weeks} ${span}`
+        ? t`Sales are falling: down ${pct}, ${basis}`
         : model.answer.direction === "flat"
-          ? t`Sales are flat over ${model.answer.weeks} ${span}`
-          : t`Sales will show here once a few weeks are in`;
+          ? t`Sales are flat, ${basis}`
+          : hasSales
+            ? t`Sales, ${basis}`
+            : t`Sales will show here once a few weeks are in`;
   const flat =
     model.answer.flatPlatform === "swiggy"
       ? model.answer.flatWeeks === 1
@@ -231,7 +226,7 @@ export function Answer({ model }: { model: OwnerDashboardModel }) {
         : null;
   return (
     <div>
-      <h2 className="text-heading2 font-medium">{lead}</h2>
+      <h2 className="owner-title">{lead}</h2>
       <p className="text-body-sm text-muted-foreground">
         {[flat, dip, pending].filter(Boolean).join(" · ")}
       </p>
@@ -248,9 +243,11 @@ function Notes({ model }: { model: OwnerDashboardModel }) {
         ? t`Zomato is pending, so those days are left out of both sides`
         : null;
   const missing = model.missingNote ? t`A day is missing and left out of the total` : null;
-  const compared = model.compared
-    ? t`${model.compared.kept} of ${model.compared.expected} days compared`
-    : null;
+  const unit = model.answer.unit === "day" ? t`days` : t`weeks`;
+  const compared =
+    model.compared && model.compared.kept > 0 && model.compared.kept !== model.compared.expected
+      ? t`${model.compared.kept} of ${model.compared.expected} ${unit} compared`
+      : null;
   const young = model.comparisonsStart ? t`Comparisons start on ${model.comparisonsStart}` : null;
   const notes = [pending, missing, compared, young].filter((note): note is string => Boolean(note));
   if (notes.length === 0) return null;
@@ -411,25 +408,13 @@ function toReadings(
       grain,
       platform,
       key: value.key,
-      value: value.status === "ok" ? value.value : null,
-      state: pointState(
-        value.status,
-        value.missingDates.length > 0,
-        point.provisional,
-        value.value,
-      ),
+      value: value.value == null || value.coverageDays === 0 ? null : value.value,
+      state: dashReadingState({
+        status: value.status,
+        value: value.value,
+        coverageDays: value.coverageDays,
+        provisional: point.provisional,
+      }),
     })),
   );
-}
-
-function pointState(
-  status: "ok" | "not_available" | "updating",
-  missing: boolean,
-  provisional: boolean,
-  value: number | null,
-): DashReading["state"] {
-  if (status === "updating") return "updating";
-  if (status === "not_available") return missing ? "missing" : "pending";
-  if (provisional && value == null) return "pending";
-  return "ok";
 }

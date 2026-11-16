@@ -200,7 +200,7 @@ it("hides the range on settings and the outlet list when there is one outlet", (
   const city = labels.findIndex((label) => label.startsWith("City"));
   expect(restaurant).toBeGreaterThanOrEqual(0);
   expect(city).toBeGreaterThan(restaurant);
-  expect(host.textContent).not.toContain("Save changes");
+  expect(host.querySelector("button[type='submit']")?.hasAttribute("disabled")).toBe(true);
 });
 
 it("hides the platform toggle when only one app is connected", () => {
@@ -241,13 +241,13 @@ it("opens a calendar for Custom and leaves the current range in place", () => {
     <OwnerFrame
       restaurantId="r1"
       profile={profile}
-      screen="home"
+      screen="dashboard"
       view={{ ...view, range: "12w", from: "2026-08-24", to: "2026-11-16" }}
       today="2026-11-15"
       onView={onView}
       confirmLeave={() => true}
     >
-      <p>Home</p>
+      <p>Dashboard</p>
     </OwnerFrame>,
   );
   const custom = [...host.querySelectorAll("button")].find((item) => item.textContent === "Custom");
@@ -280,6 +280,26 @@ it("prefills Custom with the open range's last day", () => {
   });
   expect(document.querySelector("[data-testid='range-end']")?.textContent).toBe("To Sun 15 Nov");
   expect(document.body.textContent).not.toContain("To Sun 22 Nov");
+});
+
+it("shows yesterday as plain text on Home", () => {
+  const host = render(
+    <OwnerFrame
+      restaurantId="r1"
+      profile={profile}
+      screen="home"
+      view={view}
+      today="2026-11-15"
+      onView={() => undefined}
+      confirmLeave={() => true}
+    >
+      <p>Home</p>
+    </OwnerFrame>,
+  );
+  const day = [...host.querySelectorAll("span")].find((item) => item.textContent === "Sat 14 Nov");
+  expect(day).toBeTruthy();
+  expect(day?.className).not.toContain("border");
+  expect(host.querySelector("button")?.textContent).not.toBe("Sat 14 Nov");
 });
 
 it("closes More after a screen is chosen", async () => {
@@ -330,4 +350,26 @@ it("keeps every phone tab inside the bar", () => {
   const items = [...(bar?.children ?? [])];
   expect(items.length).toBe(5);
   for (const item of items) expect(item.className).toContain("min-w-0");
+});
+
+it("keeps 4W selected when that range is chosen", () => {
+  const seen: string[] = [];
+  const host = render(
+    <OwnerFrame
+      restaurantId="r1"
+      profile={profile}
+      screen="dashboard"
+      view={view}
+      today="2026-11-15"
+      onView={(next) => seen.push(next.range)}
+      confirmLeave={() => true}
+    >
+      <p>Dashboard</p>
+    </OwnerFrame>,
+  );
+  const button = [...host.querySelectorAll("button")].find((node) => node.textContent === "4W");
+  act(() => {
+    button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  expect(seen).toEqual(["4w"]);
 });

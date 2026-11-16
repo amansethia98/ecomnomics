@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import type { DashReading, OwnerDashboardInput } from "./owner-dashboard.js";
-import { composeOwnerDashboard, dashboardPlots } from "./owner-dashboard.js";
+import { composeOwnerDashboard, dashboardPlots, dashReadingState } from "./owner-dashboard.js";
 
 function week(
   from: string,
@@ -74,8 +74,8 @@ it("leaves the unfinished week on the chart and out of the trend", () => {
     ),
   );
   expect(dash.panels[0]?.points.at(-1)?.sales).toBe(20);
-  expect(dash.shadeWeek).toBe("2026-11-16");
-  expect(dash.answer.direction).toBe("up");
+  expect(dash.shadeWeek).toBeNull();
+  expect(dash.answer.pct).toBe(dash.tiles.find((tile) => tile.id === "sales")?.changePct ?? null);
   expect(dash.answer.dipped).toBeNull();
   expect(dash.tiles.find((tile) => tile.id === "sales")?.word).not.toBe("falling");
 });
@@ -93,15 +93,19 @@ it("draws two sales panels, each with its own trend line, and shades the last we
   expect(dash.panels.map((panel) => panel.platform)).toEqual(["zomato", "swiggy"]);
   expect(dash.panels[0]?.points).toHaveLength(12);
   expect(dash.panels[0]?.points[0]?.sales).toBe(100);
-  expect(dash.shadeWeek).toBe("2026-11-16");
-  expect(dash.answer.direction).toBe("up");
+  expect(dash.shadeWeek).toBeNull();
+  expect(dash.periodPhrase).toBe("last 12 weeks vs the 12 before");
+  expect(dash.answer.pct).toBe(dash.tiles.find((tile) => tile.id === "sales")?.changePct ?? null);
   expect(dash.onePlatform).toBe(false);
   const plots = dashboardPlots(dash);
   const zomato = plots.find((plot) => plot.id === "sales-zomato");
-  expect(zomato?.marks.map((mark) => mark.type)).toEqual(["rect", "lineY", "linearRegressionY"]);
+  expect(zomato?.marks.map((mark) => mark.type)).toContain("lineY");
+  expect(zomato?.marks.some((mark) => mark.type === "rect")).toBe(false);
   expect(zomato?.marks[1]?.options?.stroke).toBe("var(--owner-zomato)");
+  const swiggy = plots.find((plot) => plot.id === "sales-swiggy");
+  expect(swiggy?.marks.some((mark) => mark.options?.stroke === "var(--owner-swiggy)")).toBe(true);
   expect(zomato?.marginLeft).toBeGreaterThanOrEqual(56);
-  expect(zomato?.x?.ticks).toBe(4);
+  expect(zomato?.x?.ticks).toHaveLength(4);
   const rupees = zomato?.y?.tickFormat as (value: number) => string;
   expect(rupees(2_700_000)).toBe("₹27k");
   expect(rupees(12_000_000)).toBe("₹1.2L");
@@ -175,7 +179,16 @@ it("leaves a pending day out of both sides and says so", () => {
   const orders = dash.tiles.find((tile) => tile.id === "orders");
   expect(orders?.state).toBe("value");
   expect(orders?.value).toBe(90);
-  expect(dash.compared).toEqual({ kept: 6, expected: 6 });
+  expect(dash.answer.pct).toBe(sales?.changePct ?? null);
+  expect(dash.periodPhrase).toBe("last 7 days vs the same 7 days before");
+  expect(dash.compared).toEqual({ kept: 6, expected: 7 });
+  const plots = dashboardPlots(dash);
+  const swiggy = plots.find((plot) => plot.id === "sales-swiggy");
+  const zomatoPlot = plots.find((plot) => plot.id === "sales-zomato");
+  expect(swiggy?.marks.some((mark) => mark.type === "rect")).toBe(true);
+  expect(zomatoPlot?.marks.some((mark) => mark.type === "rect")).toBe(false);
+  const ticks = zomatoPlot?.x?.ticks as Date[];
+  expect(ticks.every((tick) => tick.toISOString().slice(0, 10) <= "2026-11-16")).toBe(true);
   const monday = dash.heatmap.find((cell) => cell.week === "2026-11-16" && cell.weekday === "Mon");
   expect(monday?.pending).toBe(true);
   expect(monday?.orders).toBeNull();
@@ -183,8 +196,7 @@ it("leaves a pending day out of both sides and says so", () => {
 
 it("marks a gap and withholds a comparison until a week of history exists", () => {
   const readings = [
-    week("2026-11-16", "zomato", "ops_sales_paise", null, "missing"),
-    day("2026-11-16", "zomato", "ops_sales_paise", 100),
+    day("2026-11-16", "zomato", "ops_sales_paise", null, "missing"),
     day("2026-11-15", "zomato", "delivered_orders", 4),
   ];
   const dash = composeOwnerDashboard(
@@ -271,4 +283,83 @@ it("names the app whose last complete day is behind, even when an older week is 
   expect(dash.pendingNote).toBe("swiggy");
   expect(dash.answer.unit).toBe("week");
   expect(dash.panels[0]?.points).toHaveLength(12);
+  expect(dash.answer.pct).toBe(dash.tiles.find((tile) => tile.id === "sales")?.changePct ?? null);
+  expect(dash.periodPhrase).toBe("last 12 weeks vs the 12 before");
 });
+
+it("shows a dash when a metric was not in the report, and keeps a real zero", () => {
+  expect(dashReadingState({ status: "ok", value: null, coverageDays: 0, provisional: false })).toBe(
+    "missing",
+  );
+  expect(dashReadingState({ status: "ok", value: 100, coverageDays: 0, provisional: false })).toBe(
+    "missing",
+  );
+  expect(dashReadingState({ status: "ok", value: 0, coverageDays: 3, provisional: false })).toBe(
+    "ok",
+  );
+  const missing = composeOwnerDashboard(
+    input(
+      [
+        day("2026-11-16", "zomato", "ops_sales_paise", 1000),
+        day("2026-11-16", "swiggy", "swiggy_net_sales_paise", 500),
+        day("2026-11-16", "zomato", "rejected_orders", null, "missing"),
+        day("2026-11-16", "zomato", "online_pct", null, "missing"),
+      ],
+      { range: "7d", from: "2026-11-10", to: "2026-11-17" },
+    ),
+  );
+  expect(missing.tiles.find((tile) => tile.id === "rejected")?.state).toBe("not_in_report");
+  expect(missing.tiles.find((tile) => tile.id === "rejected")?.value).toBeNull();
+  expect(missing.tiles.find((tile) => tile.id === "rejected")?.changePct).toBeNull();
+  expect(missing.tiles.find((tile) => tile.id === "online")?.state).toBe("not_in_report");
+  const zero = composeOwnerDashboard(
+    input(
+      [
+        day("2026-11-10", "zomato", "ops_sales_paise", 1000),
+        day("2026-11-03", "zomato", "ops_sales_paise", 1000),
+        day("2026-11-10", "zomato", "rejected_orders", 0),
+        day("2026-11-03", "zomato", "rejected_orders", 4),
+      ],
+      { platform: "zomato", range: "7d", from: "2026-11-10", to: "2026-11-17" },
+    ),
+  );
+  const rejected = zero.tiles.find((tile) => tile.id === "rejected");
+  expect(rejected?.state).toBe("value");
+  expect(rejected?.value).toBe(0);
+});
+
+it("names the busiest weekdays and the funnel drop from the data", () => {
+  const readings: DashReading[] = [];
+  for (const week of ["2026-11-02", "2026-11-09"]) {
+    for (let offset = 0; offset < 7; offset += 1) {
+      const date = `2026-11-${String(2 + offset + (week === "2026-11-09" ? 7 : 0)).padStart(2, "0")}`;
+      const orders = offset >= 4 ? 40 : 10;
+      readings.push(day(date, "zomato", "delivered_orders", orders));
+      readings.push(day(date, "zomato", "ops_sales_paise", 1000));
+    }
+    readings.push(weekStart(week, "impressions", 1000 - (week === "2026-11-09" ? 0 : 0)));
+    readings.push(weekStart(week, "menu_opens", week === "2026-11-02" ? 400 : 200));
+    readings.push(weekStart(week, "cart_builds", 80));
+    readings.push(weekStart(week, "placed_orders", 40));
+  }
+  const dash = composeOwnerDashboard(
+    input(readings, {
+      platform: "zomato",
+      range: "4w",
+      from: "2026-10-20",
+      to: "2026-11-17",
+    }),
+  );
+  expect(dash.heatmapLine).toMatch(/Fri and Sat|Sat and Sun|best day/);
+  expect(dash.heatmap.map((cell) => cell.weekday)).toContain("Mon");
+  const funnel = dashboardPlots(dash).find((plot) => plot.id === "funnel-menu");
+  expect(funnel?.marks.map((mark) => mark.options?.stroke)).toEqual(["var(--owner-zomato)"]);
+  const heat = dashboardPlots(dash).find((plot) => plot.id === "heatmap");
+  expect(heat?.color?.type).toBe("sqrt");
+  expect(heat?.color?.scheme).toBe("purples");
+  expect(heat?.y?.domain).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
+});
+
+function weekStart(from: string, key: string, value: number): DashReading {
+  return week(from, "zomato", key, value);
+}
