@@ -44,8 +44,33 @@
   background: var(--owner-zomato);
 }
 
+.ecomnomics .owner-plot svg {
+  max-width: 100%;
+  height: auto;
+}
+
 .ecomnomics .owner-dot-swiggy {
   background: var(--owner-swiggy);
+}
+
+.ecomnomics .owner-card,
+.ecomnomics .owner-tile {
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--background);
+}
+
+.ecomnomics .owner-card {
+  border-left: 3px solid var(--owner-act-now);
+  padding: 1.25rem 1.5rem;
+}
+
+.ecomnomics .owner-card-watch {
+  border-left-color: var(--owner-watch-foreground);
+}
+
+.ecomnomics .owner-tile {
+  padding: 1rem;
 }
 
 /* Charts stay under the phone tab bar. A loaded chart must not take its taps. */

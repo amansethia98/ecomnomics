@@ -100,6 +100,7 @@ it("lists the nine owner screens", () => {
   expect(host.textContent).toContain("Chief of staff");
   expect(host.textContent).toContain("Ratings & reviews");
   expect(host.textContent).toContain("All outlets");
+  expect(host.textContent).not.toContain("7D");
   expect(host.querySelector("select")?.textContent).toContain("Indiranagar");
   expect(host.querySelector("[data-testid='owner-more']")?.textContent).toContain("•••");
   expect(host.querySelector("[data-testid='owner-more']")?.textContent).toContain("More");
@@ -195,7 +196,7 @@ it("hides the platform toggle when only one app is connected", () => {
     <OwnerFrame
       restaurantId="r1"
       profile={one}
-      screen="home"
+      screen="dashboard"
       view={view}
       today="2026-11-15"
       onView={() => undefined}
@@ -204,6 +205,7 @@ it("hides the platform toggle when only one app is connected", () => {
       <p>Coming soon</p>
     </OwnerFrame>,
   );
+  expect(host.textContent).toContain("7D");
   expect(host.textContent).not.toContain("Both");
 });
 
