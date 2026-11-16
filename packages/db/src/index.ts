@@ -54,6 +54,7 @@ export * from "./ops-daily.js";
 export * from "./organizations.js";
 export * from "./owner-app.js";
 export * from "./owner-metrics.js";
+export * from "./owner-staff.js";
 export * from "./page-shares.js";
 export * from "./payout-reports.js";
 export * from "./platform-admin.js";

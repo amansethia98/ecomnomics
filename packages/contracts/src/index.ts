@@ -43,6 +43,7 @@ export * from "./ops/index.js";
 export * from "./owner-app.js";
 export * from "./owner-dashboard.js";
 export * from "./owner-home.js";
+export * from "./owner-staff.js";
 export * from "./pages.js";
 export * from "./payments.js";
 export * from "./reactions.js";
