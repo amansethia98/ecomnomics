@@ -64,7 +64,14 @@ async function readProfile(
     }),
     db.outlet.findMany({
       where: { restaurantId, spaceId },
-      select: { id: true, name: true, city: true, zomatoResId: true, swiggyRid: true },
+      select: {
+        id: true,
+        name: true,
+        city: true,
+        active: true,
+        zomatoResId: true,
+        swiggyRid: true,
+      },
       orderBy: { name: "asc" },
     }),
     db.metricFetch.findMany({
@@ -90,6 +97,7 @@ async function readProfile(
         fetches.find((row) => row.outletId === outlet.id)?.observedName,
       ),
       city: outlet.city,
+      active: outlet.active,
       connections: PLATFORMS.map((platform) => ({
         platform,
         status: connectionStatus({

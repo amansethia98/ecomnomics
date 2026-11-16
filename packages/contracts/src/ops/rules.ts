@@ -35,6 +35,7 @@ import {
   appLabel,
   COMBINED_NET_SALES,
   combinedNetSales,
+  DAILY_FIXES,
   dailyDedupeKey,
   dailyFix,
   ingestBlockerCode,
@@ -231,6 +232,26 @@ function applies(code: DailyRuleCode, platform: OpsScopePlatform): boolean {
   return platform !== "combined";
 }
 
+/** How many daily rules run for the connected apps, including combined sales when both are on. */
+export function dailyCheckCount(platforms: readonly OpsPlatform[]): number {
+  const unique = [...new Set(platforms)];
+  const codes = Object.keys(DAILY_FIXES) as DailyRuleCode[];
+  let count = 0;
+  for (const platform of unique) {
+    for (const code of codes) {
+      if (applies(code, platform)) count += 1;
+    }
+  }
+  if (
+    unique.includes("zomato") &&
+    unique.includes("swiggy") &&
+    applies("d_sales_drop", "combined")
+  ) {
+    count += 1;
+  }
+  return count;
+}
+
 function evaluateCombinedSales(
   input: DailyEvaluationInput,
   outlet: DailyOutlet,
@@ -350,7 +371,7 @@ function salesDecision(
   if (holiday && severity === "act_now") severity = "watch";
   const name = platform === "combined" ? "Total" : appLabel(platform);
   const festival = holiday ? " (festival week)" : "";
-  const text = `${name} sales down ${formatPct1(drop)}% ${versus(date, baselineDate)} (${formatRupees(current)} vs ${formatRupees(baseline)})${festival}.`;
+  const text = `${name} sales down ${formatPct1(drop)}% on ${formatCivilDay(date)} ${versus(date, baselineDate)} (${formatRupees(current)} vs ${formatRupees(baseline)})${festival}.`;
   return {
     kind: "fire",
     severity,

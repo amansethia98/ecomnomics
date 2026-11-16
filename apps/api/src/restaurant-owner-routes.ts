@@ -3,6 +3,7 @@ import {
   isIsoDate,
   OpsDismissSchema,
   OpsSnoozeSchema,
+  OutletDayRequestSchema,
   OwnerMetricsQuerySchema,
   OwnerProfilePatchSchema,
   ownerMetricsErrorMessage,
@@ -16,8 +17,10 @@ import {
   proposeOpsActionForMember,
   RestaurantAgentError,
   readOpsReportForMember,
+  readOwnerHomeForMember,
   readOwnerMetricsForMember,
   readOwnerProfileForMember,
+  recordOutletDayForMember,
   snoozeOpsAlertForMember,
   updateOwnerProfileForMember,
 } from "@rakazo/db";
@@ -62,6 +65,42 @@ export function restaurantOwnerRoutes(options: RestaurantOwnerRouteOptions) {
     try {
       return c.json(
         await updateOwnerProfileForMember(
+          options.prisma,
+          session.userId,
+          c.req.param("restaurantId"),
+          parsed.data,
+        ),
+      );
+    } catch (error) {
+      return ownerFailure(c, error);
+    }
+  });
+  app.get("/api/v1/restaurants/:restaurantId/home", async (c) => {
+    const session = await options.getSession(c.req.raw.headers);
+    if (!session) return ownerError(c, 401, "unauthorized", "Unauthorized");
+    const outletId = c.req.query("outletId");
+    try {
+      return c.json(
+        await readOwnerHomeForMember(
+          options.prisma,
+          session.userId,
+          c.req.param("restaurantId"),
+          outletId && outletId !== "all" ? outletId : undefined,
+        ),
+      );
+    } catch (error) {
+      return ownerFailure(c, error);
+    }
+  });
+  app.post("/api/v1/restaurants/:restaurantId/outlet-days", async (c) => {
+    const session = await options.getSession(c.req.raw.headers);
+    if (!session) return ownerError(c, 401, "unauthorized", "Unauthorized");
+    const body = await c.req.json().catch(() => null);
+    const parsed = OutletDayRequestSchema.omit({ source: true }).safeParse(body);
+    if (!parsed.success) return ownerError(c, 400, "invalid_body", "That answer is not valid.");
+    try {
+      return c.json(
+        await recordOutletDayForMember(
           options.prisma,
           session.userId,
           c.req.param("restaurantId"),

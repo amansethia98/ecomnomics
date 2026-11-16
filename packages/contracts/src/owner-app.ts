@@ -122,7 +122,7 @@ export function parseOwnerView(
   today: string,
 ): OwnerView {
   const rawRange = params.get("range");
-  const range = OWNER_RANGES.includes(rawRange as OwnerRange) ? (rawRange as OwnerRange) : "7d";
+  const range = OWNER_RANGES.includes(rawRange as OwnerRange) ? (rawRange as OwnerRange) : "12w";
   const rawPlatform = params.get("platform");
   const platform = OWNER_VIEW_PLATFORMS.includes(rawPlatform as OwnerViewPlatform)
     ? (rawPlatform as OwnerViewPlatform)
@@ -130,11 +130,29 @@ export function parseOwnerView(
   const outlet = params.get("outlet")?.trim() || "all";
   const from = params.get("from") ?? "";
   const to = params.get("to") ?? "";
+  const preset = presetFor(from, to, today);
+  if ((range === "custom" || range === preset) && preset) {
+    return { range: preset, platform, outlet, ...ownerRangeBounds(preset, today) };
+  }
   if (range === "custom" && ISO.test(from) && ISO.test(to) && from < to) {
     return { range, platform, outlet, from, to };
   }
-  const bounds = ownerRangeBounds(range === "custom" ? "7d" : range, today);
-  return { range: range === "custom" ? "7d" : range, platform, outlet, ...bounds };
+  const bounds = ownerRangeBounds(range === "custom" ? "12w" : range, today);
+  return { range: range === "custom" ? "12w" : range, platform, outlet, ...bounds };
+}
+
+/** A custom URL whose dates are exactly a chip is that chip, not Custom. */
+export function presetFor(
+  from: string,
+  to: string,
+  today: string,
+): Exclude<OwnerRange, "custom"> | null {
+  if (!ISO.test(from) || !ISO.test(to)) return null;
+  for (const range of ["7d", "4w", "12w"] as const) {
+    const bounds = ownerRangeBounds(range, today);
+    if (bounds.from === from && bounds.to === to) return range;
+  }
+  return null;
 }
 
 /** The view, as the existing metrics read expects it. Keys are chosen by the screen. */
@@ -165,6 +183,7 @@ export interface OwnerOutletProfile {
   id: string;
   name: string;
   city: string;
+  active: boolean;
   connections: OwnerOutletConnection[];
 }
 
