@@ -371,7 +371,7 @@ function salesDecision(
   if (holiday && severity === "act_now") severity = "watch";
   const name = platform === "combined" ? "Total" : appLabel(platform);
   const festival = holiday ? " (festival week)" : "";
-  const text = `${name} sales down ${formatPct1(drop)}% ${versus(date, baselineDate)} (${formatRupees(current)} vs ${formatRupees(baseline)})${festival}.`;
+  const text = `${name} sales down ${formatPct1(drop)}% on ${formatCivilDay(date)} ${versus(date, baselineDate)} (${formatRupees(current)} vs ${formatRupees(baseline)})${festival}.`;
   return {
     kind: "fire",
     severity,

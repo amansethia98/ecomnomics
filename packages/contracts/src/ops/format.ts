@@ -72,6 +72,32 @@ export function formatWeekdayShort(iso: string): string {
   return WEEKDAYS[isoWeekday(iso)] ?? "day";
 }
 
+/** ₹27k, ₹1.2L. `paise` is the stored unit. */
+export function formatCompactRupees(paise: number): string {
+  const rupees = paise / 100;
+  const abs = Math.abs(rupees);
+  const sign = rupees < 0 ? "−" : "";
+  const body =
+    abs >= 1_00_00_000
+      ? `${trimCompact(abs / 1_00_00_000)}Cr`
+      : abs >= 1_00_000
+        ? `${trimCompact(abs / 1_00_000)}L`
+        : abs >= 1_000
+          ? `${trimCompact(abs / 1_000)}k`
+          : String(Math.round(abs));
+  return `${sign}₹${body}`;
+}
+
+function trimCompact(value: number): string {
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+/** `14 Nov`, for a chart tick. */
+export function formatAxisDay(value: Date): string {
+  return `${value.getUTCDate()} ${MONTHS[value.getUTCMonth()] ?? ""}`;
+}
+
 /** ₹ with Indian grouping and no paise. */
 export function formatRupees(paise: number): string {
   const rupees = Math.round(paise / 100);

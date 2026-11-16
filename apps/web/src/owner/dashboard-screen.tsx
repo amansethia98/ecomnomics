@@ -11,7 +11,8 @@ import {
   composeOwnerDashboard,
   DEFAULT_OPS_RULES_CONFIG,
   dashboardPlots,
-  formatSignedPct,
+  formatCompactRupees,
+  formatPct1,
 } from "@rakazo/contracts";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -182,16 +183,17 @@ export function OwnerDashboard({
   );
 }
 
-function Answer({ model }: { model: OwnerDashboardModel }) {
+export function Answer({ model }: { model: OwnerDashboardModel }) {
   const { t } = useLingui();
-  const pct = model.answer.pct == null ? null : formatSignedPct(Math.abs(model.answer.pct));
+  const pct = model.answer.pct == null ? null : `${formatPct1(Math.abs(model.answer.pct))}%`;
+  const span = model.answer.unit === "day" ? t`days` : t`weeks`;
   const lead =
     model.answer.direction === "up" && pct
-      ? t`Sales are growing: up ${pct} in ${model.answer.weeks} weeks`
+      ? t`Sales are growing: up ${pct} in ${model.answer.weeks} ${span}`
       : model.answer.direction === "down" && pct
-        ? t`Sales are falling: down ${pct} in ${model.answer.weeks} weeks`
+        ? t`Sales are falling: down ${pct} in ${model.answer.weeks} ${span}`
         : model.answer.direction === "flat"
-          ? t`Sales are flat over ${model.answer.weeks} weeks`
+          ? t`Sales are flat over ${model.answer.weeks} ${span}`
           : t`Sales will show here once a few weeks are in`;
   const flat =
     model.answer.flatPlatform === "swiggy"
@@ -199,10 +201,16 @@ function Answer({ model }: { model: OwnerDashboardModel }) {
       : model.answer.flatPlatform === "zomato"
         ? t`Zomato has been flat for ${model.answer.flatWeeks} weeks`
         : null;
-  const dip = model.answer.dipped
-    ? model.answer.festival
-      ? t`Last week dipped ${formatSignedPct(Math.abs(model.answer.dipped.pct))} after a festival week`
-      : t`Last week dipped ${formatSignedPct(Math.abs(model.answer.dipped.pct))}`
+  const dipPct =
+    model.answer.dipped == null ? null : `${formatPct1(Math.abs(model.answer.dipped.pct))}%`;
+  const dip = dipPct
+    ? model.answer.unit === "day"
+      ? model.answer.festival
+        ? t`The last day dipped ${dipPct} after a festival week`
+        : t`The last day dipped ${dipPct}`
+      : model.answer.festival
+        ? t`Last week dipped ${dipPct} after a festival week`
+        : t`Last week dipped ${dipPct}`
     : null;
   const pending =
     model.answer.pendingPlatform === "swiggy"
@@ -264,6 +272,11 @@ function sparkPlot(tile: OwnerDashboardModel["tiles"][number]): OwnerPlot {
     id: tile.id,
     width: 640,
     height: 180,
+    marginLeft: tile.format === "paise" ? 64 : 40,
+    y:
+      tile.format === "paise"
+        ? { label: null, tickFormat: (value: number) => formatCompactRupees(Number(value)) }
+        : { label: null },
     marks: [
       { type: "lineY", data, options: { x: "week", y: "sales", stroke: "var(--primary)" } },
       {
