@@ -532,11 +532,33 @@ export async function readOwnerHomeForMember(
       yesterday,
     );
     if (outletId && !loaded.outlets.some((outlet) => outlet.id === outletId)) {
-      throw new RestaurantAgentError(
-        "unknown_outlet",
-        422,
-        "Outlet is not part of this restaurant.",
-      );
+      const outlet = await db.outlet.findFirst({
+        where: { id: outletId, restaurantId, spaceId: restaurant.spaceId },
+        select: { active: true },
+      });
+      if (!outlet) {
+        throw new RestaurantAgentError(
+          "unknown_outlet",
+          422,
+          "Outlet is not part of this restaurant.",
+        );
+      }
+      if (!outlet.active) {
+        return composeOwnerHome({
+          today,
+          now: new Date().toISOString(),
+          restaurantName: loaded.name,
+          connected: [],
+          hasHistory: false,
+          brief: null,
+          alerts: [],
+          questions: [],
+          weekdayHistory: null,
+          lastComplete: null,
+          payoutPaise: null,
+          payoutToCheck: 0,
+        });
+      }
     }
     const outlets = outletId
       ? loaded.outlets.filter((outlet) => outlet.id === outletId)
@@ -563,6 +585,7 @@ export async function readOwnerHomeForMember(
     const fresh = loaded.dataAsOf != null && loaded.dataAsOf.toISOString() >= istMorning(today);
     const shown = states.filter((alert) => visible(alert, today));
     const connected = [...new Set(outlets.flatMap((outlet) => outlet.platforms))];
+    const hasHistory = days.some((day) => day.stored);
     const payout = await payoutTile(
       db,
       { restaurantId, spaceId: restaurant.spaceId },
@@ -574,21 +597,23 @@ export async function readOwnerHomeForMember(
       now: new Date().toISOString(),
       restaurantName: loaded.name,
       connected,
-      hasHistory: days.some((day) => day.stored),
-      brief: {
-        date: view.date,
-        baselineDate: view.baselineDate,
-        statusText: view.statusText ?? null,
-        corrections: view.corrections ?? [],
-        form: view.form,
-        sales: view.sales,
-        delivered: view.delivered,
-        deliveredBaseline: null,
-        notes: view.notes,
-        exclusion: view.exclusion ?? null,
-        dataAsOf: view.dataAsOf,
-        connect: view.connect ?? false,
-      },
+      hasHistory,
+      brief: hasHistory
+        ? {
+            date: view.date,
+            baselineDate: view.baselineDate,
+            statusText: view.statusText ?? null,
+            corrections: view.corrections ?? [],
+            form: view.form,
+            sales: view.sales,
+            delivered: view.delivered,
+            deliveredBaseline: null,
+            notes: view.notes,
+            exclusion: view.exclusion ?? null,
+            dataAsOf: view.dataAsOf,
+            connect: view.connect ?? false,
+          }
+        : null,
       alerts: shown.map((alert) => ({
         id: alert.id,
         severity: alert.severity,

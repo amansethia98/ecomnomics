@@ -27,6 +27,7 @@ const profile: OwnerProfile = {
       id: "o1",
       name: "Indiranagar",
       city: "Bengaluru",
+      active: true,
       connections: [
         { platform: "zomato", status: "connected" },
         { platform: "swiggy", status: "login_needs_attention" },
@@ -36,6 +37,7 @@ const profile: OwnerProfile = {
       id: "o2",
       name: "Koramangala",
       city: "Bengaluru",
+      active: true,
       connections: [
         { platform: "zomato", status: "connected" },
         { platform: "swiggy", status: "not_connected" },
@@ -97,6 +99,30 @@ it("lists the nine owner screens", () => {
   expect(host.textContent).toContain("All outlets");
   expect(host.textContent).not.toContain("7D");
   expect(host.querySelector("select")?.textContent).toContain("Indiranagar");
+});
+
+it("leaves an inactive outlet out of the selector", () => {
+  const host = render(
+    <OwnerFrame
+      restaurantId="r1"
+      profile={{
+        ...profile,
+        outlets: [
+          ...(profile.outlets[0] ? [profile.outlets[0]] : []),
+          { ...profile.outlets[1]!, active: false },
+        ],
+      }}
+      screen="home"
+      view={view}
+      today="2026-11-15"
+      onView={() => undefined}
+      confirmLeave={() => true}
+    >
+      <p>Home</p>
+    </OwnerFrame>,
+  );
+  expect(host.querySelector("select")).toBeNull();
+  expect(host.textContent).not.toContain("Koramangala");
 });
 
 it("hides the range on settings and the outlet list when there is one outlet", () => {
