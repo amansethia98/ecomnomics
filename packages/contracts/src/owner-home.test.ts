@@ -16,6 +16,7 @@ function alert(over: Partial<OwnerHomeAlert> & Pick<OwnerHomeAlert, "id">): Owne
     impactPaise: 0,
     outletSalesPaise: 100,
     notifiedAt: null,
+    date: "2026-11-14",
     ...over,
   };
 }
@@ -261,6 +262,22 @@ it("uses the watch style when nothing is urgent, and lets those rows be snoozed"
   expect(home.urgent).toBe(0);
   expect(home.card?.canSnooze).toBe(true);
   expect(home.card?.severity).toBe("watch");
+});
+
+it("prefixes a watch alert with the day it is about", () => {
+  const home = composeOwnerHome(
+    input({
+      alerts: [
+        alert({
+          id: "sales",
+          severity: "watch",
+          platform: "combined",
+          text: "Total sales down 12.0% on Sat 14 Nov vs last Saturday.",
+        }),
+      ],
+    }),
+  );
+  expect(home.card?.text).toBe("Sat 14 Nov · Total sales down 12.0% vs last Saturday.");
 });
 
 it("asks the oldest blank days and drops the question block when there are none", () => {

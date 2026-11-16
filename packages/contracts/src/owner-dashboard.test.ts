@@ -98,7 +98,7 @@ it("draws two sales panels, each with its own trend line, and shades the last we
   expect(dash.onePlatform).toBe(false);
   const plots = dashboardPlots(dash);
   const zomato = plots.find((plot) => plot.id === "sales-zomato");
-  expect(zomato?.marks.map((mark) => mark.type)).toEqual(["rectY", "lineY", "linearRegressionY"]);
+  expect(zomato?.marks.map((mark) => mark.type)).toEqual(["rect", "lineY", "linearRegressionY"]);
   expect(zomato?.marks[1]?.options?.stroke).toBe("var(--owner-zomato)");
   expect(zomato?.marginLeft).toBeGreaterThanOrEqual(56);
   expect(zomato?.x?.ticks).toBe(4);
