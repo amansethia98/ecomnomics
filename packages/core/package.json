@@ -9,11 +9,6 @@
       "development": "./src/index.ts",
       "default": "./src/index.ts"
     },
-    "./plot": {
-      "types": "./src/plot/plot-spec.ts",
-      "development": "./src/plot/plot-spec.ts",
-      "default": "./src/plot/plot-spec.ts"
-    },
     "./user-error": {
       "types": "./src/user-error.ts",
       "development": "./src/user-error.ts",
