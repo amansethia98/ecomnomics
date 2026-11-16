@@ -72,6 +72,8 @@ export interface OwnerHomeInput {
   lastComplete: { date: string; salesPaise: number | null; delivered: number | null } | null;
   payoutPaise: number | null;
   payoutToCheck: number;
+  /** Each app's own fetch clock (`05:42`), when that app's file is in. */
+  fetched?: { zomato: string | null; swiggy: string | null };
 }
 
 export interface OwnerHomeItem {
@@ -81,6 +83,8 @@ export interface OwnerHomeItem {
   outletName: string | null;
   platform: OpsScopePlatform;
   text: string;
+  /** App, outlet, and date. The title stays a plain sentence. */
+  detail: string;
   fix: string;
   consecutiveDays: number;
   impactPaise: number;
@@ -223,8 +227,11 @@ export function composeOwnerHome(input: OwnerHomeInput): OwnerHomeModel {
     },
     checksPassed: dailyCheckCount(input.connected),
     updated: {
-      zomato: brief?.dataAsOf ?? null,
-      swiggy: sales.pendingPlatform === "swiggy" ? null : (brief?.dataAsOf ?? null),
+      zomato: input.fetched?.zomato ?? brief?.dataAsOf ?? null,
+      swiggy:
+        sales.pendingPlatform === "swiggy"
+          ? null
+          : (input.fetched?.swiggy ?? brief?.dataAsOf ?? null),
     },
     askChief: welcome,
   };
@@ -345,12 +352,29 @@ function rankHomeAlerts(
   return items;
 }
 
-function datedLine(text: string, date: string): string {
-  if (!date) return text;
-  const label = formatCivilDay(date);
-  const cleaned = text.replace(` on ${label}`, "");
-  if (cleaned.startsWith(`${label} · `)) return cleaned;
-  return `${label} · ${cleaned}`;
+/** Turn a stored metric sentence into the words on the card. The date stays in the sub-line. */
+export function plainHomeTitle(text: string): string {
+  const counted = text.match(
+    /^([A-Za-z]+) (delayed orders|rejected orders|cancellations) (\d+) of (\d+) delivered/,
+  );
+  if (counted?.[1] && counted[2] && counted[3] && counted[4]) {
+    const verb =
+      counted[2] === "delayed orders"
+        ? "were delayed"
+        : counted[2] === "rejected orders"
+          ? "were rejected"
+          : "were cancelled";
+    return `${counted[3]} of ${counted[4]} ${counted[1]} orders ${verb}`;
+  }
+  return text.replace(/ on [A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2}/, "").replace(/\.$/, "");
+}
+
+function homeDetail(alert: OwnerHomeAlert): string {
+  const app =
+    alert.platform === "swiggy" ? "Swiggy" : alert.platform === "zomato" ? "Zomato" : null;
+  return [app, alert.outletName, alert.date ? formatCivilDay(alert.date) : null]
+    .filter((part) => part != null && part.length > 0)
+    .join(" · ");
 }
 
 function mergeGroup(group: OwnerHomeAlert[], morning: string, now: string): OwnerHomeItem {
@@ -368,6 +392,7 @@ function mergeGroup(group: OwnerHomeAlert[], morning: string, now: string): Owne
       outletName: null,
       platform: "combined",
       text: "",
+      detail: "",
       fix: "",
       consecutiveDays: 0,
       impactPaise: 0,
@@ -382,7 +407,8 @@ function mergeGroup(group: OwnerHomeAlert[], morning: string, now: string): Owne
     outletId: top.outletId,
     outletName: top.outletName,
     platform: top.platform,
-    text: datedLine(top.text, top.date),
+    text: plainHomeTitle(top.text),
+    detail: homeDetail(top),
     fix: top.fix,
     consecutiveDays: Math.max(...ordered.map((alert) => alert.consecutiveDays)),
     impactPaise: ordered.reduce((sum, alert) => sum + alert.impactPaise, 0),

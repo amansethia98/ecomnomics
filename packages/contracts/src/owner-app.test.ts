@@ -86,6 +86,15 @@ describe("owner view", () => {
     expect(ownerMetricsRequest(view).outletIds).toBeUndefined();
   });
 
+  it("keeps the 4W chip when the dates are that preset", () => {
+    const bounds = ownerRangeBounds("4w", today);
+    const view = parseOwnerView(
+      new URLSearchParams(`range=custom&from=${bounds.from}&to=${bounds.to}`),
+      today,
+    );
+    expect(view.range).toBe("4w");
+  });
+
   it("keeps a custom range's last day inclusive", () => {
     expect(customRange("2026-11-01", "2026-11-15")).toEqual({
       from: "2026-11-01",
@@ -96,8 +105,8 @@ describe("owner view", () => {
 
   it("falls back when a custom range has no dates", () => {
     const view = parseOwnerView(new URLSearchParams("range=custom"), today);
-    expect(view.range).toBe("7d");
-    expect(view.from).toBe("2026-11-09");
+    expect(view.range).toBe("12w");
+    expect(view.from).toBe("2026-08-24");
   });
 });
 

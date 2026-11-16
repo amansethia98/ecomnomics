@@ -72,3 +72,62 @@
 .ecomnomics .owner-tile {
   padding: 1rem;
 }
+
+.ecomnomics .owner-panel {
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--background);
+}
+
+.ecomnomics .owner-kpi {
+  min-width: 0;
+  background: transparent;
+}
+
+.ecomnomics .owner-title {
+  font-size: 30px;
+  line-height: 36px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.ecomnomics .owner-mark {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ecomnomics .owner-tabbar {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 30;
+}
+
+.ecomnomics .owner-round {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+}
+
+.ecomnomics .owner-round-act {
+  background: var(--owner-act-now);
+  color: var(--owner-act-now-foreground);
+}
+
+.ecomnomics .owner-round-watch {
+  background: var(--owner-watch);
+  color: var(--owner-watch-foreground);
+}

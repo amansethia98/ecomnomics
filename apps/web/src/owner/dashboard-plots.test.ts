@@ -97,7 +97,13 @@ it("draws the sales lines and the weekday heatmap when one platform lags a day",
       expect(svg.startsWith("<svg"), id).toBe(true);
       expect(svg.length, id).toBeGreaterThan(100);
     }
+    const sales = plots.find((item) => item.id === "sales-zomato");
+    const ticks = ((sales?.x?.ticks as Date[] | undefined) ?? []).map((tick) =>
+      tick.toISOString().slice(0, 10),
+    );
+    expect(ticks.every((tick) => tick <= "2026-11-16")).toBe(true);
     const heatmap = plots.find((item) => item.id === "heatmap");
+    expect(heatmap?.color?.type).toBe("sqrt");
     expect(heatmap?.y?.domain).toEqual(WEEKDAYS);
     const labels = [...draw(heatmap!).matchAll(/>(Mon|Tue|Wed|Thu|Fri|Sat|Sun)</g)].map(
       (match) => match[1],

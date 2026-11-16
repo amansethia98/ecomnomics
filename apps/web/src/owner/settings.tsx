@@ -70,7 +70,25 @@ export function SettingsProfile({
         if (dirty) onSave(draft);
       }}
     >
-      <section className="flex flex-col gap-4">
+      <div className="flex items-center gap-3">
+        <span className="owner-mark" aria-hidden="true">
+          {profile.restaurant.name.slice(0, 1)}
+        </span>
+        <div>
+          <p className="text-heading3 font-medium">{profile.restaurant.name}</p>
+          <p className="text-body-sm text-muted-foreground">
+            {t`Owner: ${profile.owner.name}`}
+            {sharedCity(profile) ? ` · ${sharedCity(profile)}` : null}
+          </p>
+        </div>
+      </div>
+      <div className="flex gap-4 border-b border-border text-body-sm">
+        <span className="border-b-2 border-primary pb-2 font-medium">{t`Profile`}</span>
+        <span className="pb-2 text-muted-foreground">{t`Connections`}</span>
+        <span className="pb-2 text-muted-foreground">{t`Team`}</span>
+        <span className="pb-2 text-muted-foreground">{t`Brief & alerts`}</span>
+      </div>
+      <section className="owner-panel flex flex-col gap-4 p-4">
         <SectionHeading as="h2" variant="label">
           {t`You`}
         </SectionHeading>
@@ -87,6 +105,7 @@ export function SettingsProfile({
           <label className="flex flex-col gap-1.5 text-body-sm" htmlFor={emailId}>
             {t`Email`}
             <Input id={emailId} value={profile.owner.email} readOnly />
+            <span className="text-body-sm text-muted-foreground">{t`Language for briefs and chat`}</span>
           </label>
           <label className="flex flex-col gap-1.5 text-body-sm" htmlFor={languageId}>
             {t`Language`}
@@ -102,11 +121,12 @@ export function SettingsProfile({
               <option value="en">{t`English`}</option>
               <option value="hi">{t`Hindi`}</option>
             </select>
+            <span className="text-body-sm text-muted-foreground">{t`English or Hindi`}</span>
           </label>
         </div>
       </section>
 
-      <section className="flex flex-col gap-4">
+      <section className="owner-panel flex flex-col gap-4 p-4">
         <SectionHeading as="h2" variant="label">
           {t`Restaurant`}
         </SectionHeading>
@@ -121,9 +141,9 @@ export function SettingsProfile({
         </label>
       </section>
 
-      <section className="flex flex-col gap-2">
+      <section className="owner-panel flex flex-col gap-2 p-4">
         <SectionHeading as="h2" variant="label">
-          {t`Outlets`}
+          {t`Outlets · ${profile.outlets.length}`}
         </SectionHeading>
         <ul className="divide-y divide-border">
           {profile.outlets.map((outlet) => {
@@ -174,18 +194,26 @@ export function SettingsProfile({
         </p>
       </section>
 
-      {dirty ? (
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" disabled={saving} onClick={() => setDraft(saved)}>
-            {t`Cancel`}
-          </Button>
-          <Button type="submit" disabled={saving}>
-            {t`Save changes`}
-          </Button>
-        </div>
-      ) : null}
+      <div className="flex justify-end gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={saving || !dirty}
+          onClick={() => setDraft(saved)}
+        >
+          {t`Cancel`}
+        </Button>
+        <Button type="submit" disabled={saving || !dirty}>
+          {t`Save changes`}
+        </Button>
+      </div>
     </form>
   );
+}
+
+function sharedCity(profile: OwnerProfile): string | null {
+  const cities = [...new Set(profile.outlets.map((outlet) => outlet.city).filter(Boolean))];
+  return cities.length === 1 ? (cities[0] ?? null) : null;
 }
 
 function ConnectionMark({

@@ -642,6 +642,10 @@ export async function readOwnerHomeForMember(
       payoutPaise: payout.paise,
       payoutToCheck: states.filter((alert) => alert.cadence === "payout" && visible(alert, today))
         .length,
+      fetched: {
+        zomato: loaded.fetchedAt.zomato ? formatIstClock(loaded.fetchedAt.zomato) : null,
+        swiggy: loaded.fetchedAt.swiggy ? formatIstClock(loaded.fetchedAt.swiggy) : null,
+      },
     });
   });
 }
@@ -913,6 +917,12 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
   ]);
   const days = new Map<string, OpsAppDay>();
   let dataAsOf: Date | null = null;
+  const fetchedAt: Record<"zomato" | "swiggy", Date | null> = { zomato: null, swiggy: null };
+  const noteFetch = (platform: string, at: Date) => {
+    if (platform !== "zomato" && platform !== "swiggy") return;
+    const current = fetchedAt[platform];
+    if (!current || at > current) fetchedAt[platform] = at;
+  };
   const slot = (outletId: string, platform: string, iso: string) => {
     const key = `${outletId}|${platform}|${iso}`;
     let found = days.get(key);
@@ -951,6 +961,7 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
       valueBoolean: row.valueBoolean,
     });
     if (iso === date && (!dataAsOf || row.capturedAt > dataAsOf)) dataAsOf = row.capturedAt;
+    if (iso === date) noteFetch(row.platform, row.capturedAt);
   }
   const live = new Set([date, addIsoDays(date, -1)]);
   for (const fetch of fetches) {
@@ -970,6 +981,7 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
         current.gap = false;
         current.ingest = null;
         if (iso === date && (!dataAsOf || fetch.capturedAt > dataAsOf)) dataAsOf = fetch.capturedAt;
+        if (iso === date) noteFetch(fetch.platform, fetch.capturedAt);
       } else if (FAILURES.has(fetch.status)) {
         noteFailedFetch(current, fetch.status as OpsIngestCode);
       }
@@ -995,6 +1007,7 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
   return {
     name: restaurant.name,
     dataAsOf,
+    fetchedAt,
     outletDays,
     outlets: outlets.map((outlet) => ({
       id: outlet.id,
