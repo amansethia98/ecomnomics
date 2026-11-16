@@ -228,16 +228,18 @@ export function OwnerPage() {
 
 function effectiveView(view: OwnerView, profile: OwnerProfile): OwnerView {
   const linked = new Set(
-    profile.outlets.flatMap((outlet) =>
-      outlet.connections
-        .filter((connection) => connection.status !== "not_connected")
-        .map((connection) => connection.platform),
-    ),
+    profile.outlets
+      .filter((outlet) => outlet.active)
+      .flatMap((outlet) =>
+        outlet.connections
+          .filter((connection) => connection.status !== "not_connected")
+          .map((connection) => connection.platform),
+      ),
   );
   const platform = linked.size === 1 ? ([...linked][0] ?? view.platform) : view.platform;
-  const known = profile.outlets.some((item) => item.id === view.outlet);
-  const outlet =
-    profile.outlets.length < 2 || view.outlet === "all" || !known ? "all" : view.outlet;
+  const active = profile.outlets.filter((item) => item.active);
+  const known = active.some((item) => item.id === view.outlet);
+  const outlet = active.length < 2 || view.outlet === "all" || !known ? "all" : view.outlet;
   return { ...view, platform, outlet };
 }
 

@@ -231,8 +231,12 @@ function answerFor(
   input: OwnerDashboardInput,
   platforms: OpsPlatform[],
 ): OwnerDashboardModel["answer"] {
-  const totals = panels[0]?.points.map((point, index) => {
-    const values = panels.map((panel) => panel.points[index]);
+  const finished = panels.map((panel) => ({
+    ...panel,
+    points: panel.points.filter((point) => addDays(point.week, 7) <= input.today),
+  }));
+  const totals = finished[0]?.points.map((point, index) => {
+    const values = finished.map((panel) => panel.points[index]);
     if (values.some((item) => item?.pending))
       return { week: point.week, sales: null as number | null };
     const present = values.filter((item) => item?.sales != null);
@@ -248,11 +252,11 @@ function answerFor(
   const flat = platforms
     .map((platform) => ({
       platform,
-      weeks: flatTail(panels.find((panel) => panel.platform === platform)),
+      weeks: flatTail(finished.find((panel) => panel.platform === platform)),
     }))
     .filter((item) => item.weeks >= 3)
     .sort((left, right) => right.weeks - left.weeks)[0];
-  const dipped = lastDip(panels);
+  const dipped = lastDip(finished);
   const pending =
     panels.find((panel) => panel.points.some((point) => point.pending))?.platform ?? null;
   const lastWeek = panels[0]?.points.at(-1)?.week;
@@ -315,6 +319,9 @@ function tileFor(
     return emptyTile(tile, "not_in_report");
   }
   const spark = weeks.map((week) => weekValue(tile, input.readings, week, platforms));
+  const trendSpark = spark.map((value, index) =>
+    addDays(weeks[index] ?? input.today, 7) <= input.today ? value : null,
+  );
   const length =
     input.range === "custom" ? daysBetween(input.from, input.to) : ownerRangeDays(input.range);
   const current = windowValue(tile, input, platforms, addDays(input.to, -length), input.to);
@@ -336,7 +343,7 @@ function tileFor(
     young || previous.kind !== "value" || previous.total == null || current.total == null
       ? null
       : pctChange(current.total, previous.total);
-  const trend = trendOf(spark, tile);
+  const trend = trendOf(trendSpark, tile);
   return {
     id: tile.id,
     value: current.total,

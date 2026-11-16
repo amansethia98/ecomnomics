@@ -97,6 +97,32 @@ it("shows the act-now card without a snooze, and snooze only on a watch row", ()
   expect(snooze).toEqual(["Snooze"]);
 });
 
+it("names the day a fallback figure comes from", () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  act(() => {
+    createRoot(host).render(
+      <MemoryRouter>
+        <OwnerHomeScreen
+          restaurantId="r1"
+          restaurantName="Kesar Kitchen"
+          home={{
+            ...home,
+            kind: "waiting",
+            sales: { ...home.sales, paise: 80000, asOf: "2026-11-14", changePct: null },
+            delivered: { ...home.delivered, count: 12, asOf: "2026-11-14", changePct: null },
+          }}
+          onSnooze={() => undefined}
+          onAnswer={() => undefined}
+        />
+      </MemoryRouter>,
+    );
+  });
+  expect(host.textContent).toContain("₹800");
+  expect(host.textContent).toContain("12");
+  expect(host.textContent).toContain("As of Sat 14 Nov");
+});
+
 it("hides the question when there is nothing to ask and says all good", () => {
   const host = document.createElement("div");
   document.body.append(host);
