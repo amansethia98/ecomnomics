@@ -112,3 +112,22 @@
   --primary-disabled: #1c1c1c26;
   --radius: 0.75rem;
 }
+
+.ecomnomics {
+  color-scheme: light;
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --primary-foreground: #ffffff;
+  --link: #4f46e5;
+  --ring: #4f46e5;
+  --owner-act-now: #9f1239;
+  --owner-act-now-foreground: #ffffff;
+  --owner-watch: #fef0c7;
+  --owner-watch-foreground: #78350f;
+  --owner-good: #dcfce7;
+  --owner-good-foreground: #166534;
+  --owner-change-down: #9f1239;
+  --owner-change-up: #15803d;
+  --owner-zomato: #e23744;
+  --owner-swiggy: #fc8019;
+}

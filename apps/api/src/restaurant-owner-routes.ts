@@ -4,6 +4,7 @@ import {
   OpsDismissSchema,
   OpsSnoozeSchema,
   OwnerMetricsQuerySchema,
+  OwnerProfilePatchSchema,
   ownerMetricsErrorMessage,
 } from "@rakazo/contracts";
 import type { PrismaClient } from "@rakazo/db";
@@ -11,11 +12,14 @@ import {
   dismissOpsAlertForMember,
   listOpsAlertsForMember,
   listOpsFeedForMember,
+  listOwnerRestaurants,
   proposeOpsActionForMember,
   RestaurantAgentError,
   readOpsReportForMember,
   readOwnerMetricsForMember,
+  readOwnerProfileForMember,
   snoozeOpsAlertForMember,
+  updateOwnerProfileForMember,
 } from "@rakazo/db";
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -28,6 +32,46 @@ export interface RestaurantOwnerRouteOptions {
 /** Session route for the owner dashboard. No agent token. */
 export function restaurantOwnerRoutes(options: RestaurantOwnerRouteOptions) {
   const app = new Hono();
+  app.get("/api/v1/restaurants", async (c) => {
+    const session = await options.getSession(c.req.raw.headers);
+    if (!session) return ownerError(c, 401, "unauthorized", "Unauthorized");
+    return c.json({ restaurants: await listOwnerRestaurants(options.prisma, session.userId) });
+  });
+  app.get("/api/v1/restaurants/:restaurantId/profile", async (c) => {
+    const session = await options.getSession(c.req.raw.headers);
+    if (!session) return ownerError(c, 401, "unauthorized", "Unauthorized");
+    try {
+      return c.json(
+        await readOwnerProfileForMember(
+          options.prisma,
+          session.userId,
+          c.req.param("restaurantId"),
+        ),
+      );
+    } catch (error) {
+      return ownerFailure(c, error);
+    }
+  });
+  app.patch("/api/v1/restaurants/:restaurantId/profile", async (c) => {
+    const session = await options.getSession(c.req.raw.headers);
+    if (!session) return ownerError(c, 401, "unauthorized", "Unauthorized");
+    const body = await c.req.json().catch(() => null);
+    const parsed = OwnerProfilePatchSchema.safeParse(body);
+    if (!parsed.success)
+      return ownerError(c, 400, "invalid_body", "That profile change is not valid.");
+    try {
+      return c.json(
+        await updateOwnerProfileForMember(
+          options.prisma,
+          session.userId,
+          c.req.param("restaurantId"),
+          parsed.data,
+        ),
+      );
+    } catch (error) {
+      return ownerFailure(c, error);
+    }
+  });
   app.use("/api/v1/restaurants/:restaurantId/ops/*", async (c, next) => {
     const token = c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
     if (token.startsWith(AGENT_TOKEN_PREFIX)) {

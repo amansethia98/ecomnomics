@@ -45,6 +45,7 @@ import {
 } from "./lib/sign-in-next";
 import { syncLogOutFailure } from "./lib/sign-out";
 import { completeSsoCallback, SSO_CALLBACK_PATH } from "./lib/sso-flow";
+import { OwnerPage } from "./owner/page";
 import { IntegrationCallbackPage } from "./pages/IntegrationCallback";
 import { IntegrationSetupPage } from "./pages/IntegrationSetup";
 import { McpOAuthCallbackPage } from "./pages/McpOAuthCallback";
@@ -272,6 +273,16 @@ function SessionApp() {
                 path="/admin/access"
                 element={
                   user ? <AdminAccessPage /> : <Navigate to="/sign-in?next=/admin/access" replace />
+                }
+              />
+              <Route
+                path="/restaurants/:restaurantId?/:screen?"
+                element={
+                  user ? (
+                    <OwnerPage />
+                  ) : (
+                    <Navigate to={`/sign-in?next=${encodeURIComponent(pathname)}`} replace />
+                  )
                 }
               />
               <Route
