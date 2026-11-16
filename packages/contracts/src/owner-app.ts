@@ -156,12 +156,6 @@ export function ownerMetricsRequest(view: OwnerView): {
   };
 }
 
-/** Integer paise, shown in Indian grouping with no paise. */
-export function formatRupees(paise: number): string {
-  const rupees = Math.round(paise / 100);
-  return `₹${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(rupees)}`;
-}
-
 export interface OwnerOutletConnection {
   platform: "zomato" | "swiggy";
   status: ConnectionStatus;

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { formatRupees } from "./ops/format.js";
 import {
   connectionStatus,
   countsInTotal,
   customRange,
   displayOutletName,
-  formatRupees,
   metricReading,
   OwnerProfilePatchSchema,
   ownerMetricsRequest,
