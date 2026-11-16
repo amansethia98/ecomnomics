@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type { OwnerDocuments, OwnerMenu, OwnerPayments, OwnerRatings } from "@rakazo/contracts";
+import { formatRupees } from "@rakazo/contracts";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
@@ -50,7 +51,7 @@ const payments: OwnerPayments = {
   deductions: [],
   plot: null,
   orders: [{ cycleId: "cycle-1", orderId: "o-1", date: "2026-11-08", netPayoutPaise: 20_000 }],
-  adjustments: [],
+  adjustments: [{ cycleId: "cycle-1", label: "Ad credit", amountPaise: -500 }],
 };
 
 it("shows the Thursday check on a payout and not a match", () => {
@@ -59,6 +60,9 @@ it("shows the Thursday check on a payout and not a match", () => {
   expect(host.textContent).toContain("₹800");
   expect(host.textContent).not.toContain("Matches");
   expect(host.textContent).toContain("o-1");
+  expect(host.textContent).toContain("Ad credit");
+  expect(host.textContent).toContain(formatRupees(-500));
+  expect(formatRupees(-500)).not.toBe(formatRupees(500));
 });
 
 it("asks for a licence date and reminds inside seven days", () => {
