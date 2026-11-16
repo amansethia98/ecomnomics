@@ -760,7 +760,7 @@ describe("daily brief", () => {
 Sat 14 Nov vs Sat 7 Nov · 🟢 Healthy
 Net sales ₹18,400 (+6.2%) · Zomato ₹11,200 (+4.7%) · Swiggy ₹7,200 (+8.6%)
 42 delivered · AOV ₹438
-Week so far (Mon–Sat): ₹1,02,300 (+2.1%)
+Week so far (Mon–Sat): ₹1,02,300 vs the same days last week (+2.1%)
 All good on both apps. Data as of Sun 15 Nov, 05:48 IST.`;
 
   const callouts = `*Good morning · Sample Kitchen*
@@ -1165,6 +1165,50 @@ Note: Swiggy figures for Sat may change within 48 hours. Data as of Sun 15 Nov, 
     );
     expect(week?.currentPaise).toBe(750_000);
     expect(week?.changePct).toBeCloseTo(-44.4, 1);
+  });
+
+  it("compares a partial week with the same apps on both sides", () => {
+    const days = ["2026-11-09", "2026-11-10", "2026-11-11"].flatMap((date) => [
+      { date, platform: "zomato" as const, salesPaise: 100 },
+      { date, platform: "swiggy" as const, salesPaise: 100 },
+      { date: addDays(date, -7), platform: "zomato" as const, salesPaise: 200 },
+      { date: addDays(date, -7), platform: "swiggy" as const, salesPaise: 200 },
+    ]);
+    for (const date of ["2026-11-05", "2026-11-06", "2026-11-07", "2026-11-08"]) {
+      days.push(
+        { date, platform: "zomato", salesPaise: 900 },
+        { date, platform: "swiggy", salesPaise: 900 },
+      );
+    }
+    days.push(
+      { date: "2026-11-12", platform: "zomato", salesPaise: 100 },
+      { date: "2026-11-05", platform: "zomato", salesPaise: 900 },
+      { date: "2026-11-05", platform: "swiggy", salesPaise: 900 },
+    );
+    const week = weekSales("2026-11-12", days);
+    expect(week?.endLabel).toBe("Wed");
+    expect(week?.currentPaise).toBe(600);
+    expect(week?.changePct).toBeCloseTo(-50, 1);
+    const line = composeDailyBrief({
+      restaurantName: "Sample Kitchen",
+      date: "2026-11-12",
+      baselineDate: "2026-11-05",
+      form: "brief",
+      onlyApp: null,
+      sales: null,
+      delivered: null,
+      aovPaise: null,
+      week,
+      callouts: [],
+      ongoing: null,
+      resolved: null,
+      notes: [],
+      dataAsOf: null,
+      catchUp: [],
+      healthyOutlets: 1,
+      outletCount: 1,
+    }).text;
+    expect(line).toContain("vs the same days last week");
   });
 
   it("does not put a UTR-like token in a brief", () => {

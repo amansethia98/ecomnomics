@@ -1,6 +1,11 @@
 import { useLingui } from "@lingui/react/macro";
 import type { StaffBlock, StaffChoiceBlock, StaffMessage, StaffThread } from "@rakazo/contracts";
-import { formatRupees, formatSignedPct, STAFF_QUESTION_LIMIT } from "@rakazo/contracts";
+import {
+  formatCivilDay,
+  formatRupees,
+  formatSignedPct,
+  STAFF_QUESTION_LIMIT,
+} from "@rakazo/contracts";
 import { Button } from "@rakazo/ui-web";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -29,7 +34,7 @@ export function StaffScreen({
       {thread.messages.map((message, index) => (
         <div key={message.id}>
           {index === 0 || thread.messages[index - 1]?.date !== message.date ? (
-            <p className="text-label text-muted-foreground">{message.date}</p>
+            <p className="text-label text-muted-foreground">{formatCivilDay(message.date)}</p>
           ) : null}
           <Message message={message} restaurantId={restaurantId} onChoose={onChoose} />
         </div>
@@ -113,7 +118,10 @@ function Block({
   onChoose: (actionId: string, choice: "approve" | "change" | "not_now") => void;
 }) {
   const { t } = useLingui();
-  if (block.kind === "text") return <p className="mt-2">{block.text}</p>;
+  if (block.kind === "text") {
+    if (block.heading) return <h3 className="mt-2 text-heading3 font-medium">{block.text}</h3>;
+    return <p className="mt-2">{block.text}</p>;
+  }
   if (block.kind === "metric") {
     return (
       <div className="mt-3">
