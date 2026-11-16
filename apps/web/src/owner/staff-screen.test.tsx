@@ -120,6 +120,18 @@ it("links an empty marketing log to the chat and folds extra waiting rows", () =
   expect(list.textContent).toContain("Show 2 more");
   expect(list.textContent).toContain("Not seen yet");
   expect(list.textContent).toContain("Did you switch it on?");
+
+  const measured = render(
+    <MarketingActionsScreen
+      restaurantId="r1"
+      screen={{
+        ...many,
+        rows: [{ ...row("done"), display: "result", resultPaise: 8_000 }],
+      }}
+      onConfirm={() => undefined}
+    />,
+  );
+  expect(measured.textContent).toContain("₹80");
 });
 
 function row(id: string) {
