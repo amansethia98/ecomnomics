@@ -153,6 +153,7 @@ describePostgres("owner profile read (PostgreSQL)", () => {
         id: outletA,
         name: "Indiranagar",
         city: "Bengaluru",
+        active: true,
         connections: [
           { platform: "zomato", status: "connected" },
           { platform: "swiggy", status: "login_needs_attention" },

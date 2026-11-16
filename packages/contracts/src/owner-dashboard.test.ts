@@ -59,6 +59,27 @@ function input(
   };
 }
 
+it("leaves the unfinished week on the chart and out of the trend", () => {
+  const rising = [100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 20];
+  const dash = composeOwnerDashboard(
+    input(
+      [
+        ...salesWeeks("zomato", rising),
+        ...salesWeeks(
+          "swiggy",
+          rising.map((value) => value / 2),
+        ),
+      ],
+      { today: "2026-11-18" },
+    ),
+  );
+  expect(dash.panels[0]?.points.at(-1)?.sales).toBe(20);
+  expect(dash.shadeWeek).toBe("2026-11-16");
+  expect(dash.answer.direction).toBe("up");
+  expect(dash.answer.dipped).toBeNull();
+  expect(dash.tiles.find((tile) => tile.id === "sales")?.word).not.toBe("falling");
+});
+
 it("draws two sales panels, each with its own trend line, and shades the last week", () => {
   const dash = composeOwnerDashboard(
     input([

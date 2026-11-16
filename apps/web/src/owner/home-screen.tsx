@@ -142,16 +142,11 @@ export function OwnerHomeScreen({
         <section className="grid gap-6 sm:grid-cols-3">
           <HeadlineNumber
             label={t`Net sales`}
-            value={
-              home.sales.paise != null
-                ? formatRupees(home.sales.paise)
-                : home.sales.asOf
-                  ? formatCivilDay(home.sales.asOf)
-                  : t`Not in yet`
-            }
+            value={home.sales.paise != null ? formatRupees(home.sales.paise) : t`Not in yet`}
             change={home.sales.changePct}
             pending={home.sales.pendingPlatform}
             compare={weekday}
+            asOf={home.sales.asOf}
           />
           <HeadlineNumber
             label={t`Delivered orders`}
@@ -159,6 +154,7 @@ export function OwnerHomeScreen({
             change={home.delivered.changePct}
             pending={home.delivered.pendingPlatform}
             compare={weekday}
+            asOf={home.delivered.asOf}
           />
           <div>
             <p className="text-label text-muted-foreground">{t`Last week's payout`}</p>
@@ -248,12 +244,14 @@ function HeadlineNumber({
   change,
   pending,
   compare,
+  asOf,
 }: {
   label: string;
   value: string;
   change: number | null;
   pending: "zomato" | "swiggy" | null;
   compare: string | null;
+  asOf: string | null;
 }) {
   const { t } = useLingui();
   const pendingLabel =
@@ -273,6 +271,9 @@ function HeadlineNumber({
         />
       ) : null}
       {pendingLabel ? <p className="text-body-sm text-muted-foreground">{pendingLabel}</p> : null}
+      {asOf ? (
+        <p className="text-body-sm text-muted-foreground">{t`As of ${formatCivilDay(asOf)}`}</p>
+      ) : null}
     </div>
   );
 }

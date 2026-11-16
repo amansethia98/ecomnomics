@@ -47,6 +47,7 @@ export function isOwnerScreen(value: string | undefined): value is OwnerScreenId
 function linkedPlatforms(profile: OwnerProfile): Array<"zomato" | "swiggy"> {
   const linked = new Set<"zomato" | "swiggy">();
   for (const outlet of profile.outlets) {
+    if (!outlet.active) continue;
     for (const connection of outlet.connections) {
       if (connection.status !== "not_connected") linked.add(connection.platform);
     }
@@ -86,9 +87,10 @@ export function OwnerFrame({
     ratings: t`Ratings & reviews`,
   };
   const platforms = linkedPlatforms(profile);
+  const outlets = profile.outlets.filter((outlet) => outlet.active);
   const showRange = screen === "dashboard";
   const showPlatform = showRange && platforms.length > 1;
-  const showOutlets = profile.outlets.length > 1 && screen !== "settings";
+  const showOutlets = outlets.length > 1 && screen !== "settings";
   const base = `/restaurants/${restaurantId}`;
 
   const navigate = useNavigate();
@@ -118,9 +120,7 @@ export function OwnerFrame({
         <p className="mt-auto px-2 pt-6 text-body-sm text-muted-foreground">
           {profile.restaurant.name}
           <br />
-          {profile.outlets.length === 1
-            ? profile.outlets[0]?.city
-            : t`${profile.outlets.length} outlets`}
+          {outlets.length === 1 ? outlets[0]?.city : t`${outlets.length} outlets`}
         </p>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
@@ -136,7 +136,7 @@ export function OwnerFrame({
                   onChange={(event) => go({ ...view, outlet: event.target.value })}
                 >
                   <option value="all">{t`All outlets`}</option>
-                  {profile.outlets.map((outlet) => (
+                  {outlets.map((outlet) => (
                     <option key={outlet.id} value={outlet.id}>
                       {outlet.name}
                     </option>

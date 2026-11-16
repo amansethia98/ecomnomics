@@ -189,6 +189,7 @@ export interface OwnerOutletProfile {
   id: string;
   name: string;
   city: string;
+  active: boolean;
   connections: OwnerOutletConnection[];
 }
 
