@@ -1,4 +1,4 @@
-import { addDays, formatWeekdayName, pctChange } from "./ops/format.js";
+import { addDays, formatCivilDay, formatWeekdayName, pctChange } from "./ops/format.js";
 import { dailyCheckCount } from "./ops/rules.js";
 import type { OpsAlertSeverity, OpsPlatform, OpsScopePlatform } from "./ops/types.js";
 
@@ -21,6 +21,8 @@ export interface OwnerHomeAlert {
   /** Recent sales for the outlet, used only to break a tie. */
   outletSalesPaise: number;
   notifiedAt: string | null;
+  /** Civil day the alert is about. */
+  date: string;
 }
 
 export interface OwnerHomeQuestion {
@@ -343,6 +345,14 @@ function rankHomeAlerts(
   return items;
 }
 
+function datedLine(text: string, date: string): string {
+  if (!date) return text;
+  const label = formatCivilDay(date);
+  const cleaned = text.replace(` on ${label}`, "");
+  if (cleaned.startsWith(`${label} · `)) return cleaned;
+  return `${label} · ${cleaned}`;
+}
+
 function mergeGroup(group: OwnerHomeAlert[], morning: string, now: string): OwnerHomeItem {
   const ordered = [...group].sort((left, right) => {
     const severity = rank(right.severity) - rank(left.severity);
@@ -372,7 +382,7 @@ function mergeGroup(group: OwnerHomeAlert[], morning: string, now: string): Owne
     outletId: top.outletId,
     outletName: top.outletName,
     platform: top.platform,
-    text: top.text,
+    text: datedLine(top.text, top.date),
     fix: top.fix,
     consecutiveDays: Math.max(...ordered.map((alert) => alert.consecutiveDays)),
     impactPaise: ordered.reduce((sum, alert) => sum + alert.impactPaise, 0),

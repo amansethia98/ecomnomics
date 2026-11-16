@@ -852,7 +852,7 @@ function daysBetween(from: string, to: string): number {
 }
 
 export interface OwnerPlotMark {
-  type: "lineY" | "linearRegressionY" | "ruleX" | "text" | "cell" | "rectY";
+  type: "lineY" | "linearRegressionY" | "ruleX" | "text" | "cell" | "rect" | "rectY";
   data?: unknown[];
   options?: Record<string, unknown>;
 }
@@ -911,20 +911,20 @@ export function dashboardPlots(model: OwnerDashboardModel): OwnerPlot[] {
     y: rupeeAxis(),
     marks: salesMarks(panel, model),
   }));
-  const heatWeeks = new Set(model.heatmap.map((cell) => cell.week)).size;
+  const heatWeeks = [...new Set(model.heatmap.map((cell) => cell.week))].sort();
   plots.push({
     id: "heatmap",
     width: 640,
     height: 180,
     marginLeft: 44,
-    x: dateAxis(heatWeeks),
+    x: { label: null, domain: heatWeeks },
     y: { label: null, domain: [...WEEKDAY_ORDER] },
     color: { scheme: "blues" },
     marks: [
       {
         type: "cell",
-        data: model.heatmap.map((cell) => ({ ...cell, at: utcDate(cell.week) })),
-        options: { x: "at", y: "weekday", fill: "orders", inset: 1 },
+        data: model.heatmap,
+        options: { x: "week", y: "weekday", fill: "orders", inset: 1 },
       },
     ],
   });
@@ -953,28 +953,39 @@ export function dashboardPlots(model: OwnerDashboardModel): OwnerPlot[] {
 
 function salesMarks(panel: SalesPanel, model: OwnerDashboardModel): OwnerPlotMark[] {
   const top = Math.max(1, ...panel.points.map((point) => point.sales ?? 0));
+  const known = withDate(panel.points.filter((point) => point.sales != null));
   const marks: OwnerPlotMark[] = [
     {
       type: "lineY",
       data: withDate(panel.points),
       options: { x: "at", y: "sales", stroke: PLATFORM_STROKE[panel.platform], strokeWidth: 1.5 },
     },
-    {
+  ];
+  if (known.length >= 2) {
+    marks.push({
       type: "linearRegressionY",
-      data: withDate(panel.points.filter((point) => point.sales != null)),
+      data: known,
       options: {
         x: "at",
         y: "sales",
         stroke: PLATFORM_STROKE[panel.platform],
         strokeDasharray: "4 3",
       },
-    },
-  ];
+    });
+  }
   if (model.shadeWeek) {
+    const span = model.answer.unit === "day" ? 1 : 7;
     marks.unshift({
-      type: "rectY",
-      data: [{ at: utcDate(model.shadeWeek), top }],
-      options: { x: "at", y1: 0, y2: "top", fill: "var(--muted)" },
+      type: "rect",
+      data: [
+        {
+          x1: utcDate(model.shadeWeek),
+          x2: utcDate(addDays(model.shadeWeek, span)),
+          y1: 0,
+          top,
+        },
+      ],
+      options: { x1: "x1", x2: "x2", y1: "y1", y2: "top", fill: "var(--muted)" },
     });
   }
   for (const pin of model.pins.filter((item) =>
