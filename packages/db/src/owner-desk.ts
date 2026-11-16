@@ -208,22 +208,26 @@ export async function readMenuForMember(
 ) {
   const restaurant = await memberRestaurant(db, userId, restaurantId);
   return runAsTenant({ spaceId: restaurant.spaceId, userId }, async () => {
-    const latest = await db.platformWindowItem.findFirst({
+    const stamps = await db.platformWindowItem.findMany({
       where: {
         restaurantId,
         spaceId: restaurant.spaceId,
         ...(outletId ? { outletId } : {}),
       },
-      orderBy: { periodEnd: "desc" },
-      select: { periodEnd: true },
+      distinct: ["outletId", "platform", "periodEnd"],
+      select: { outletId: true, platform: true, periodEnd: true },
     });
-    if (!latest) return composeOwnerMenu([]);
+    const windows = latestMenuWindows(stamps);
+    if (windows.length === 0) return composeOwnerMenu([]);
     const items = await db.platformWindowItem.findMany({
       where: {
         restaurantId,
         spaceId: restaurant.spaceId,
-        periodEnd: latest.periodEnd,
-        ...(outletId ? { outletId } : {}),
+        OR: windows.map((window) => ({
+          outletId: window.outletId,
+          platform: window.platform,
+          periodEnd: window.periodEnd,
+        })),
       },
       select: { itemName: true, platform: true, revenuePaise: true },
     });
@@ -264,6 +268,19 @@ export async function readRatingsForMember(
       reviews: [],
     });
   });
+}
+
+/** The newest menu window for each outlet and app. A later window on one app does not drop the other. */
+export function latestMenuWindows<
+  T extends { outletId: string; platform: string; periodEnd: Date },
+>(rows: readonly T[]): T[] {
+  const kept = new Map<string, T>();
+  for (const row of rows) {
+    const key = `${row.outletId}|${row.platform}`;
+    const current = kept.get(key);
+    if (!current || row.periodEnd.getTime() > current.periodEnd.getTime()) kept.set(key, row);
+  }
+  return [...kept.values()];
 }
 
 function cycleKey(outletId: string, platform: string, cycleId: string): string {
