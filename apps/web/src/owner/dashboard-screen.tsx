@@ -186,7 +186,14 @@ export function OwnerDashboard({
 export function Answer({ model }: { model: OwnerDashboardModel }) {
   const { t } = useLingui();
   const pct = model.answer.pct == null ? null : `${formatPct1(Math.abs(model.answer.pct))}%`;
-  const span = model.answer.unit === "day" ? t`days` : t`weeks`;
+  const span =
+    model.answer.unit === "day"
+      ? model.answer.weeks === 1
+        ? t`day`
+        : t`days`
+      : model.answer.weeks === 1
+        ? t`week`
+        : t`weeks`;
   const lead =
     model.answer.direction === "up" && pct
       ? t`Sales are growing: up ${pct} in ${model.answer.weeks} ${span}`
@@ -197,9 +204,13 @@ export function Answer({ model }: { model: OwnerDashboardModel }) {
           : t`Sales will show here once a few weeks are in`;
   const flat =
     model.answer.flatPlatform === "swiggy"
-      ? t`Swiggy has been flat for ${model.answer.flatWeeks} weeks`
+      ? model.answer.flatWeeks === 1
+        ? t`Swiggy has been flat for 1 week`
+        : t`Swiggy has been flat for ${model.answer.flatWeeks} weeks`
       : model.answer.flatPlatform === "zomato"
-        ? t`Zomato has been flat for ${model.answer.flatWeeks} weeks`
+        ? model.answer.flatWeeks === 1
+          ? t`Zomato has been flat for 1 week`
+          : t`Zomato has been flat for ${model.answer.flatWeeks} weeks`
         : null;
   const dipPct =
     model.answer.dipped == null ? null : `${formatPct1(Math.abs(model.answer.dipped.pct))}%`;
@@ -279,17 +290,27 @@ function sparkPlot(tile: OwnerDashboardModel["tiles"][number]): OwnerPlot {
         : { label: null },
     marks: [
       { type: "lineY", data, options: { x: "week", y: "sales", stroke: "var(--primary)" } },
-      {
-        type: "linearRegressionY",
-        data: data.filter((point) => point.sales != null),
-        options: { x: "week", y: "sales", stroke: "var(--primary)", strokeDasharray: "4 3" },
-      },
+      ...(data.filter((point) => point.sales != null).length >= 2
+        ? [
+            {
+              type: "linearRegressionY" as const,
+              data: data.filter((point) => point.sales != null),
+              options: {
+                x: "week",
+                y: "sales",
+                stroke: "var(--primary)",
+                strokeDasharray: "4 3",
+              },
+            },
+          ]
+        : []),
     ],
   };
 }
 
 function PlotFigure({ plot }: { plot: OwnerPlot }) {
   const host = useRef<HTMLDivElement>(null);
+  const [failed, setFailed] = useState(false);
   const key = JSON.stringify(plot);
   useEffect(() => {
     const node = host.current;
@@ -301,16 +322,58 @@ function PlotFigure({ plot }: { plot: OwnerPlot }) {
       try {
         const markup = renderPlotSpecToSvg(plot, undefined, document);
         const svg = new DOMParser().parseFromString(markup, "image/svg+xml").documentElement;
-        if (svg.nodeName.toLowerCase() === "svg") host.current.append(svg);
-      } catch {
+        if (svg.nodeName.toLowerCase() !== "svg") {
+          console.error("owner plot did not return an svg", plot.id);
+          setFailed(true);
+          return;
+        }
+        host.current.append(svg);
+        setFailed(false);
+      } catch (error) {
+        console.error(error);
         host.current.replaceChildren();
+        setFailed(true);
       }
     });
     return () => {
       live = false;
     };
   }, [key, plot]);
-  return <div ref={host} className="owner-plot" />;
+  return (
+    <div>
+      <div ref={host} className="owner-plot" />
+      {failed ? <PlotFallback plot={plot} /> : null}
+    </div>
+  );
+}
+
+function PlotFallback({ plot }: { plot: OwnerPlot }) {
+  const { t } = useLingui();
+  const mark = plot.marks.find((item) => {
+    const x = item.options?.x;
+    const y = item.options?.y;
+    return typeof x === "string" && typeof y === "string" && (item.data?.length ?? 0) > 0;
+  });
+  const rows = mark?.data?.filter(
+    (row): row is Record<string, unknown> => !!row && typeof row === "object",
+  );
+  const x = typeof mark?.options?.x === "string" ? mark.options.x : null;
+  const y = typeof mark?.options?.y === "string" ? mark.options.y : null;
+  if (!rows || rows.length === 0 || !x || !y) {
+    return <p className="text-body-sm text-muted-foreground">{t`Not in yet`}</p>;
+  }
+  return (
+    <table className="text-body-sm text-muted-foreground">
+      <tbody>
+        {rows.map((row) => (
+          <tr key={String(row[x])}>
+            <td className="pr-4">{String(row[x])}</td>
+            <td>{String(row[y])}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 }
 
 async function loadMetrics(

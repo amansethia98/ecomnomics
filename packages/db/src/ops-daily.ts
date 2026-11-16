@@ -627,6 +627,7 @@ export async function readOwnerHomeForMember(
         consecutiveDays: alert.consecutiveDays,
         impactPaise: alertImpactPaise(alert),
         outletSalesPaise: 0,
+        date: alert.lastSeenDate,
         notifiedAt:
           fresh && alert.lastNotifiedAt === today ? (loaded.dataAsOf?.toISOString() ?? null) : null,
       })),

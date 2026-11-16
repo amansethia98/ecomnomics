@@ -55,7 +55,7 @@ export function NumberCard({ tile, onOpen }: { tile: DashTile; onOpen: () => voi
           }
         >
           {word}
-          {tile.weeks > 0 ? ` · ${tile.weeks} ${t`wks`}` : ""}
+          {tile.weeks > 0 ? ` · ${tile.weeks} ${tile.weeks === 1 ? t`wk` : t`wks`}` : ""}
         </p>
       ) : null}
       {tile.festival ? (
