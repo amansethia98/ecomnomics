@@ -38,6 +38,7 @@ const home: OwnerHomeModel = {
     impactPaise: 640000,
     fresh: true,
     canSnooze: false,
+    detail: "Zomato · Indiranagar · Sat 15 Nov",
   },
   rows: [
     {
@@ -52,6 +53,7 @@ const home: OwnerHomeModel = {
       impactPaise: 0,
       fresh: false,
       canSnooze: true,
+      detail: "Swiggy · HSR · Fri 13 Nov",
     },
   ],
   overflow: [],
@@ -93,8 +95,13 @@ it("shows the act-now card without a snooze, and snooze only on a watch row", ()
   expect(host.textContent).toContain("Yes, closed");
   expect(host.textContent).toContain("Not sure");
   expect(host.textContent).toContain("Zomato only · Swiggy pending");
+  expect(host.textContent).toContain("Yesterday");
+  expect(host.textContent).toContain("Zomato updated 5:42 AM");
+  expect(host.textContent).toContain("Swiggy pending, usually in by 11 AM");
+  expect(host.textContent).toContain("Open full dashboard");
+  expect(host.textContent).not.toContain("Act now (");
   const snooze = [...host.querySelectorAll("summary")].map((node) => node.textContent);
-  expect(snooze).toEqual(["Snooze"]);
+  expect(snooze).toEqual(["···"]);
 });
 
 it("names the day a fallback figure comes from", () => {

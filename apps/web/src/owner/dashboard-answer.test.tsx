@@ -30,7 +30,7 @@ it("drops the sign when the verb already says the direction", () => {
       dipped: { platform: "swiggy", pct: -8.4 },
     }),
   );
-  expect(host.textContent).toContain("up 12.5% in 4 weeks");
+  expect(host.textContent).toContain("up 12.5%, last 4 weeks vs the 4 before");
   expect(host.textContent).toContain("dipped 8.4%");
   expect(host.textContent).not.toContain("+");
   expect(host.textContent).not.toContain("−");
@@ -38,7 +38,7 @@ it("drops the sign when the verb already says the direction", () => {
 
 it("counts the selected range in days", () => {
   const host = render(answer({ direction: "down", pct: -4, weeks: 7, unit: "day", dipped: null }));
-  expect(host.textContent).toContain("down 4.0% in 7 days");
+  expect(host.textContent).toContain("down 4.0%, last 7 days vs the same 7 days before");
 });
 
 function answer(over: Partial<OwnerDashboardModel["answer"]>): OwnerDashboardModel {
@@ -64,6 +64,9 @@ function answer(over: Partial<OwnerDashboardModel["answer"]>): OwnerDashboardMod
     pendingNote: null,
     missingNote: null,
     compared: null,
+    periodPhrase: over.unit === "day" ? "last 7 days vs the same 7 days before" : "last 4 weeks vs the 4 before",
+    heatmapLine: null,
+    funnelLine: null,
     comparisonsStart: null,
     onePlatform: false,
   };

@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import type { OwnerHomeAlert, OwnerHomeInput } from "./owner-home.js";
-import { composeOwnerHome, groupedHomeRows } from "./owner-home.js";
+import { composeOwnerHome, groupedHomeRows, plainHomeTitle } from "./owner-home.js";
 
 function alert(over: Partial<OwnerHomeAlert> & Pick<OwnerHomeAlert, "id">): OwnerHomeAlert {
   return {
@@ -57,6 +57,47 @@ function input(over: Partial<OwnerHomeInput> = {}): OwnerHomeInput {
     ...over,
   };
 }
+
+it("keeps each app's fetch clock and leaves a pending app blank", () => {
+  const pending = composeOwnerHome(input({ fetched: { zomato: "05:42", swiggy: "10:05" } }));
+  expect(pending.updated).toEqual({ zomato: "05:42", swiggy: null });
+  const both = composeOwnerHome(
+    input({
+      fetched: { zomato: "05:42", swiggy: "10:05" },
+      brief: {
+        ...input().brief!,
+        sales: {
+          combinedPaise: 200,
+          zomatoPaise: 100,
+          swiggyPaise: 100,
+          zomatoBaselinePaise: 100,
+          swiggyBaselinePaise: 100,
+        },
+      },
+    }),
+  );
+  expect(both.updated).toEqual({ zomato: "05:42", swiggy: "10:05" });
+});
+
+it("writes a delayed-order alert as a sentence and keeps the date in the sub-line", () => {
+  const home = composeOwnerHome(
+    input({
+      alerts: [
+        alert({
+          id: "late",
+          text: "Swiggy delayed orders 10 of 29 delivered (34.5%).",
+          date: "2026-11-14",
+        }),
+      ],
+    }),
+  );
+  expect(plainHomeTitle("Swiggy delayed orders 10 of 29 delivered (34.5%).")).toBe(
+    "10 of 29 Swiggy orders were delayed",
+  );
+  expect(home.card?.text).toBe("10 of 29 Swiggy orders were delayed");
+  expect(home.card?.text).not.toMatch(/delivered \(/);
+  expect(home.card?.detail).toBe("Swiggy · Indiranagar · Sat 14 Nov");
+});
 
 it("puts the top alert on the card and folds the rest", () => {
   const home = composeOwnerHome(
@@ -277,7 +318,8 @@ it("prefixes a watch alert with the day it is about", () => {
       ],
     }),
   );
-  expect(home.card?.text).toBe("Sat 14 Nov · Total sales down 12.0% vs last Saturday.");
+  expect(home.card?.text).toBe("Total sales down 12.0% vs last Saturday");
+  expect(home.card?.detail).toContain("Sat 14 Nov");
 });
 
 it("asks the oldest blank days and drops the question block when there are none", () => {

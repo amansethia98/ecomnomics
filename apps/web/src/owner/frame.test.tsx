@@ -195,7 +195,7 @@ it("hides the range on settings and the outlet list when there is one outlet", (
   const city = labels.findIndex((label) => label.startsWith("City"));
   expect(restaurant).toBeGreaterThanOrEqual(0);
   expect(city).toBeGreaterThan(restaurant);
-  expect(host.textContent).not.toContain("Save changes");
+  expect(host.querySelector("button[type='submit']")?.hasAttribute("disabled")).toBe(true);
 });
 
 it("hides the platform toggle when only one app is connected", () => {
@@ -228,4 +228,26 @@ it("hides the platform toggle when only one app is connected", () => {
   );
   expect(host.textContent).toContain("7D");
   expect(host.textContent).not.toContain("Both");
+});
+
+it("keeps 4W selected when that range is chosen", () => {
+  const seen: string[] = [];
+  const host = render(
+    <OwnerFrame
+      restaurantId="r1"
+      profile={profile}
+      screen="dashboard"
+      view={view}
+      today="2026-11-15"
+      onView={(next) => seen.push(next.range)}
+      confirmLeave={() => true}
+    >
+      <p>Dashboard</p>
+    </OwnerFrame>,
+  );
+  const button = [...host.querySelectorAll("button")].find((node) => node.textContent === "4W");
+  act(() => {
+    button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  expect(seen).toEqual(["4w"]);
 });

@@ -1,6 +1,12 @@
 import { useLingui } from "@lingui/react/macro";
 import type { OwnerProfile, OwnerView } from "@rakazo/contracts";
-import { customRange, ownerRangeBounds, rangeThrough } from "@rakazo/contracts";
+import {
+  addIsoDays,
+  customRange,
+  formatCivilDay,
+  ownerRangeBounds,
+  rangeThrough,
+} from "@rakazo/contracts";
 import { Button } from "@rakazo/ui-web";
 import {
   FileText,
@@ -94,7 +100,12 @@ export function OwnerFrame({
   return (
     <div className="ecomnomics flex min-h-svh bg-muted text-foreground" data-theme="light">
       <aside className="hidden w-56 shrink-0 flex-col gap-1 border-r border-border bg-background p-3 md:flex">
-        <p className="px-2 py-3 text-body-lg font-medium">{t`Ecomnomics`}</p>
+        <p className="flex items-center gap-2 px-2 py-3 text-body-lg font-medium">
+          <span className="owner-mark" aria-hidden="true">
+            E
+          </span>
+          {t`Ecomnomics`}
+        </p>
         {OWNER_SCREENS.map((item) => (
           <NavItem
             key={item.id}
@@ -112,56 +123,59 @@ export function OwnerFrame({
         </p>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 md:px-8">
-          <h1 className="text-heading3 font-medium">{labels[screen]}</h1>
-          {showOutlets || showRange ? (
-            <div className="flex flex-wrap items-center gap-2">
-              {showOutlets ? (
-                <select
-                  aria-label={t`Outlet`}
-                  className="h-8 rounded-lg border border-border bg-background px-2 text-body-sm"
-                  value={view.outlet}
-                  onChange={(event) => go({ ...view, outlet: event.target.value })}
-                >
-                  <option value="all">{t`All outlets`}</option>
-                  {outlets.map((outlet) => (
-                    <option key={outlet.id} value={outlet.id}>
-                      {outlet.name}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
-              {showRange ? (
-                <div className="flex rounded-lg bg-background p-0.5">
-                  {(["7d", "4w", "12w", "custom"] as const).map((range) => (
-                    <Button
-                      key={range}
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      aria-pressed={view.range === range}
-                      className={view.range === range ? "bg-primary/10 text-primary" : undefined}
-                      onClick={() =>
-                        go(
-                          range === "custom"
-                            ? { ...view, range }
-                            : { ...view, range, ...ownerRangeBounds(range, today) },
-                        )
-                      }
-                    >
-                      {range === "7d"
-                        ? t`7D`
-                        : range === "4w"
-                          ? t`4W`
-                          : range === "12w"
-                            ? t`12W`
-                            : t`Custom`}
-                    </Button>
-                  ))}
-                </div>
-              ) : null}
+        <header className="flex flex-wrap items-center gap-3 px-4 py-4 md:px-8">
+          <h1 className="mr-auto text-body font-medium">{labels[screen]}</h1>
+          {showOutlets ? (
+            <select
+              aria-label={t`Outlet`}
+              className="h-8 shrink-0 rounded-lg border border-border bg-background px-2 text-body-sm"
+              value={view.outlet}
+              onChange={(event) => go({ ...view, outlet: event.target.value })}
+            >
+              <option value="all">{t`All outlets (${outlets.length})`}</option>
+              {outlets.map((outlet) => (
+                <option key={outlet.id} value={outlet.id}>
+                  {outlet.name}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          {screen === "home" ? (
+            <span className="shrink-0 rounded-lg border border-border bg-background px-2 py-1 text-body-sm">
+              {formatCivilDay(addIsoDays(today, -1))}
+            </span>
+          ) : null}
+          {showRange ? (
+            <div className="flex w-full shrink-0 gap-2 overflow-x-auto md:w-auto">
+              <div className="flex shrink-0 rounded-lg bg-background p-0.5">
+                {(["7d", "4w", "12w", "custom"] as const).map((range) => (
+                  <Button
+                    key={range}
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    aria-pressed={view.range === range}
+                    className={view.range === range ? "bg-primary/10 text-primary" : undefined}
+                    onClick={() =>
+                      go(
+                        range === "custom"
+                          ? { ...view, range }
+                          : { ...view, range, ...ownerRangeBounds(range, today) },
+                      )
+                    }
+                  >
+                    {range === "7d"
+                      ? t`7D`
+                      : range === "4w"
+                        ? t`4W`
+                        : range === "12w"
+                          ? t`12W`
+                          : t`Custom`}
+                  </Button>
+                ))}
+              </div>
               {showPlatform ? (
-                <div className="flex rounded-lg bg-background p-0.5">
+                <div className="flex shrink-0 rounded-lg bg-background p-0.5">
                   {(["both", "zomato", "swiggy"] as const).map((platform) => (
                     <Button
                       key={platform}
@@ -212,9 +226,9 @@ export function OwnerFrame({
             </label>
           </div>
         ) : null}
-        <main className="flex-1 px-4 pb-24 md:px-8 md:pb-10">{children}</main>
+        <main className="owner-page flex-1 px-4 pb-28 md:px-8 md:pb-10">{children}</main>
       </div>
-      <nav className="fixed inset-x-0 bottom-0 flex border-t border-border bg-background md:hidden">
+      <nav className="owner-tabbar flex border-t border-border bg-background md:hidden">
         {PHONE_TABS.map((id) => {
           const item = OWNER_SCREENS.find((screen) => screen.id === id);
           if (!item) return null;

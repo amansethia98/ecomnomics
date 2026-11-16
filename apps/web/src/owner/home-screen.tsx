@@ -8,6 +8,7 @@ import {
   groupedHomeRows,
 } from "@rakazo/contracts";
 import { Button } from "@rakazo/ui-web";
+import { Eye } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ChangeBadge, PlatformDot, StatusPill } from "./marks";
@@ -39,9 +40,6 @@ export function OwnerHomeScreen({
           {correction}
         </p>
       ))}
-      {home.readiness ? (
-        <p className="text-body-sm text-muted-foreground">{home.readiness}</p>
-      ) : null}
       <div>
         {home.date ? (
           <p className="text-body-sm text-muted-foreground">
@@ -51,7 +49,7 @@ export function OwnerHomeScreen({
               : ` · ${formatCivilDay(home.date)}`}
           </p>
         ) : null}
-        <h2 className="mt-1 text-heading2 font-medium">
+        <h2 className="owner-title mt-1">
           <HomeHeadline home={home} restaurantName={restaurantName} />
         </h2>
       </div>
@@ -93,7 +91,7 @@ export function OwnerHomeScreen({
           <h3 className="mt-3 text-heading3 font-medium">{home.card.text}</h3>
           {home.card.impactPaise > 0 ? (
             <p className="owner-change-down mt-2 text-heading3 font-medium">
-              {formatRupees(home.card.impactPaise)}
+              {formatRupees(home.card.impactPaise)} {t`in sales`}
             </p>
           ) : null}
           {home.card.consecutiveDays > 1 ? (
@@ -116,9 +114,51 @@ export function OwnerHomeScreen({
           {fix ? <p className="mt-3 text-body-sm">{home.card.fix}</p> : null}
         </article>
       ) : null}
+      {home.kind !== "welcome" ? (
+        <section>
+          <h3 className="text-label text-muted-foreground">{t`Yesterday`}</h3>
+          <div className="mt-3 grid gap-6 sm:grid-cols-3">
+            <HeadlineNumber
+              label={t`Net sales`}
+              value={home.sales.paise != null ? formatRupees(home.sales.paise) : t`Not in yet`}
+              change={home.sales.changePct}
+              pending={home.sales.pendingPlatform}
+              compare={weekday}
+              asOf={home.sales.asOf}
+            />
+            <HeadlineNumber
+              label={t`Delivered orders`}
+              value={home.delivered.count != null ? String(home.delivered.count) : t`Not in yet`}
+              change={home.delivered.changePct}
+              pending={home.delivered.pendingPlatform}
+              compare={weekday}
+              asOf={home.delivered.asOf}
+            />
+            <div>
+              <p className="text-label text-muted-foreground">{t`Last week's payout`}</p>
+              <p className="mt-1 text-heading3 font-medium">
+                {home.payout.paise != null
+                  ? formatRupees(home.payout.paise)
+                  : t`Check runs Thursday`}
+              </p>
+              {home.payout.toCheck > 0 ? (
+                <p className="owner-change-down mt-1 text-body-sm">
+                  {t`${home.payout.toCheck} to check`}
+                </p>
+              ) : null}
+              <p className="text-body-sm text-muted-foreground">
+                {t`Next payout`} {formatCivilDay(home.payout.nextDate)}
+              </p>
+            </div>
+          </div>
+        </section>
+      ) : null}
       {home.rows.length > 0 ? (
         <section>
-          <h3 className="text-label text-muted-foreground">{t`Also keep an eye on · ${home.rows.length + home.overflow.length}`}</h3>
+          <div className="flex items-baseline justify-between gap-3">
+            <h3 className="text-label text-muted-foreground">{t`Also keep an eye on · ${home.rows.length + home.overflow.length}`}</h3>
+            <span className="text-body-sm text-muted-foreground">{t`Most costly first`}</span>
+          </div>
           <ul className="mt-2">
             {(open
               ? groupedHomeRows([...home.rows, ...home.overflow]).flatMap((group) => group.items)
@@ -136,40 +176,6 @@ export function OwnerHomeScreen({
               {open ? t`Show less` : t`Show ${home.overflow.length} more`}
             </button>
           ) : null}
-        </section>
-      ) : null}
-      {home.kind !== "welcome" ? (
-        <section className="grid gap-6 sm:grid-cols-3">
-          <HeadlineNumber
-            label={t`Net sales`}
-            value={home.sales.paise != null ? formatRupees(home.sales.paise) : t`Not in yet`}
-            change={home.sales.changePct}
-            pending={home.sales.pendingPlatform}
-            compare={weekday}
-            asOf={home.sales.asOf}
-          />
-          <HeadlineNumber
-            label={t`Delivered orders`}
-            value={home.delivered.count != null ? String(home.delivered.count) : t`Not in yet`}
-            change={home.delivered.changePct}
-            pending={home.delivered.pendingPlatform}
-            compare={weekday}
-            asOf={home.delivered.asOf}
-          />
-          <div>
-            <p className="text-label text-muted-foreground">{t`Last week's payout`}</p>
-            <p className="mt-1 text-heading3 font-medium">
-              {home.payout.paise != null ? formatRupees(home.payout.paise) : t`Check runs Thursday`}
-            </p>
-            {home.payout.toCheck > 0 ? (
-              <p className="owner-change-down mt-1 text-body-sm">
-                {t`${home.payout.toCheck} to check`}
-              </p>
-            ) : null}
-            <p className="text-body-sm text-muted-foreground">
-              {t`Next payout`} {formatCivilDay(home.payout.nextDate)}
-            </p>
-          </div>
         </section>
       ) : null}
       {home.questions.length > 0 ? (
@@ -209,6 +215,22 @@ export function OwnerHomeScreen({
             ))}
           </ul>
         </section>
+      ) : null}
+      {home.kind !== "welcome" ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 text-body-sm text-muted-foreground">
+          <p>
+            {home.updated.zomato
+              ? t`Zomato updated ${clockLabel(home.updated.zomato)}`
+              : t`Zomato pending, usually in by 11 AM`}
+            {" · "}
+            {home.updated.swiggy
+              ? t`Swiggy updated ${clockLabel(home.updated.swiggy)}`
+              : t`Swiggy pending, usually in by 11 AM`}
+          </p>
+          <Link className="text-primary" to={`/restaurants/${restaurantId}/dashboard`}>
+            {t`Open full dashboard`}
+          </Link>
+        </div>
       ) : null}
     </div>
   );
@@ -285,17 +307,28 @@ function Row({
   item: OwnerHomeItem;
   onSnooze: (ids: string[], days: 1 | 3 | 7) => void;
 }) {
-  const { t } = useLingui();
   return (
     <li className="flex items-center gap-3 border-t border-border py-3">
-      <StatusPill
-        kind={item.severity === "act_now" ? "act_now" : "watch"}
-        label={item.severity === "act_now" ? t`Act now` : t`Watch`}
-      />
+      <span
+        className={
+          item.severity === "act_now"
+            ? "owner-round owner-round-act"
+            : "owner-round owner-round-watch"
+        }
+        aria-hidden="true"
+      >
+        <Eye className="size-3.5" />
+      </span>
       <span className="min-w-0 flex-1">
-        {item.platform !== "combined" ? <PlatformDot platform={item.platform} /> : null} {item.text}
+        <span className="block">{item.text}</span>
+        {item.detail ? (
+          <span className="block text-body-sm text-muted-foreground">{item.detail}</span>
+        ) : null}
       </span>
       {item.canSnooze ? <Snooze ids={item.ids} onSnooze={onSnooze} /> : null}
+      <span className="text-muted-foreground" aria-hidden="true">
+        ›
+      </span>
     </li>
   );
 }
@@ -310,7 +343,9 @@ function Snooze({
   const { t } = useLingui();
   return (
     <details className="text-body-sm">
-      <summary className="cursor-pointer text-muted-foreground">{t`Snooze`}</summary>
+      <summary className="cursor-pointer text-muted-foreground" aria-label={t`More`}>
+        ···
+      </summary>
       <div className="mt-1 flex gap-2">
         <button type="button" onClick={() => onSnooze(ids, 1)}>
           {t`1 day`}
@@ -324,6 +359,15 @@ function Snooze({
       </div>
     </details>
   );
+}
+
+function clockLabel(value: string): string {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value);
+  if (!match?.[1] || !match[2]) return value;
+  const hours = Number(match[1]);
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const hour12 = hours % 12 || 12;
+  return `${hour12}:${match[2]} ${suffix}`;
 }
 
 function ordinal(value: number): string {

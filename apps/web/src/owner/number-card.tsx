@@ -1,6 +1,8 @@
 import { useLingui } from "@lingui/react/macro";
 import type { DashTile } from "@rakazo/contracts";
 import { formatRupees, formatSignedPct } from "@rakazo/contracts";
+import { ChangeBadge } from "./marks";
+
 export function NumberCard({ tile, onOpen }: { tile: DashTile; onOpen: () => void }) {
   const { t } = useLingui();
   const labels: Record<string, string> = {
@@ -30,32 +32,54 @@ export function NumberCard({ tile, onOpen }: { tile: DashTile; onOpen: () => voi
                   ? t`Improving`
                   : null;
   return (
-    <button type="button" className="owner-tile text-left" onClick={onOpen}>
+    <button type="button" className="owner-kpi text-left" onClick={onOpen}>
       <p className="text-label text-muted-foreground">{labels[tile.id] ?? tile.id}</p>
-      <p className="mt-2 text-heading3 font-medium">
+      <p className="mt-1 text-heading2 font-medium">
         <TileValue tile={tile} />
       </p>
-      {tile.changePct != null ? (
-        <p
-          className={
-            tile.changePct < 0 ? "owner-change-down text-body-sm" : "owner-change-up text-body-sm"
-          }
-        >
-          {formatSignedPct(tile.changePct)}
-        </p>
+      {tile.state === "not_in_report" ? (
+        <p className="text-body-sm text-muted-foreground">{t`Not in reports`}</p>
       ) : null}
+      {tile.changePct != null ? (
+        <ChangeBadge
+          direction={tile.changePct < 0 ? "down" : "up"}
+          label={formatSignedPct(tile.changePct)}
+        />
+      ) : null}
+      <Spark values={tile.spark} />
       {word ? (
         <p
           className={
             tile.good === false
-              ? "owner-change-down text-body-sm"
+              ? "owner-pill owner-change-down mt-1"
               : tile.good
-                ? "owner-change-up text-body-sm"
-                : "text-body-sm text-muted-foreground"
+                ? "owner-pill owner-change-up mt-1"
+                : "owner-pill mt-1 text-muted-foreground"
           }
         >
           {word}
           {tile.weeks > 0 ? ` · ${tile.weeks} ${tile.weeks === 1 ? t`wk` : t`wks`}` : ""}
+        </p>
+      ) : null}
+      {tile.splits.length > 1 ? (
+        <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-body-sm text-muted-foreground">
+          {tile.splits.map((split) => (
+            <span key={split.platform} className="inline-flex items-center gap-1">
+              <span
+                className={
+                  split.platform === "zomato"
+                    ? "owner-dot owner-dot-zomato"
+                    : "owner-dot owner-dot-swiggy"
+                }
+                aria-hidden="true"
+              />
+              {split.inReport && split.value != null ? (
+                <SplitValue tile={tile} value={split.value} />
+              ) : (
+                t`Not in reports`
+              )}
+            </span>
+          ))}
         </p>
       ) : null}
       {tile.festival ? (
@@ -67,17 +91,43 @@ export function NumberCard({ tile, onOpen }: { tile: DashTile; onOpen: () => voi
 
 function TileValue({ tile }: { tile: DashTile }) {
   const { t } = useLingui();
-  if (tile.state === "not_in_report") return t`Not in Swiggy's reports yet`;
-  if (tile.state === "no_ads") return t`No ads ran in this period.`;
+  if (tile.state === "not_in_report" || tile.state === "empty" || tile.value == null) return "—";
+  if (tile.state === "no_ads") return t`No ads ran`;
   if (tile.state === "pending") return t`Pending`;
   if (tile.state === "missing") return t`Not in yet`;
   if (tile.state === "updating") return t`Updating`;
   if (tile.state === "na") return t`n/a`;
-  if (tile.state === "empty" || tile.value == null) return t`Not in yet`;
-  if (tile.format === "paise") return formatRupees(tile.value);
-  if (tile.format === "pct") return `${Math.round(tile.value)}%`;
-  if (tile.format === "minutes") return t`${tile.value.toFixed(1)} min`;
-  if (tile.format === "rating") return tile.value.toFixed(1);
-  if (tile.format === "ratio") return `₹${tile.value.toFixed(2)}`;
-  return String(Math.round(tile.value));
+  return <SplitValue tile={tile} value={tile.value} />;
+}
+
+function SplitValue({ tile, value }: { tile: DashTile; value: number }) {
+  const { t } = useLingui();
+  if (tile.format === "paise") return formatRupees(value);
+  if (tile.format === "pct") return `${Math.round(value)}%`;
+  if (tile.format === "minutes") return t`${value.toFixed(1)} min`;
+  if (tile.format === "rating") return value.toFixed(1);
+  if (tile.format === "ratio") return `₹${value.toFixed(2)}`;
+  return String(Math.round(value));
+}
+
+function Spark({ values }: { values: Array<number | null> }) {
+  const known = values.flatMap((value, index) => (value == null ? [] : [{ index, value }]));
+  if (known.length < 2) return null;
+  const min = Math.min(...known.map((point) => point.value));
+  const max = Math.max(...known.map((point) => point.value));
+  const span = max - min || 1;
+  const width = 72;
+  const height = 24;
+  const path = known
+    .map((point, index) => {
+      const x = (point.index / Math.max(values.length - 1, 1)) * width;
+      const y = height - 3 - ((point.value - min) / span) * (height - 6);
+      return `${index === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(" ");
+  return (
+    <svg className="mt-1 text-foreground" width={width} height={height} aria-hidden="true">
+      <path d={path} fill="none" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
 }
