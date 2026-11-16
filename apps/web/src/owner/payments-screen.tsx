@@ -97,7 +97,7 @@ export function PaymentsScreen({
                 className="flex justify-between border-t border-border py-2"
               >
                 <span>{row.label}</span>
-                <span>{formatRupees(Math.abs(row.amountPaise))}</span>
+                <span>{formatRupees(row.amountPaise)}</span>
               </li>
             ))}
           </ul>
