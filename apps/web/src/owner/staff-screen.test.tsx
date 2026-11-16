@@ -65,6 +65,8 @@ it("shows the counter only in the thread it was given, and the metric with the o
       onChoose={() => undefined}
     />,
   );
+  expect(host.textContent).toContain("Sun 15 Nov");
+  expect(host.textContent).not.toContain("2026-11-15");
   expect(host.textContent).toContain("5 of 30 questions left today");
   expect(host.textContent).toContain("₹1,12,480");
   expect(host.textContent).toContain("Approve this offer");
@@ -94,6 +96,7 @@ it("hides the starters and disables the question when the day is used up", () =>
 it("links an empty marketing log to the chat and folds extra waiting rows", () => {
   const empty: MarketingScreen = {
     hero: "empty",
+    history: false,
     resultTitle: null,
     resultPaise: null,
     waiting: [],
@@ -104,10 +107,20 @@ it("links an empty marketing log to the chat and folds extra waiting rows", () =
     <MarketingActionsScreen restaurantId="r1" screen={empty} onConfirm={() => undefined} />,
   );
   expect(host.textContent).toContain("after a week of data");
+  const known = render(
+    <MarketingActionsScreen
+      restaurantId="r1"
+      screen={{ ...empty, history: true }}
+      onConfirm={() => undefined}
+    />,
+  );
+  expect(known.textContent).toContain("No marketing actions yet.");
+  expect(known.textContent).not.toContain("after a week of data");
   expect(host.querySelector("a")?.getAttribute("href")).toBe("/restaurants/r1/chief-of-staff");
 
   const many: MarketingScreen = {
     hero: "waiting",
+    history: true,
     resultTitle: null,
     resultPaise: null,
     waiting: [row("a"), row("b"), row("c")],

@@ -457,30 +457,31 @@ export function weekSales(
   const skipped = (day: { date: string; outletId?: string }) =>
     day.outletId != null && closedKeys.has(`${day.outletId}|${day.date}`);
   const start = weekMonday(date);
+  const rows = new Map<string, Map<string, number>>();
+  for (const day of days) {
+    if (skipped(day) || day.salesPaise == null) continue;
+    const key = `${day.outletId ?? ""}|${day.platform ?? "all"}`;
+    const bucket = rows.get(day.date) ?? new Map<string, number>();
+    bucket.set(key, (bucket.get(key) ?? 0) + day.salesPaise);
+    rows.set(day.date, bucket);
+  }
   let current = 0;
   let baseline = 0;
   let pairs = 0;
   let firstData: string | null = null;
   let lastData: string | null = null;
   const used = new Set<string>();
-  for (const day of days) {
-    if (skipped(day)) continue;
-    if (day.date < start || day.date > date || day.salesPaise == null) continue;
-    const prior = days.find(
-      (item) =>
-        !skipped(item) &&
-        item.date === addIso(day.date, -7) &&
-        item.salesPaise != null &&
-        (item.platform ?? "all") === (day.platform ?? "all") &&
-        (day.outletId == null || item.outletId === day.outletId),
-    );
-    if (!prior || prior.salesPaise == null) continue;
-    current += day.salesPaise;
-    baseline += prior.salesPaise;
+  for (const day of [...rows.keys()].filter((item) => item >= start && item <= date).sort()) {
+    const now = rows.get(day);
+    const prior = rows.get(addIso(day, -7));
+    if (!now || !prior || now.size === 0 || prior.size !== now.size) continue;
+    if ([...now.keys()].some((key) => !prior.has(key))) continue;
+    for (const sales of now.values()) current += sales;
+    for (const sales of prior.values()) baseline += sales;
     pairs += 1;
-    used.add(day.date);
-    if (!firstData || day.date < firstData) firstData = day.date;
-    if (!lastData || day.date > lastData) lastData = day.date;
+    used.add(day);
+    if (!firstData || day < firstData) firstData = day;
+    if (!lastData || day > lastData) lastData = day;
   }
   if (pairs === 0 || baseline === 0 || !lastData || !firstData) return null;
   const change = pctChange(current, baseline);
@@ -631,7 +632,7 @@ function weekLine(view: DailyBriefView): string {
   const week = view.week;
   if (!week) return "";
   const pending = week.pendingLabel ? `, ${week.pendingLabel}` : "";
-  return `Week so far (${week.startLabel}–${week.endLabel}${pending}): ${formatRupees(week.currentPaise)} (${formatSignedPct(week.changePct)})`;
+  return `Week so far (${week.startLabel}–${week.endLabel}${pending}): ${formatRupees(week.currentPaise)} vs the same days last week (${formatSignedPct(week.changePct)})`;
 }
 
 function closing(view: DailyBriefView): string {

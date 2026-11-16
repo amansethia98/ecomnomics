@@ -43,6 +43,27 @@ it("greets a new restaurant and keeps the brief as the first message", () => {
   });
   expect(daily.greeting).toBeNull();
   expect(daily.messages[0]).toMatchObject({ role: "brief", date: "2026-11-15" });
+  const written = composeStaffThread({
+    restaurantName: "Kesar Kitchen",
+    hasHistory: true,
+    brief: {
+      date: "2026-11-15",
+      text: "*Good morning · Kesar Kitchen*\n2026-11-15 vs 2026-11-08 · Healthy\nNet sales are in.",
+    },
+    messages: [],
+    askedToday: 0,
+  });
+  expect(written.messages[0]?.blocks[0]).toMatchObject({
+    heading: true,
+    text: "Good morning · Kesar Kitchen",
+  });
+  expect(written.messages[0]?.blocks[1]).toMatchObject({
+    kind: "text",
+    text: "Sun 15 Nov vs Sun 8 Nov · Healthy",
+  });
+  expect(
+    written.messages[0]?.blocks.some((block) => block.kind === "text" && block.text.includes("*")),
+  ).toBe(false);
   expect(daily.starters).toEqual([]);
   expect(daily.quota.inputDisabled).toBe(true);
 });
@@ -117,8 +138,16 @@ it("lists waiting offers, and refuses a result that is early or on a festival", 
   expect(listed.overflow).toHaveLength(2);
 
   expect(
-    presentMarketing({ today: "2026-11-16", holidays: [], actions: [], readings: [] }).hero,
-  ).toBe("empty");
+    presentMarketing({ today: "2026-11-16", holidays: [], actions: [], readings: [] }).history,
+  ).toBe(false);
+  expect(
+    presentMarketing({
+      today: "2026-11-16",
+      holidays: [],
+      actions: [],
+      readings: days("2026-08-01", 90, 0, 100),
+    }).history,
+  ).toBe(true);
 
   const early = presentMarketing({
     today: "2026-10-04",
