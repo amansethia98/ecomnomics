@@ -86,6 +86,54 @@ it("puts the top alert on the card and folds the rest", () => {
   expect(home.sales.paise).toBe(11_248_000);
 });
 
+it("counts a merged hero as one row on the readiness line", () => {
+  const home = composeOwnerHome(
+    input({
+      brief: {
+        ...input().brief!,
+        statusText: "🔴 Act now (3) · 🟡 Watch (2) · Swiggy pending",
+      },
+      alerts: [
+        alert({
+          id: "swiggy-online",
+          severity: "act_now",
+          ruleCode: "d_online",
+          family: "d_online",
+          platform: "swiggy",
+        }),
+        alert({
+          id: "swiggy-sales",
+          severity: "act_now",
+          ruleCode: "d_sales_drop",
+          family: "d_sales_drop",
+          platform: "swiggy",
+        }),
+        alert({
+          id: "zomato-prep",
+          severity: "act_now",
+          ruleCode: "d_prep",
+          family: "prep",
+          platform: "zomato",
+          outletId: "hsr",
+          outletName: "HSR",
+        }),
+        alert({ id: "watch-a", outletId: "koramangala", outletName: "Koramangala" }),
+        alert({
+          id: "watch-b",
+          outletId: "jayanagar",
+          outletName: "Jayanagar",
+          ruleCode: "d_complaints",
+          family: "d_complaints",
+        }),
+      ],
+    }),
+  );
+  expect(home.urgent).toBe(2);
+  expect(home.watch).toBe(2);
+  expect(home.card?.ids).toEqual(["swiggy-online", "swiggy-sales"]);
+  expect(home.readiness).toBe("🔴 Act now (2) · 🟡 Watch (2) · Swiggy pending");
+});
+
 it("ranks act now, then rupees, then a longer run, then the busier outlet", () => {
   const home = composeOwnerHome(
     input({

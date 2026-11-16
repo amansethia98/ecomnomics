@@ -70,7 +70,7 @@ it("leaves the unfinished week on the chart and out of the trend", () => {
           rising.map((value) => value / 2),
         ),
       ],
-      { today: "2026-11-18" },
+      { today: "2026-11-18", range: "12w", from: "2026-08-26", to: "2026-11-18" },
     ),
   );
   expect(dash.panels[0]?.points.at(-1)?.sales).toBe(20);
@@ -82,10 +82,13 @@ it("leaves the unfinished week on the chart and out of the trend", () => {
 
 it("draws two sales panels, each with its own trend line, and shades the last week", () => {
   const dash = composeOwnerDashboard(
-    input([
-      ...salesWeeks("zomato", [100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210]),
-      ...salesWeeks("swiggy", [40, 40, 42, 41, 40, 39, 40, 41, 40, 38, 36, 34]),
-    ]),
+    input(
+      [
+        ...salesWeeks("zomato", [100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210]),
+        ...salesWeeks("swiggy", [40, 40, 42, 41, 40, 39, 40, 41, 40, 38, 36, 34]),
+      ],
+      { range: "12w", from: "2026-08-26", to: "2026-11-17" },
+    ),
   );
   expect(dash.panels.map((panel) => panel.platform)).toEqual(["zomato", "swiggy"]);
   expect(dash.panels[0]?.points).toHaveLength(12);
@@ -97,6 +100,14 @@ it("draws two sales panels, each with its own trend line, and shades the last we
   const zomato = plots.find((plot) => plot.id === "sales-zomato");
   expect(zomato?.marks.map((mark) => mark.type)).toEqual(["rectY", "lineY", "linearRegressionY"]);
   expect(zomato?.marks[1]?.options?.stroke).toBe("var(--owner-zomato)");
+  expect(zomato?.marginLeft).toBeGreaterThanOrEqual(56);
+  expect(zomato?.x?.ticks).toBe(4);
+  const rupees = zomato?.y?.tickFormat as (value: number) => string;
+  expect(rupees(2_700_000)).toBe("₹27k");
+  expect(rupees(12_000_000)).toBe("₹1.2L");
+  expect(rupees(-2_700_000)).toBe("−₹27k");
+  const heatmap = plots.find((plot) => plot.id === "heatmap");
+  expect(heatmap?.y?.domain).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
   expect(plots.some((plot) => plot.marks.some((mark) => mark.type === "cell"))).toBe(true);
 });
 
@@ -108,10 +119,17 @@ it("numbers festival, discount, and offline weeks", () => {
     week("2026-11-02", "zomato", "discount_paise", 0),
     week("2026-11-09", "swiggy", "online_pct", 40),
   ];
-  const dash = composeOwnerDashboard(input(readings, { holidays: ["2026-10-28"] }));
+  const dash = composeOwnerDashboard(
+    input(readings, {
+      holidays: ["2026-10-28"],
+      range: "12w",
+      from: "2026-08-26",
+      to: "2026-11-17",
+    }),
+  );
   expect(dash.pins.map((pin) => pin.kind)).toEqual(["festival", "discount", "offline"]);
   expect(dash.pins.map((pin) => pin.n)).toEqual([1, 2, 3]);
-  expect(dash.tiles.find((tile) => tile.id === "sales")?.festival).toBe(false);
+  expect(dash.tiles.find((tile) => tile.id === "sales")?.festival).toBe(true);
 });
 
 it("leaves a pending day out of both sides and says so", () => {
@@ -147,6 +165,16 @@ it("leaves a pending day out of both sides and says so", () => {
     ]),
   );
   expect(dash.pendingNote).toBe("swiggy");
+  expect(dash.answer.pendingPlatform).toBe("swiggy");
+  expect(dash.panels[0]?.points).toHaveLength(7);
+  expect(dash.panels[0]?.points[0]?.week).toBe("2026-11-10");
+  expect(dash.answer.unit).toBe("day");
+  const sales = dash.tiles.find((tile) => tile.id === "sales");
+  expect(sales?.state).toBe("value");
+  expect(sales?.value).toBe(9_000);
+  const orders = dash.tiles.find((tile) => tile.id === "orders");
+  expect(orders?.state).toBe("value");
+  expect(orders?.value).toBe(90);
   expect(dash.compared).toEqual({ kept: 6, expected: 6 });
   const monday = dash.heatmap.find((cell) => cell.week === "2026-11-16" && cell.weekday === "Mon");
   expect(monday?.pending).toBe(true);
@@ -214,4 +242,33 @@ it("builds the funnel from menu, cart, and orders, and pins the plot marks", () 
   expect(dash.pins.some((pin) => pin.kind === "festival")).toBe(true);
   expect(dash.pins.some((pin) => pin.kind === "discount")).toBe(false);
   expect(dash.tiles.find((tile) => tile.id === "sales")?.word).toBe("growing");
+});
+
+it("names the app whose last complete day is behind, even when an older week is pending", () => {
+  const readings: DashReading[] = [
+    ...salesWeeks("zomato", [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]).map((row, index) =>
+      index === 0 ? { ...row, value: null, state: "pending" as const } : row,
+    ),
+    ...salesWeeks("swiggy", [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]),
+  ];
+  for (let offset = 0; offset < 14; offset += 1) {
+    const date = `2026-11-${String(3 + offset).padStart(2, "0")}`;
+    readings.push(day(date, "zomato", "ops_sales_paise", 1000));
+    readings.push(
+      day(
+        date,
+        "swiggy",
+        "swiggy_net_sales_paise",
+        offset === 13 ? null : 500,
+        offset === 13 ? "pending" : "ok",
+      ),
+    );
+  }
+  const dash = composeOwnerDashboard(
+    input(readings, { range: "12w", from: "2026-08-26", to: "2026-11-17" }),
+  );
+  expect(dash.answer.pendingPlatform).toBe("swiggy");
+  expect(dash.pendingNote).toBe("swiggy");
+  expect(dash.answer.unit).toBe("week");
+  expect(dash.panels[0]?.points).toHaveLength(12);
 });

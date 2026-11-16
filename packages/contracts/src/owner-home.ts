@@ -202,7 +202,7 @@ export function composeOwnerHome(input: OwnerHomeInput): OwnerHomeModel {
     kind,
     date: brief?.date ?? null,
     baselineDate: brief?.baselineDate ?? null,
-    readiness: welcome ? null : (brief?.statusText ?? null),
+    readiness: welcome ? null : displayedReadiness(brief?.statusText ?? null, urgent, watch),
     corrections: brief?.corrections ?? [],
     staleNote: stale,
     urgent,
@@ -226,6 +226,13 @@ export function composeOwnerHome(input: OwnerHomeInput): OwnerHomeModel {
     },
     askChief: welcome,
   };
+}
+
+function displayedReadiness(text: string | null, urgent: number, watch: number): string | null {
+  if (!text) return null;
+  return text
+    .replace(/Act now \(\d+\)/g, `Act now (${urgent})`)
+    .replace(/Watch \(\d+\)/g, `Watch (${watch})`);
 }
 
 function salesNumber(
