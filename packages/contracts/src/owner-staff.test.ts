@@ -163,6 +163,17 @@ it("lists waiting offers, and refuses a result that is early or on a festival", 
   });
   expect(result.hero).toBe("result");
   expect(result.resultPaise).toBe(14 * 80);
+
+  const gapped = before.filter((reading) => reading.date !== "2026-09-20");
+  const incomplete = presentMarketing({
+    today: "2026-10-20",
+    holidays: [],
+    actions: [action("a", "approved", "2026-10-01", 1000)],
+    readings: [...gapped, ...after],
+  });
+  expect(incomplete.hero).not.toBe("result");
+  expect(incomplete.rows[0]?.display).toBe("too_early");
+  expect(incomplete.resultPaise).toBeNull();
 });
 
 function base(question: string) {

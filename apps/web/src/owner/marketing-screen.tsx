@@ -94,6 +94,11 @@ function Row({
       <p className="font-medium">{row.title}</p>
       <p className="text-body-sm text-muted-foreground">{row.detail}</p>
       <p className="mt-1 text-body-sm">{label}</p>
+      {row.display === "result" && row.resultPaise != null ? (
+        <p className={row.resultPaise < 0 ? "owner-change-down" : "owner-change-up"}>
+          {formatRupees(Math.abs(row.resultPaise))}
+        </p>
+      ) : null}
       {(row.display === "waiting" || row.display === "not_seen") && row.maxCostPaise != null ? (
         <p className="text-body-sm text-muted-foreground">
           {t`Maximum cost`} {formatRupees(row.maxCostPaise)}
