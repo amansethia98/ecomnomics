@@ -42,6 +42,7 @@ export * from "./openai-compatible-ui.js";
 export * from "./ops/index.js";
 export * from "./owner-app.js";
 export * from "./owner-dashboard.js";
+export * from "./owner-desk.js";
 export * from "./owner-home.js";
 export * from "./owner-staff.js";
 export * from "./pages.js";
