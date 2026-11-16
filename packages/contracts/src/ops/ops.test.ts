@@ -155,6 +155,8 @@ describe("daily thresholds", () => {
     const sales = dropped.findings.find((finding) => finding.code === "d_sales_drop");
     expect(sales?.severity).toBe("watch");
     expect(sales?.provisional).toBe(true);
+    expect(sales?.text).toContain("on Sat 14 Nov");
+    expect(sales?.text).toContain("vs last Saturday");
 
     const quiet = run([
       day(
