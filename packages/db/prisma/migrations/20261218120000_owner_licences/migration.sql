@@ -16,7 +16,8 @@ CREATE INDEX "owner_licences_space_idx" ON "owner_licences"("spaceId");
 
 ALTER TABLE "owner_licences" ADD CONSTRAINT "owner_licences_restaurantId_fkey" FOREIGN KEY ("restaurantId") REFERENCES "restaurants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
-CREATE TRIGGER "owner_licences_same_space" BEFORE INSERT OR UPDATE ON "owner_licences" FOR EACH ROW EXECUTE FUNCTION restaurant_same_space();
+-- No outlet column. The shared trigger reads outletId and the insert would fail.
+CREATE TRIGGER "owner_licences_same_space" BEFORE INSERT OR UPDATE ON "owner_licences" FOR EACH ROW EXECUTE FUNCTION ops_same_restaurant_space();
 
 ALTER TABLE "owner_licences" ENABLE ROW LEVEL SECURITY;
 
