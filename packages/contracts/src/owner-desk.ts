@@ -1,0 +1,337 @@
+import * as z from "zod";
+import { formatCompactRupees } from "./ops/format.js";
+import type { OwnerPlot } from "./owner-dashboard.js";
+
+/** The payout pill until a reconciliation check exists. It is not a match. */
+export const PAYOUT_CHECK = "pending_check" as const;
+
+const DEDUCTIONS = [
+  ["commission", "Commission"],
+  ["fees", "Fees"],
+  ["taxes", "Taxes"],
+  ["tds", "TDS"],
+  ["tcs", "TCS"],
+  ["ads", "Ads"],
+  ["discounts", "Discounts"],
+  ["gst", "GST"],
+  ["complaints", "Complaints"],
+] as const;
+
+export interface PaymentCycle {
+  id: string;
+  outletId: string;
+  platform: "zomato" | "swiggy";
+  from: string;
+  to: string;
+  orderCount: number | null;
+  netPayoutPaise: number | null;
+  commissionPaise: number | null;
+  feesPaise: number | null;
+  taxesPaise: number | null;
+  tdsPaise: number | null;
+  tcsPaise: number | null;
+  adsPaise: number | null;
+  discountsPaise: number | null;
+  gstPaise: number | null;
+  complaintsPaise: number | null;
+}
+
+export interface PaymentOrder {
+  cycleId: string;
+  orderId: string;
+  date: string;
+  netPayoutPaise: number | null;
+}
+
+export interface PaymentAdjustment {
+  cycleId: string;
+  label: string;
+  amountPaise: number;
+}
+
+export interface OwnerPayments {
+  payouts: Array<{
+    id: string;
+    outletId: string;
+    platform: "zomato" | "swiggy";
+    from: string;
+    to: string;
+    orderCount: number | null;
+    netPayoutPaise: number | null;
+    status: typeof PAYOUT_CHECK;
+  }>;
+  selectedId: string | null;
+  deductions: Array<{ id: string; label: string; paise: number }>;
+  plot: OwnerPlot | null;
+  orders: PaymentOrder[];
+  adjustments: PaymentAdjustment[];
+}
+
+export interface OwnerMenuRow {
+  name: string;
+  platforms: Array<"zomato" | "swiggy">;
+  revenuePaise: number;
+  missingApp: boolean;
+}
+
+export interface OwnerMenu {
+  /** Editing is not part of this screen. */
+  editing: false;
+  rows: OwnerMenuRow[];
+  missingCount: number;
+}
+
+export interface OwnerReview {
+  id: string;
+  platform: "zomato" | "swiggy";
+  rating: number | null;
+  text: string;
+  /** Words the owner can copy. Nothing here is sent to an app. */
+  reply: string | null;
+  date: string;
+}
+
+export interface OwnerRatings {
+  rating: number | null;
+  reviews: OwnerReview[];
+}
+
+export interface OwnerReportArchiveItem {
+  id: string;
+  kind: "daily" | "weekly" | "payout" | "report";
+  from: string;
+  to: string;
+  createdOn: string;
+}
+
+export interface OwnerDocuments {
+  reference: string | null;
+  expiresOn: string | null;
+  gstin: string | null;
+  /** Set while the expiry is inside 30 days, inside 7 days, or already past. */
+  reminder: "30" | "7" | "expired" | null;
+  daysLeft: number | null;
+  reports: OwnerReportArchiveItem[];
+}
+
+export const LicencePatchSchema = z
+  .object({
+    reference: z.string().trim().max(40).nullable(),
+    expiresOn: z.string().nullable(),
+    gstin: z.string().trim().max(20).nullable(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.expiresOn != null && !isCivilDate(value.expiresOn)) {
+      ctx.addIssue({ code: "custom", path: ["expiresOn"] });
+    }
+  });
+
+export function civilDateOrNull(value: string | null): string | null {
+  if (value == null || value.trim() === "") return null;
+  if (!isCivilDate(value)) return null;
+  return value;
+}
+
+export function isCivilDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 1));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === (month ?? 1) - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
+export function daysUntil(today: string, date: string): number {
+  const start = Date.parse(`${today}T00:00:00Z`);
+  const end = Date.parse(`${date}T00:00:00Z`);
+  return Math.round((end - start) / 86_400_000);
+}
+
+/** 30-day and 7-day windows, then expired. A later date has no reminder yet. */
+export function licenceReminder(
+  today: string,
+  expiresOn: string | null,
+): "30" | "7" | "expired" | null {
+  if (!expiresOn) return null;
+  const days = daysUntil(today, expiresOn);
+  if (days < 0) return "expired";
+  if (days <= 7) return "7";
+  if (days <= 30) return "30";
+  return null;
+}
+
+export function composeOwnerPayments(input: {
+  cycles: readonly PaymentCycle[];
+  orders: readonly PaymentOrder[];
+  adjustments: readonly PaymentAdjustment[];
+  selectedId: string | null;
+}): OwnerPayments {
+  const payouts = [...input.cycles]
+    .sort(
+      (left, right) =>
+        right.to.localeCompare(left.to) ||
+        left.platform.localeCompare(right.platform) ||
+        left.id.localeCompare(right.id),
+    )
+    .map((cycle) => ({
+      id: cycle.id,
+      outletId: cycle.outletId,
+      platform: cycle.platform,
+      from: cycle.from,
+      to: cycle.to,
+      orderCount: cycle.orderCount,
+      netPayoutPaise: cycle.netPayoutPaise,
+      status: PAYOUT_CHECK,
+    }));
+  const selected = payouts.find((payout) => payout.id === input.selectedId) ?? payouts[0] ?? null;
+  const cycle = selected ? input.cycles.find((item) => item.id === selected.id) : undefined;
+  const deductions = cycle ? deductionRows(cycle) : [];
+  return {
+    payouts,
+    selectedId: selected?.id ?? null,
+    deductions,
+    plot: deductions.length > 0 ? deductionPlot(deductions) : null,
+    orders: selected
+      ? input.orders
+          .filter((order) => order.cycleId === selected.id)
+          .sort(
+            (left, right) =>
+              right.date.localeCompare(left.date) || left.orderId.localeCompare(right.orderId),
+          )
+      : [],
+    adjustments: selected ? input.adjustments.filter((row) => row.cycleId === selected.id) : [],
+  };
+}
+
+export function composeOwnerMenu(
+  items: ReadonlyArray<{
+    name: string;
+    platform: "zomato" | "swiggy";
+    revenuePaise: number;
+  }>,
+): OwnerMenu {
+  const apps = new Set(items.map((item) => item.platform));
+  const byName = new Map<string, OwnerMenuRow>();
+  for (const item of items) {
+    const current = byName.get(item.name) ?? {
+      name: item.name,
+      platforms: [],
+      revenuePaise: 0,
+      missingApp: false,
+    };
+    if (!current.platforms.includes(item.platform)) current.platforms.push(item.platform);
+    current.revenuePaise += item.revenuePaise;
+    byName.set(item.name, current);
+  }
+  const rows = [...byName.values()]
+    .map((row) => ({
+      ...row,
+      platforms: [...row.platforms].sort(),
+      missingApp: apps.size > 1 && row.platforms.length < apps.size,
+    }))
+    .sort(
+      (left, right) =>
+        right.revenuePaise - left.revenuePaise || left.name.localeCompare(right.name),
+    );
+  return {
+    editing: false,
+    rows,
+    missingCount: rows.filter((row) => row.missingApp).length,
+  };
+}
+
+export function composeOwnerRatings(input: {
+  rating: number | null;
+  reviews: readonly OwnerReview[];
+}): OwnerRatings {
+  return {
+    rating: input.rating,
+    reviews: [...input.reviews].sort(
+      (left, right) => right.date.localeCompare(left.date) || left.id.localeCompare(right.id),
+    ),
+  };
+}
+
+export function composeOwnerDocuments(input: {
+  today: string;
+  reference: string | null;
+  expiresOn: string | null;
+  gstin: string | null;
+  reports: ReadonlyArray<{
+    id: string;
+    kind: string | null;
+    from: string;
+    to: string;
+    createdOn: string;
+  }>;
+}): OwnerDocuments {
+  return {
+    reference: blank(input.reference),
+    expiresOn: input.expiresOn,
+    gstin: blank(input.gstin),
+    reminder: licenceReminder(input.today, input.expiresOn),
+    daysLeft: input.expiresOn ? daysUntil(input.today, input.expiresOn) : null,
+    reports: input.reports.map((report) => ({
+      id: report.id,
+      kind: archiveKind(report.kind),
+      from: report.from,
+      to: report.to,
+      createdOn: report.createdOn,
+    })),
+  };
+}
+
+function deductionRows(cycle: PaymentCycle): Array<{ id: string; label: string; paise: number }> {
+  const amounts: Record<(typeof DEDUCTIONS)[number][0], number | null> = {
+    commission: cycle.commissionPaise,
+    fees: cycle.feesPaise,
+    taxes: cycle.taxesPaise,
+    tds: cycle.tdsPaise,
+    tcs: cycle.tcsPaise,
+    ads: cycle.adsPaise,
+    discounts: cycle.discountsPaise,
+    gst: cycle.gstPaise,
+    complaints: cycle.complaintsPaise,
+  };
+  return DEDUCTIONS.flatMap(([id, label]) => {
+    const paise = amounts[id];
+    return paise != null && paise !== 0 ? [{ id, label, paise }] : [];
+  });
+}
+
+function deductionPlot(rows: ReadonlyArray<{ label: string; paise: number }>): OwnerPlot {
+  return {
+    id: "deductions",
+    width: 640,
+    height: 180,
+    marginLeft: 64,
+    x: { label: null },
+    y: {
+      label: null,
+      grid: true,
+      tickFormat: (value: number) => formatCompactRupees(Number(value)),
+    },
+    marks: [
+      {
+        type: "rectY",
+        data: rows.map((row) => ({ name: row.label, paise: row.paise })),
+        options: { x: "name", y: "paise" },
+      },
+    ],
+  };
+}
+
+function archiveKind(kind: string | null): OwnerReportArchiveItem["kind"] {
+  if (kind === "daily_brief") return "daily";
+  if (kind === "weekly_review") return "weekly";
+  if (kind === "payout_check") return "payout";
+  return "report";
+}
+
+function blank(value: string | null): string | null {
+  const trimmed = value?.trim() ?? "";
+  return trimmed.length > 0 ? trimmed : null;
+}
