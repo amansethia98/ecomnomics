@@ -20,6 +20,15 @@ import {
 } from "@rakazo/contracts";
 import type { PrismaClient } from "./client.js";
 import type { Prisma } from "./generated/prisma/client.js";
+
+type StaffStore = {
+  ownerStaffTurn: PrismaClient["ownerStaffTurn"];
+  marketingAction: PrismaClient["marketingAction"];
+  metricValue: PrismaClient["metricValue"];
+  outlet: PrismaClient["outlet"];
+  report: PrismaClient["report"];
+};
+
 import { RestaurantAgentError } from "./restaurant-agent.js";
 import { runAsSystem, runAsTenant } from "./row-security.js";
 
@@ -42,84 +51,97 @@ export async function askStaffForMember(
   const restaurant = await memberRestaurant(db, userId, restaurantId);
   return runAsTenant({ spaceId: restaurant.spaceId, userId }, async () => {
     const today = indiaCivilDate(new Date());
-    const asked = await askedToday(db, restaurant.restaurantId, restaurant.spaceId, userId, today);
-    if (asked >= STAFF_QUESTION_LIMIT) {
-      throw new RestaurantAgentError(
-        "question_limit",
-        429,
-        "You've used today's 30 questions. Resets at midnight.",
-      );
-    }
-    const context = await staffContext(db, restaurant, today);
-    let failed = false;
-    let answer = answerStaffQuestion({
-      question: text,
-      failuresInARow: context.failuresInARow,
-      pendingPlatform: context.pendingPlatform,
-      salesPaise: context.salesPaise,
-      changePct: context.changePct,
-      compare: "the same weekday",
-      points: context.points,
-      suggestion: context.suggestion,
-      suppressedUntil: context.suppressedUntil,
+    return db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`staff-quota:${restaurant.restaurantId}:${userId}:${today}`}, 0))::text AS "lock"`;
+      return recordQuestion(tx, restaurant, userId, today, text);
     });
-    if (context.readingsFailed) {
-      failed = true;
-      answer = answerStaffQuestion({
-        question: text,
-        failed: true,
-        failuresInARow: context.failuresInARow,
-        pendingPlatform: null,
-        salesPaise: null,
-        changePct: null,
-        compare: null,
-        points: [],
-        suggestion: null,
-        suppressedUntil: null,
-      });
-    }
-    const day = utcMidnight(today);
-    await db.ownerStaffTurn.create({
-      data: {
-        restaurantId: restaurant.restaurantId,
-        spaceId: restaurant.spaceId,
-        userId,
-        businessDate: day,
-        role: "owner",
-        body: { text },
-        counted: answer.counted,
-        failed,
-      },
-    });
-    await db.ownerStaffTurn.create({
-      data: {
-        restaurantId: restaurant.restaurantId,
-        spaceId: restaurant.spaceId,
-        userId,
-        businessDate: day,
-        role: "staff",
-        body: { blocks: answer.blocks } as unknown as Prisma.InputJsonValue,
-        counted: false,
-        failed: answer.failed,
-      },
-    });
-    if (answer.suggest && context.suggestion && context.createSuggestion) {
-      await db.marketingAction.create({
-        data: {
-          id: context.suggestion.id,
-          restaurantId: restaurant.restaurantId,
-          spaceId: restaurant.spaceId,
-          platform: context.suggestion.platform,
-          kind: "discount",
-          title: context.suggestion.title,
-          detail: context.suggestion.detail,
-          maxCostPaise: context.suggestion.maxCostPaise,
-          decision: "suggested",
-        },
-      });
-    }
-    return loadThread(db, restaurant, userId, today);
   });
+}
+
+async function recordQuestion(
+  db: StaffStore,
+  restaurant: { restaurantId: string; spaceId: string; name: string },
+  userId: string,
+  today: string,
+  text: string,
+) {
+  const asked = await askedToday(db, restaurant.restaurantId, restaurant.spaceId, userId, today);
+  if (asked >= STAFF_QUESTION_LIMIT) {
+    throw new RestaurantAgentError(
+      "question_limit",
+      429,
+      "You've used today's 30 questions. Resets at midnight.",
+    );
+  }
+  const context = await staffContext(db, restaurant, today);
+  let failed = false;
+  let answer = answerStaffQuestion({
+    question: text,
+    failuresInARow: context.failuresInARow,
+    pendingPlatform: context.pendingPlatform,
+    salesPaise: context.salesPaise,
+    changePct: context.changePct,
+    compare: "the same weekday",
+    points: context.points,
+    suggestion: context.suggestion,
+    suppressedUntil: context.suppressedUntil,
+  });
+  if (context.readingsFailed) {
+    failed = true;
+    answer = answerStaffQuestion({
+      question: text,
+      failed: true,
+      failuresInARow: context.failuresInARow,
+      pendingPlatform: null,
+      salesPaise: null,
+      changePct: null,
+      compare: null,
+      points: [],
+      suggestion: null,
+      suppressedUntil: null,
+    });
+  }
+  const day = utcMidnight(today);
+  await db.ownerStaffTurn.create({
+    data: {
+      restaurantId: restaurant.restaurantId,
+      spaceId: restaurant.spaceId,
+      userId,
+      businessDate: day,
+      role: "owner",
+      body: { text },
+      counted: answer.counted,
+      failed,
+    },
+  });
+  await db.ownerStaffTurn.create({
+    data: {
+      restaurantId: restaurant.restaurantId,
+      spaceId: restaurant.spaceId,
+      userId,
+      businessDate: day,
+      role: "staff",
+      body: { blocks: answer.blocks } as unknown as Prisma.InputJsonValue,
+      counted: false,
+      failed: answer.failed,
+    },
+  });
+  if (answer.suggest && context.suggestion && context.createSuggestion) {
+    await db.marketingAction.create({
+      data: {
+        id: context.suggestion.id,
+        restaurantId: restaurant.restaurantId,
+        spaceId: restaurant.spaceId,
+        platform: context.suggestion.platform,
+        kind: "discount",
+        title: context.suggestion.title,
+        detail: context.suggestion.detail,
+        maxCostPaise: context.suggestion.maxCostPaise,
+        decision: "suggested",
+      },
+    });
+  }
+  return loadThread(db, restaurant, userId, today);
 }
 
 export async function chooseStaffForMember(
@@ -177,13 +199,11 @@ export async function readMarketingForMember(
   const restaurant = await memberRestaurant(db, userId, restaurantId);
   return runAsTenant({ spaceId: restaurant.spaceId, userId }, async () => {
     const today = indiaCivilDate(new Date());
-    const [actions, readings] = await Promise.all([
-      db.marketingAction.findMany({
-        where: { restaurantId, spaceId: restaurant.spaceId },
-        orderBy: { createdAt: "desc" },
-      }),
-      dayReadings(db, restaurant, today),
-    ]);
+    const actions = await db.marketingAction.findMany({
+      where: { restaurantId, spaceId: restaurant.spaceId },
+      orderBy: { createdAt: "desc" },
+    });
+    const readings = await dayReadings(db, restaurant, today, readingsSince(actions, today));
     return presentMarketing({
       today,
       holidays: DEFAULT_OPS_RULES_CONFIG.holidayDates,
@@ -214,13 +234,11 @@ export async function confirmMarketingForMember(
       });
     }
     const today = indiaCivilDate(new Date());
-    const [actions, readings] = await Promise.all([
-      db.marketingAction.findMany({
-        where: { restaurantId, spaceId: restaurant.spaceId },
-        orderBy: { createdAt: "desc" },
-      }),
-      dayReadings(db, restaurant, today),
-    ]);
+    const actions = await db.marketingAction.findMany({
+      where: { restaurantId, spaceId: restaurant.spaceId },
+      orderBy: { createdAt: "desc" },
+    });
+    const readings = await dayReadings(db, restaurant, today, readingsSince(actions, today));
     return presentMarketing({
       today,
       holidays: DEFAULT_OPS_RULES_CONFIG.holidayDates,
@@ -230,8 +248,16 @@ export async function confirmMarketingForMember(
   });
 }
 
+function readingsSince(actions: ReadonlyArray<{ approvedAt: Date | null }>, today: string): string {
+  const oldest = actions
+    .map((action) => action.approvedAt)
+    .filter((date): date is Date => date != null)
+    .sort((left, right) => left.getTime() - right.getTime())[0];
+  return oldest ? addIsoDays(indiaCivilDate(oldest), -14) : addIsoDays(today, -42);
+}
+
 async function loadThread(
-  db: PrismaClient,
+  db: StaffStore,
   restaurant: { restaurantId: string; spaceId: string; name: string },
   userId: string,
   today: string,
@@ -283,7 +309,7 @@ async function loadThread(
 }
 
 async function staffContext(
-  db: PrismaClient,
+  db: StaffStore,
   restaurant: { restaurantId: string; spaceId: string },
   today: string,
 ) {
@@ -376,10 +402,17 @@ async function staffContext(
 }
 
 async function dayReadings(
-  db: PrismaClient,
+  db: StaffStore,
   restaurant: { restaurantId: string; spaceId: string },
   today: string,
+  since?: string,
 ): Promise<Array<MarketingReading & { orders: number }>> {
+  const outlets = await db.outlet.findMany({
+    where: { restaurantId: restaurant.restaurantId, spaceId: restaurant.spaceId, active: true },
+    select: { swiggyRid: true, zomatoResId: true },
+  });
+  const wantZomato = outlets.some((outlet) => outlet.zomatoResId);
+  const wantSwiggy = outlets.some((outlet) => outlet.swiggyRid);
   const rows = await db.metricValue.findMany({
     where: {
       restaurantId: restaurant.restaurantId,
@@ -391,25 +424,55 @@ async function dayReadings(
       key: {
         in: ["ops_sales_paise", "swiggy_net_sales_paise", "delivered_orders", "discount_paise"],
       },
-      periodStart: { gte: utcMidnight(addIsoDays(today, -42)) },
+      periodStart: { gte: utcMidnight(since ?? addIsoDays(today, -42)) },
     },
     select: { key: true, periodStart: true, value: true },
   });
-  const byDate = new Map<string, MarketingReading & { orders: number }>();
+  const byDate = new Map<
+    string,
+    MarketingReading & { orders: number; zomato: number | null; swiggy: number | null }
+  >();
   for (const row of rows) {
     const date = indiaCivilDate(row.periodStart);
-    const current = byDate.get(date) ?? { date, discountPaise: null, salesPaise: null, orders: 0 };
+    const current = byDate.get(date) ?? {
+      date,
+      discountPaise: null,
+      salesPaise: null,
+      orders: 0,
+      zomato: null,
+      swiggy: null,
+    };
     const value = row.value == null ? null : Number(row.value);
     if (row.key === "discount_paise" && value != null) {
       current.discountPaise = (current.discountPaise ?? 0) + value;
     }
-    if ((row.key === "ops_sales_paise" || row.key === "swiggy_net_sales_paise") && value != null) {
-      current.salesPaise = (current.salesPaise ?? 0) + value;
+    if (row.key === "ops_sales_paise" && value != null)
+      current.zomato = (current.zomato ?? 0) + value;
+    if (row.key === "swiggy_net_sales_paise" && value != null) {
+      current.swiggy = (current.swiggy ?? 0) + value;
     }
     if (row.key === "delivered_orders" && value != null) current.orders += value;
     byDate.set(date, current);
   }
-  return [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date));
+  const requireZomato = wantZomato || !wantSwiggy;
+  const requireSwiggy = wantSwiggy || !wantZomato;
+  return [...byDate.values()]
+    .map((bucket) => {
+      const parts = [
+        ...(requireZomato ? [bucket.zomato] : []),
+        ...(requireSwiggy ? [bucket.swiggy] : []),
+      ];
+      const salesPaise = parts.every((part) => part != null)
+        ? parts.reduce((sum, part) => sum + (part ?? 0), 0)
+        : null;
+      return {
+        date: bucket.date,
+        discountPaise: bucket.discountPaise,
+        salesPaise,
+        orders: bucket.orders,
+      };
+    })
+    .sort((left, right) => left.date.localeCompare(right.date));
 }
 
 function weekPoints(readings: ReadonlyArray<{ date: string; salesPaise: number | null }>) {
@@ -426,7 +489,7 @@ function weekPoints(readings: ReadonlyArray<{ date: string; salesPaise: number |
 }
 
 async function trailingFailures(
-  db: PrismaClient,
+  db: StaffStore,
   restaurant: { restaurantId: string; spaceId: string },
 ) {
   const recent = await db.ownerStaffTurn.findMany({
@@ -444,7 +507,7 @@ async function trailingFailures(
 }
 
 async function askedToday(
-  db: PrismaClient,
+  db: StaffStore,
   restaurantId: string,
   spaceId: string,
   userId: string,
@@ -521,7 +584,7 @@ function isBlock(value: unknown): value is StaffBlock {
 }
 
 async function stampChoice(
-  db: PrismaClient,
+  db: StaffStore,
   restaurant: { restaurantId: string; spaceId: string },
   actionId: string,
   choice: "approve" | "not_now",

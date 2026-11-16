@@ -439,7 +439,14 @@ function daysBetween(from: string, to: string): number {
 }
 
 function sumSales(readings: readonly MarketingReading[], from: string, to: string): number | null {
-  const rows = readings.filter((reading) => reading.date >= from && reading.date < to);
-  if (rows.length === 0 || rows.some((reading) => reading.salesPaise == null)) return null;
-  return rows.reduce((sum, reading) => sum + (reading.salesPaise ?? 0), 0);
+  const byDate = new Map(readings.map((reading) => [reading.date, reading.salesPaise]));
+  const dates = datesFrom(from, daysBetween(from, to));
+  if (dates.length === 0) return null;
+  let total = 0;
+  for (const date of dates) {
+    const sales = byDate.get(date);
+    if (sales == null) return null;
+    total += sales;
+  }
+  return total;
 }
