@@ -2781,6 +2781,10 @@ model Restaurant {
   fetchHolds     FetchHold[]
   labelObservations MetricLabelObservation[]
   relabelAttempts MetricRelabelAttempt[]
+  opsAlerts      OpsAlert[]
+  opsAlertEvents OpsAlertEvent[]
+  opsReportDeliveries OpsReportDelivery[]
+  outletDayAnswers OutletDayAnswer[]
 
   @@unique([id, spaceId])
   @@map("restaurants")
@@ -2813,6 +2817,8 @@ model Outlet {
   fetchHolds          FetchHold[]
   labelObservations   MetricLabelObservation[]
   relabelAttempts     MetricRelabelAttempt[]
+  opsAlerts           OpsAlert[]
+  outletDayAnswers    OutletDayAnswer[]
 
   @@unique([id, spaceId])
   @@index([spaceId])
@@ -3143,9 +3149,18 @@ model Report {
   status          String?
   summaryMarkdown String       @db.Text
   clientNonce     String?
+  /// daily_brief, weekly_review, or payout_check. Null on older report rows.
+  kind            String?
+  businessDate    DateTime?    @db.Date
+  payload         Json?
+  version         Int          @default(1)
+  dataAsOf        DateTime?
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
   files           ReportFile[]
+  deliveries      OpsReportDelivery[]
+
+  @@index([restaurantId, kind, businessDate], map: "restaurant_reports_kind_date_idx")
 
   @@unique([restaurantId, clientNonce], name: "reportNonce")
   @@index([spaceId, periodStart])
@@ -3167,6 +3182,110 @@ model ReportFile {
   @@unique([reportId, name])
   @@index([spaceId])
   @@map("restaurant_report_files")
+}
+
+/// One open ops alert per cadence, rule, outlet and app. Resolved rows stay for the reopen window.
+model OpsAlert {
+  id               String    @id @default(cuid())
+  restaurantId     String
+  restaurant       Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId          String
+  outletId         String?
+  outlet           Outlet?   @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  platform         String
+  cadence          String
+  ruleCode         String
+  family           String?
+  ownerRuleId      String?
+  dedupeKey        String
+  severity         String
+  status           String    @default("open")
+  firstSeenDate    DateTime  @db.Date
+  lastSeenDate     DateTime  @db.Date
+  occurrences      Int       @default(1)
+  consecutiveDays  Int       @default(1)
+  clearDays        Int       @default(0)
+  reopenCount      Int       @default(0)
+  escalatedAt      DateTime?
+  snoozedUntil     DateTime?
+  resolvedAt       DateTime?
+  resolvedReason   String?
+  lastValue        Decimal?  @db.Decimal(20, 4)
+  threshold        Decimal?  @db.Decimal(20, 4)
+  baselineValue    Decimal?  @db.Decimal(20, 4)
+  evidence         Json
+  fixKey           String
+  text             String    @db.Text
+  lastNotifiedAt   DateTime?
+  notifiedSeverity String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  events           OpsAlertEvent[]
+
+  @@index([restaurantId, status, lastSeenDate], map: "ops_alerts_status_idx")
+  @@index([spaceId], map: "ops_alerts_space_idx")
+  @@map("ops_alerts")
+}
+
+/// The owner's answer for one outlet on one civil date: closed or open.
+model OutletDayAnswer {
+  id           String     @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId      String
+  outletId     String
+  outlet       Outlet     @relation(fields: [outletId], references: [id], onDelete: Cascade)
+  businessDate DateTime   @db.Date
+  status       String
+  source       String
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([restaurantId, outletId, businessDate])
+  @@index([spaceId])
+  @@map("outlet_day_answers")
+}
+
+/// Append-only history of an alert. restaurantId is here so the shared space trigger can check it.
+model OpsAlertEvent {
+  id           String   @id @default(cuid())
+  alertId      String
+  alert        OpsAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId      String
+  businessDate DateTime @db.Date
+  kind         String
+  severity     String?
+  value        Decimal? @db.Decimal(20, 4)
+  reportId     String?
+  actor        String?
+  createdAt    DateTime @default(now())
+
+  @@index([alertId, createdAt], map: "ops_alert_events_alert_idx")
+  @@index([spaceId], map: "ops_alert_events_space_idx")
+  @@map("ops_alert_events")
+}
+
+/// A send the runner recorded. No phone numbers.
+model OpsReportDelivery {
+  id            String   @id @default(cuid())
+  reportId      String
+  report        Report   @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId       String
+  reportVersion Int
+  channel       String
+  status        String
+  runId         String
+  externalId    String?
+  error         String?  @db.Text
+  sentAt        DateTime
+
+  @@index([reportId, sentAt], map: "ops_report_deliveries_report_idx")
+  @@index([spaceId], map: "ops_report_deliveries_space_idx")
+  @@map("ops_report_deliveries")
 }
 
 /// A change the restaurant agent proposes. A person in the space approves it
