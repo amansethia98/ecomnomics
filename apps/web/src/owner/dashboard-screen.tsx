@@ -15,11 +15,11 @@ import {
   formatCivilDay,
   formatCompactRupees,
   formatPct1,
-  resolveOwnerPlot,
 } from "@rakazo/contracts";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { NumberCard } from "./number-card";
+import { PlotFigure } from "./plot-figure";
 
 const KEYS = [
   "ops_sales_paise",
