@@ -122,41 +122,43 @@ export async function updateOwnerProfileForMember(
   const restaurant = await restaurantForMember(db, userId, restaurantId);
   if (!restaurant) missingRestaurant();
   await runAsTenant({ spaceId: restaurant.spaceId, userId }, async () => {
-    if (patch.ownerName !== undefined || patch.locale !== undefined) {
-      await db.user.update({
-        where: { id: userId },
-        data: {
-          ...(patch.ownerName !== undefined ? { name: patch.ownerName } : {}),
-          ...(patch.locale !== undefined ? { locale: patch.locale } : {}),
-        },
-      });
-    }
-    if (patch.restaurantName !== undefined) {
-      await db.restaurant.update({
-        where: { id: restaurant.id },
-        data: { name: patch.restaurantName },
-      });
-    }
     if (patch.outlets && patch.outlets.length > 0) {
       const known = await db.outlet.findMany({
         where: { restaurantId: restaurant.id, spaceId: restaurant.spaceId },
         select: { id: true },
       });
       const ids = new Set(known.map((outlet) => outlet.id));
-      for (const outlet of patch.outlets) {
-        if (!ids.has(outlet.id)) {
-          throw new RestaurantAgentError(
-            "unknown_outlet",
-            422,
-            "Outlet is not part of this restaurant.",
-          );
-        }
-        await db.outlet.update({
+      if (patch.outlets.some((outlet) => !ids.has(outlet.id))) {
+        throw new RestaurantAgentError(
+          "unknown_outlet",
+          422,
+          "Outlet is not part of this restaurant.",
+        );
+      }
+    }
+    await db.$transaction(async (tx) => {
+      if (patch.ownerName !== undefined || patch.locale !== undefined) {
+        await tx.user.update({
+          where: { id: userId },
+          data: {
+            ...(patch.ownerName !== undefined ? { name: patch.ownerName } : {}),
+            ...(patch.locale !== undefined ? { locale: patch.locale } : {}),
+          },
+        });
+      }
+      if (patch.restaurantName !== undefined) {
+        await tx.restaurant.update({
+          where: { id: restaurant.id },
+          data: { name: patch.restaurantName },
+        });
+      }
+      for (const outlet of patch.outlets ?? []) {
+        await tx.outlet.update({
           where: { id: outlet.id },
           data: { name: outlet.name, city: outlet.city },
         });
       }
-    }
+    });
   });
   return readOwnerProfileForMember(db, userId, restaurantId);
 }

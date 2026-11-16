@@ -177,6 +177,20 @@ describePostgres("owner profile read (PostgreSQL)", () => {
     });
   });
 
+  it("does not keep a name change when an outlet id is unknown", async () => {
+    const response = await routes.request(`/api/v1/restaurants/${restaurantA}/profile`, {
+      method: "PATCH",
+      headers: { authorization: `Bearer ${ids.a.user}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        restaurantName: "Should not stick",
+        outlets: [{ id: `missing-${suffix}`, name: "Nope", city: "Nope" }],
+      }),
+    });
+    expect(response.status).toBe(422);
+    const profile = await readOwnerProfileForMember(db, ids.a.user, restaurantA);
+    expect(profile.restaurant.name).toBe("Kesar Kitchen");
+  });
+
   it("saves a name and leaves the platform link alone", async () => {
     const response = await routes.request(`/api/v1/restaurants/${restaurantA}/profile`, {
       method: "PATCH",

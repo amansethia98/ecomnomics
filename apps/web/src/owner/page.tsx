@@ -1,8 +1,10 @@
 import { useLingui } from "@lingui/react/macro";
 import type { OwnerProfile, OwnerView } from "@rakazo/contracts";
 import { indiaCivilDate, parseOwnerView } from "@rakazo/contracts";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { setUiLocale } from "../lib/i18n";
+import { useDiscardGuard } from "./discard-guard";
 import type { OwnerScreenId } from "./frame";
 import { isOwnerScreen, OwnerFrame } from "./frame";
 import { MetricState } from "./marks";
@@ -63,19 +65,7 @@ export function OwnerPage() {
     };
   }, [restaurantId]);
 
-  const confirmLeave = useCallback(() => {
-    if (!dirty) return true;
-    return window.confirm(t`Leave without saving?`);
-  }, [dirty, t]);
-
-  useEffect(() => {
-    if (!dirty) return;
-    const onLeave = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-    };
-    window.addEventListener("beforeunload", onLeave);
-    return () => window.removeEventListener("beforeunload", onLeave);
-  }, [dirty]);
+  const confirmLeave = useDiscardGuard(dirty, t`Leave without saving?`);
 
   if (failed) {
     return <p className="p-8 text-body">{t`Couldn't open this restaurant.`}</p>;
@@ -133,6 +123,7 @@ export function OwnerPage() {
   const save = async (draft: ProfileDraft) => {
     setSaving(true);
     setSaveError(false);
+    const previousLocale = profile.owner.locale;
     try {
       const next = await ownerJson<OwnerProfile>(`/api/v1/restaurants/${restaurantId}/profile`, {
         method: "PATCH",
@@ -146,6 +137,9 @@ export function OwnerPage() {
       });
       setProfile(next);
       setDirty(false);
+      if (draft.locale !== previousLocale && (draft.locale === "en" || draft.locale === "hi")) {
+        await setUiLocale(draft.locale);
+      }
     } catch {
       setSaveError(true);
     } finally {

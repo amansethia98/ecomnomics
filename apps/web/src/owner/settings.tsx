@@ -80,6 +80,7 @@ export function SettingsProfile({
             <Input
               id={nameId}
               value={draft.ownerName}
+              disabled={saving}
               onChange={(event) => setDraft({ ...draft, ownerName: event.target.value })}
             />
           </label>
@@ -93,6 +94,7 @@ export function SettingsProfile({
               id={languageId}
               className="h-8 rounded-lg border border-input bg-background px-2"
               value={draft.locale}
+              disabled={saving}
               onChange={(event) =>
                 setDraft({ ...draft, locale: event.target.value === "hi" ? "hi" : "en" })
               }
@@ -113,6 +115,7 @@ export function SettingsProfile({
           <Input
             id={restaurantId}
             value={draft.restaurantName}
+            disabled={saving}
             onChange={(event) => setDraft({ ...draft, restaurantName: event.target.value })}
           />
         </label>
@@ -136,6 +139,7 @@ export function SettingsProfile({
                     <Input
                       id={`${outlet.id}-name`}
                       value={row?.name ?? outlet.name}
+                      disabled={saving}
                       onChange={(event) => setOutlet(outlet.id, { name: event.target.value })}
                     />
                   </label>
@@ -147,6 +151,7 @@ export function SettingsProfile({
                     <Input
                       id={`${outlet.id}-city`}
                       value={row?.city ?? outlet.city}
+                      disabled={saving}
                       onChange={(event) => setOutlet(outlet.id, { city: event.target.value })}
                     />
                   </label>
@@ -171,7 +176,7 @@ export function SettingsProfile({
 
       {dirty ? (
         <div className="flex justify-end gap-2">
-          <Button type="button" variant="outline" onClick={() => setDraft(saved)}>
+          <Button type="button" variant="outline" disabled={saving} onClick={() => setDraft(saved)}>
             {t`Cancel`}
           </Button>
           <Button type="submit" disabled={saving}>
