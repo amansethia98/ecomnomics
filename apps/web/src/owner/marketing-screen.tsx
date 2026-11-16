@@ -20,7 +20,11 @@ export function MarketingActionsScreen({
   if (screen.hero === "empty") {
     return (
       <div className="mx-auto max-w-3xl">
-        <p>{t`Your chief of staff will suggest your first action after a week of data.`}</p>
+        <p>
+          {screen.history
+            ? t`No marketing actions yet.`
+            : t`Your chief of staff will suggest your first action after a week of data.`}
+        </p>
         <Link className="text-primary" to={`/restaurants/${restaurantId}/chief-of-staff`}>
           {t`Ask chief of staff`}
         </Link>

@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { addIsoDays } from "./metric-dates.js";
+import { formatCivilDay } from "./ops/format.js";
 import type { OwnerPlot } from "./owner-dashboard.js";
 
 /** Questions one owner may ask in one Asia/Kolkata civil day. */
@@ -34,6 +35,7 @@ export interface StaffChartBlock {
 export interface StaffTextBlock {
   kind: "text";
   text: string;
+  heading?: boolean;
 }
 
 export type StaffBlock = StaffTextBlock | StaffMetricBlock | StaffChartBlock | StaffChoiceBlock;
@@ -131,6 +133,8 @@ export interface MarketingRow {
 
 export interface MarketingScreen {
   hero: "empty" | "waiting" | "result" | "open";
+  /** True when the readings already cover a week, so the empty state is not a wait for data. */
+  history: boolean;
   resultTitle: string | null;
   resultPaise: number | null;
   waiting: MarketingRow[];
@@ -163,6 +167,23 @@ export const MarketingConfirmSchema = z.object({
   done: z.boolean(),
 });
 
+/** Split a stored brief into chat blocks. Asterisks are headings, not visible marks. */
+export function briefBlocks(text: string): StaffTextBlock[] {
+  const dated = text.replace(/\b(\d{4}-\d{2}-\d{2})\b/g, (iso) => formatCivilDay(iso));
+  const blocks: StaffTextBlock[] = [];
+  for (const line of dated.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const heading = trimmed.match(/^\*+([^*]+)\*+$/) ?? trimmed.match(/^#{1,3}\s+(.+)$/);
+    if (heading?.[1]) {
+      blocks.push({ kind: "text", text: heading[1].trim(), heading: true });
+      continue;
+    }
+    blocks.push({ kind: "text", text: trimmed.replace(/\*([^*]+)\*/g, "$1") });
+  }
+  return blocks.length > 0 ? blocks : [{ kind: "text", text: dated.trim() }];
+}
+
 export function staffQuota(asked: number): StaffQuota {
   const used = Math.max(0, asked);
   const remaining = Math.max(0, STAFF_QUESTION_LIMIT - used);
@@ -187,7 +208,7 @@ export function composeStaffThread(input: {
         id: `brief-${input.brief.date}`,
         role: "brief",
         date: input.brief.date,
-        blocks: [{ kind: "text", text: input.brief.text }],
+        blocks: briefBlocks(input.brief.text),
         counted: false,
         failed: false,
       }
@@ -352,10 +373,12 @@ export function presentMarketing(input: {
   actions: readonly MarketingActionRecord[];
   readings: readonly MarketingReading[];
 }): MarketingScreen {
+  const history = salesHistory(input.readings);
   const visible = input.actions.filter((action) => action.decision !== "declined");
   if (visible.length === 0) {
     return {
       hero: "empty",
+      history,
       resultTitle: null,
       resultPaise: null,
       waiting: [],
@@ -378,12 +401,25 @@ export function presentMarketing(input: {
   );
   return {
     hero: waiting.length > 0 ? "waiting" : latest ? "result" : "open",
+    history,
     resultTitle: latest?.title ?? null,
     resultPaise: latest?.resultPaise ?? null,
     waiting: waiting.slice(0, 3),
     overflow: waiting.slice(3),
     rows: rest,
   };
+}
+
+function salesHistory(readings: readonly MarketingReading[]): boolean {
+  const dates = [
+    ...new Set(
+      readings.filter((reading) => reading.salesPaise != null).map((reading) => reading.date),
+    ),
+  ].sort();
+  const first = dates[0];
+  const last = dates.at(-1);
+  if (!first || !last) return false;
+  return last >= addIsoDays(first, 6);
 }
 
 function judge(
