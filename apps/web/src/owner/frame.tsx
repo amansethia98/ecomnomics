@@ -79,9 +79,9 @@ export function OwnerFrame({
     ratings: t`Ratings & reviews`,
   };
   const platforms = linkedPlatforms(profile);
-  const showPlatform = platforms.length > 1;
-  const showOutlets = profile.outlets.length > 1;
-  const showRange = screen !== "settings";
+  const showRange = screen === "dashboard";
+  const showPlatform = showRange && platforms.length > 1;
+  const showOutlets = profile.outlets.length > 1 && screen !== "settings";
   const base = `/restaurants/${restaurantId}`;
 
   const go = (next: OwnerView) => {
@@ -114,7 +114,7 @@ export function OwnerFrame({
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 md:px-8">
           <h1 className="text-heading3 font-medium">{labels[screen]}</h1>
-          {showRange ? (
+          {showOutlets || showRange ? (
             <div className="flex flex-wrap items-center gap-2">
               {showOutlets ? (
                 <select
@@ -131,33 +131,35 @@ export function OwnerFrame({
                   ))}
                 </select>
               ) : null}
-              <div className="flex rounded-lg bg-background p-0.5">
-                {(["7d", "4w", "12w", "custom"] as const).map((range) => (
-                  <Button
-                    key={range}
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    aria-pressed={view.range === range}
-                    className={view.range === range ? "bg-primary/10 text-primary" : undefined}
-                    onClick={() =>
-                      go(
-                        range === "custom"
-                          ? { ...view, range }
-                          : { ...view, range, ...ownerRangeBounds(range, today) },
-                      )
-                    }
-                  >
-                    {range === "7d"
-                      ? t`7D`
-                      : range === "4w"
-                        ? t`4W`
-                        : range === "12w"
-                          ? t`12W`
-                          : t`Custom`}
-                  </Button>
-                ))}
-              </div>
+              {showRange ? (
+                <div className="flex rounded-lg bg-background p-0.5">
+                  {(["7d", "4w", "12w", "custom"] as const).map((range) => (
+                    <Button
+                      key={range}
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      aria-pressed={view.range === range}
+                      className={view.range === range ? "bg-primary/10 text-primary" : undefined}
+                      onClick={() =>
+                        go(
+                          range === "custom"
+                            ? { ...view, range }
+                            : { ...view, range, ...ownerRangeBounds(range, today) },
+                        )
+                      }
+                    >
+                      {range === "7d"
+                        ? t`7D`
+                        : range === "4w"
+                          ? t`4W`
+                          : range === "12w"
+                            ? t`12W`
+                            : t`Custom`}
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
               {showPlatform ? (
                 <div className="flex rounded-lg bg-background p-0.5">
                   {(["both", "zomato", "swiggy"] as const).map((platform) => (

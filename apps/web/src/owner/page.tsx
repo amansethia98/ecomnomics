@@ -1,12 +1,14 @@
 import { useLingui } from "@lingui/react/macro";
-import type { OwnerProfile, OwnerView } from "@rakazo/contracts";
+import type { OwnerHomeModel, OwnerHomeQuestion, OwnerProfile, OwnerView } from "@rakazo/contracts";
 import { indiaCivilDate, parseOwnerView } from "@rakazo/contracts";
 import { useEffect, useState } from "react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { setUiLocale } from "../lib/i18n";
+import { OwnerDashboard } from "./dashboard-screen";
 import { useDiscardGuard } from "./discard-guard";
 import type { OwnerScreenId } from "./frame";
 import { isOwnerScreen, OwnerFrame } from "./frame";
+import { OwnerHomeScreen } from "./home-screen";
 import { MetricState } from "./marks";
 import "./owner.css";
 import type { ProfileDraft } from "./settings";
@@ -26,6 +28,7 @@ export function OwnerPage() {
   const { t } = useLingui();
   const { restaurantId, screen: screenParam } = useParams();
   const [params] = useSearchParams();
+  const search = params.toString();
   const navigate = useNavigate();
   const today = indiaCivilDate(new Date());
   const [restaurants, setRestaurants] = useState<RestaurantList | null>(null);
@@ -34,6 +37,8 @@ export function OwnerPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [home, setHome] = useState<OwnerHomeModel | null>(null);
+  const [homeTick, setHomeTick] = useState(0);
 
   useEffect(() => {
     let live = true;
@@ -64,6 +69,24 @@ export function OwnerPage() {
       live = false;
     };
   }, [restaurantId]);
+
+  useEffect(() => {
+    if (!restaurantId || screenParam !== "home") return;
+    let live = true;
+    setHome(null);
+    const outlet = new URLSearchParams(search).get("outlet");
+    const query = outlet && outlet !== "all" ? `?outletId=${encodeURIComponent(outlet)}` : "";
+    ownerJson<OwnerHomeModel>(`/api/v1/restaurants/${restaurantId}/home${query}`)
+      .then((next) => {
+        if (live) setHome(next);
+      })
+      .catch(() => {
+        if (live) setFailed(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [restaurantId, screenParam, search, homeTick]);
 
   const confirmLeave = useDiscardGuard(dirty, t`Leave without saving?`);
 
@@ -164,8 +187,38 @@ export function OwnerPage() {
             <p className="mt-3 text-body-sm text-destructive">{t`Couldn't save. Try again.`}</p>
           ) : null}
         </>
-      ) : profile.outlets.length === 0 && screen === "home" ? (
-        <MetricState kind="empty" />
+      ) : screen === "home" ? (
+        profile.outlets.length === 0 ? (
+          <MetricState kind="empty" />
+        ) : home ? (
+          <OwnerHomeScreen
+            restaurantId={restaurantId}
+            restaurantName={profile.restaurant.name}
+            home={home}
+            onSnooze={(ids, days) => {
+              void Promise.all(
+                ids.map((id) =>
+                  ownerJson(`/api/v1/restaurants/${restaurantId}/ops/alerts/${id}/snooze`, {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ days }),
+                  }),
+                ),
+              ).then(() => setHomeTick((value) => value + 1));
+            }}
+            onAnswer={(question: OwnerHomeQuestion, status) => {
+              void ownerJson(`/api/v1/restaurants/${restaurantId}/outlet-days`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ outletId: question.outletId, date: question.date, status }),
+              }).then(() => setHomeTick((value) => value + 1));
+            }}
+          />
+        ) : (
+          <p className="text-muted-foreground">{t`Loading`}</p>
+        )
+      ) : screen === "dashboard" ? (
+        <OwnerDashboard restaurantId={restaurantId} view={view} today={today} />
       ) : (
         <Placeholder />
       )}
