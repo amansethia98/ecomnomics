@@ -109,6 +109,16 @@ describe("apiProxy", () => {
     ]);
   });
 
+  it("forwards the platform admin API and leaves the web app's admin pages in place", async () => {
+    const { target } = await startApi();
+    const port = await startPreview(target);
+
+    const api = await fetch(`http://127.0.0.1:${port}/admin/v1/restaurants`);
+    expect(await api.text()).toContain("x-forwarded-for");
+    const page = await fetch(`http://127.0.0.1:${port}/admin/access`);
+    expect(await page.text()).toContain("<!doctype html>");
+  });
+
   it("appends the hop it saw to an API request's forwarded address", async () => {
     const { target } = await startApi();
     const port = await startPreview(target);
