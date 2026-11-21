@@ -14,6 +14,7 @@ import {
   dashReadingState,
   formatCompactRupees,
   formatPct1,
+  resolveOwnerPlot,
 } from "@rakazo/contracts";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -136,7 +137,7 @@ export function OwnerDashboard({
       <section className="owner-panel flex flex-col gap-2 p-3">
         <p className="text-body-sm text-muted-foreground">{t`Each app on its own scale so the direction is clear`}</p>
         {plots
-          .filter((plot) => plot.id.startsWith("sales-"))
+          .filter((plot) => plot.id === "sales")
           .map((plot) => (
             <PlotFigure key={plot.id} plot={plot} />
           ))}
@@ -318,7 +319,7 @@ function PlotFigure({ plot }: { plot: OwnerPlot }) {
       if (!live || !host.current) return;
       host.current.replaceChildren();
       try {
-        const markup = renderPlotSpecToSvg(plot, undefined, document);
+        const markup = renderPlotSpecToSvg(resolveOwnerPlot(plot), undefined, document);
         const svg = new DOMParser().parseFromString(markup, "image/svg+xml").documentElement;
         if (svg.nodeName.toLowerCase() !== "svg") {
           console.error("owner plot did not return an svg", plot.id);

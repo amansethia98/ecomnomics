@@ -171,7 +171,13 @@ export function nextThursday(today: string): string {
 
 export function composeOwnerHome(input: OwnerHomeInput): OwnerHomeModel {
   const morning = istMorning(input.today);
-  const ranked = rankHomeAlerts(input.alerts, morning, input.now);
+  const anchor =
+    input.brief?.form === "no_data"
+      ? addDays(input.today, -1)
+      : (input.brief?.date ?? addDays(input.today, -1));
+  const windowDate = input.brief?.form === "no_data" ? anchor : addDays(anchor, -1);
+  const currentAlerts = input.alerts.filter((alert) => alert.date >= windowDate);
+  const ranked = rankHomeAlerts(currentAlerts, morning, input.now);
   const urgent = ranked.filter((item) => item.severity === "act_now").length;
   const watch = ranked.filter((item) => item.severity === "watch").length;
   const card = ranked[0] ?? null;

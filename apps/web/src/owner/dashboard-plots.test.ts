@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { DashReading, OwnerDashboardInput, OwnerPlot } from "@rakazo/contracts";
-import { composeOwnerDashboard, dashboardPlots } from "@rakazo/contracts";
+import { composeOwnerDashboard, dashboardPlots, resolveOwnerPlot } from "@rakazo/contracts";
 import { renderPlotSpecToSvg } from "@rakazo/core/plot";
 import { expect, it } from "vitest";
 
@@ -84,21 +84,21 @@ function view(over: Partial<OwnerDashboardInput>): OwnerDashboardInput {
 }
 
 function draw(plot: OwnerPlot): string {
-  return renderPlotSpecToSvg(plot, undefined, document);
+  return renderPlotSpecToSvg(resolveOwnerPlot(plot), undefined, document);
 }
 
 it("draws the sales lines and the weekday heatmap when one platform lags a day", () => {
   for (const input of [view({}), view({ range: "custom", from: "2026-10-18", to: "2026-11-17" })]) {
     const plots = dashboardPlots(composeOwnerDashboard(input));
-    for (const id of ["sales-zomato", "sales-swiggy", "heatmap"]) {
+    for (const id of ["sales", "heatmap"]) {
       const plot = plots.find((item) => item.id === id);
       expect(plot, id).toBeTruthy();
       const svg = draw(plot!);
       expect(svg.startsWith("<svg"), id).toBe(true);
       expect(svg.length, id).toBeGreaterThan(100);
     }
-    const sales = plots.find((item) => item.id === "sales-zomato");
-    const ticks = ((sales?.x?.ticks as Date[] | undefined) ?? []).map((tick) =>
+    const sales = resolveOwnerPlot(plots.find((item) => item.id === "sales")!);
+    const ticks = ((sales.x?.ticks as Date[] | undefined) ?? []).map((tick) =>
       tick.toISOString().slice(0, 10),
     );
     expect(ticks.every((tick) => tick <= "2026-11-16")).toBe(true);

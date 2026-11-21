@@ -89,6 +89,9 @@ export function OwnerHomeScreen({
             ) : null}
           </div>
           <h3 className="mt-3 text-heading3 font-medium">{home.card.text}</h3>
+          {home.card.detail ? (
+            <p className="mt-1 text-body-sm text-muted-foreground">{home.card.detail}</p>
+          ) : null}
           {home.card.impactPaise > 0 ? (
             <p className="owner-change-down mt-2 text-heading3 font-medium">
               {formatRupees(home.card.impactPaise)} {t`in sales`}
