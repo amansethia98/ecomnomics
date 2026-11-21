@@ -83,7 +83,7 @@ it("asks for a licence date and reminds inside seven days", () => {
     />,
   );
   expect(empty.querySelector("input[type='date']")).not.toBeNull();
-  expect(empty.textContent).toContain("No reports yet.");
+  expect(empty.textContent).toContain("Your first brief arrives tomorrow at 9:00 AM.");
   document.body.replaceChildren();
 
   const due = render(
@@ -110,6 +110,16 @@ it("asks for a licence date and reminds inside seven days", () => {
     />,
   );
   expect(due.textContent).toContain("Your FSSAI licence expires on Mon 16 Nov.");
+  document.body.replaceChildren();
+  const current = render(
+    <DocumentsScreen
+      screen={{ ...screen, reference: "LIC-1", expiresOn: "2027-11-16" }}
+      saving={false}
+      onSave={() => undefined}
+      onDirty={() => undefined}
+    />,
+  );
+  expect(current.textContent).toContain("All documents up to date.");
   expect(due.textContent).toContain("Weekly review");
   expect(due.querySelector("input[type='file']")).toBeNull();
 });
@@ -119,9 +129,13 @@ it("says menu editing is coming soon and names a missing app", () => {
     editing: false,
     missingCount: 1,
     rows: [{ name: "Soup", platforms: ["zomato"], revenuePaise: 5_000, missingApp: true }],
+    swiggy: { score: null, photoPct: 80, descriptionPct: 0, top5RevenuePaise: 12_000 },
   };
   const host = render(<MenuScreen screen={menu} />);
   expect(host.textContent).toContain("Menu editing is coming soon.");
+  expect(host.textContent).toContain("Not in reports");
+  expect(host.textContent).toContain("80%");
+  expect(host.textContent).toContain("0%");
   expect(host.textContent).toContain("1 item not on one app");
   expect(host.textContent).toContain("Soup");
   expect(host.querySelector("button")).toBeNull();
@@ -132,6 +146,22 @@ it("copies a review reply and does not post it", () => {
   Object.assign(navigator, { clipboard: { writeText: write } });
   const screen: OwnerRatings = {
     rating: 4.2,
+    apps: [
+      {
+        platform: "zomato",
+        rating: 4.2,
+        ratingState: "ok",
+        poorRatedOrders: 0,
+        complaints: [{ id: "complaints_missing", label: "Missing items", count: null }],
+      },
+      {
+        platform: "swiggy",
+        rating: null,
+        ratingState: "not_in_report",
+        poorRatedOrders: 2,
+        complaints: [{ id: "complaints_missing", label: "Missing items", count: 1 }],
+      },
+    ],
     reviews: [
       {
         id: "rev-1",
@@ -149,6 +179,8 @@ it("copies a review reply and does not post it", () => {
   );
   expect(button).toBeTruthy();
   expect(host.textContent).not.toContain("Post");
+  expect(host.textContent).toContain("Not in Swiggy's reports yet");
+  expect(host.textContent).toContain("Review replies are coming soon.");
   act(() => {
     button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });

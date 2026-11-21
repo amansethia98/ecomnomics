@@ -74,11 +74,20 @@ export interface OwnerMenuRow {
   missingApp: boolean;
 }
 
+export interface OwnerMenuFacts {
+  score: number | null;
+  photoPct: number | null;
+  descriptionPct: number | null;
+  top5RevenuePaise: number | null;
+}
+
 export interface OwnerMenu {
   /** Editing is not part of this screen. */
   editing: false;
   rows: OwnerMenuRow[];
   missingCount: number;
+  /** Swiggy menu facts. Null when this restaurant has no Swiggy menu readings. */
+  swiggy: OwnerMenuFacts | null;
 }
 
 export interface OwnerReview {
@@ -91,9 +100,19 @@ export interface OwnerReview {
   date: string;
 }
 
+export interface OwnerRatingApp {
+  platform: "zomato" | "swiggy";
+  rating: number | null;
+  /** Swiggy's rating is not in its reports. */
+  ratingState: "ok" | "not_in_report";
+  poorRatedOrders: number | null;
+  complaints: Array<{ id: string; label: string; count: number | null }>;
+}
+
 export interface OwnerRatings {
   rating: number | null;
   reviews: OwnerReview[];
+  apps: OwnerRatingApp[];
 }
 
 export interface OwnerReportArchiveItem {
@@ -212,6 +231,7 @@ export function composeOwnerMenu(
     platform: "zomato" | "swiggy";
     revenuePaise: number;
   }>,
+  swiggy: OwnerMenuFacts | null = null,
 ): OwnerMenu {
   const apps = new Set(items.map((item) => item.platform));
   const byName = new Map<string, OwnerMenuRow>();
@@ -240,18 +260,51 @@ export function composeOwnerMenu(
     editing: false,
     rows,
     missingCount: rows.filter((row) => row.missingApp).length,
+    swiggy,
   };
 }
+
+const COMPLAINTS = [
+  ["complaints_missing", "Missing items"],
+  ["complaints_quality", "Poor quality"],
+  ["complaints_packaging", "Packaging"],
+  ["complaints_wrong", "Wrong items"],
+] as const;
 
 export function composeOwnerRatings(input: {
   rating: number | null;
   reviews: readonly OwnerReview[];
+  apps?: ReadonlyArray<{
+    platform: "zomato" | "swiggy";
+    rating?: number | null;
+    poorRatedOrders?: number | null;
+    complaints?: Readonly<Record<string, number | null>>;
+  }>;
 }): OwnerRatings {
+  const supplied = new Map((input.apps ?? []).map((app) => [app.platform, app]));
+  const apps: OwnerRatingApp[] = (["zomato", "swiggy"] as const).map((platform) => {
+    const app = supplied.get(platform);
+    const rating =
+      platform === "swiggy" ? null : app ? (app.rating ?? null) : (input.rating ?? null);
+    return {
+      platform,
+      rating,
+      ratingState:
+        platform === "swiggy" ? "not_in_report" : rating == null ? "not_in_report" : "ok",
+      poorRatedOrders: app?.poorRatedOrders ?? null,
+      complaints: COMPLAINTS.map(([id, label]) => ({
+        id,
+        label,
+        count: app?.complaints?.[id] ?? null,
+      })),
+    };
+  });
   return {
-    rating: input.rating,
+    rating: apps[0]?.rating ?? null,
     reviews: [...input.reviews].sort(
       (left, right) => right.date.localeCompare(left.date) || left.id.localeCompare(right.id),
     ),
+    apps,
   };
 }
 

@@ -122,6 +122,15 @@ describe("owner menu and ratings", () => {
     expect(menu.missingCount).toBe(1);
     expect(menu.rows[0]).toMatchObject({ name: "Thali", revenuePaise: 60_000, missingApp: false });
     expect(menu.rows[1]).toMatchObject({ name: "Soup", missingApp: true });
+    expect(menu.swiggy).toBeNull();
+    const withFacts = composeOwnerMenu([], {
+      score: null,
+      photoPct: 0,
+      descriptionPct: 40,
+      top5RevenuePaise: 12_000,
+    });
+    expect(withFacts.swiggy?.photoPct).toBe(0);
+    expect(withFacts.swiggy?.score).toBeNull();
   });
 
   it("keeps a review reply as text and never a post", () => {
@@ -140,5 +149,28 @@ describe("owner menu and ratings", () => {
     });
     expect(screen.reviews[0]?.reply).toBe("Thank you, we will keep it hot.");
     expect(screen.reviews[0]).not.toHaveProperty("post");
+    const swiggy = screen.apps.find((app) => app.platform === "swiggy");
+    expect(swiggy?.rating).toBeNull();
+    expect(swiggy?.ratingState).toBe("not_in_report");
+    const told = composeOwnerRatings({
+      rating: 9,
+      reviews: [],
+      apps: [
+        {
+          platform: "swiggy",
+          rating: 9,
+          poorRatedOrders: 0,
+          complaints: { complaints_missing: 0 },
+        },
+      ],
+    });
+    expect(told.apps.find((app) => app.platform === "swiggy")).toMatchObject({
+      rating: null,
+      ratingState: "not_in_report",
+      poorRatedOrders: 0,
+    });
+    expect(told.apps.find((app) => app.platform === "swiggy")?.complaints[0]).toMatchObject({
+      count: 0,
+    });
   });
 });

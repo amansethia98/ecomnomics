@@ -218,7 +218,8 @@ export async function readMenuForMember(
       select: { outletId: true, platform: true, periodEnd: true },
     });
     const windows = latestMenuWindows(stamps);
-    if (windows.length === 0) return composeOwnerMenu([]);
+    const swiggy = await swiggyMenuFacts(db, restaurant, outletId);
+    if (windows.length === 0) return composeOwnerMenu([], swiggy);
     const items = await db.platformWindowItem.findMany({
       where: {
         restaurantId,
@@ -237,6 +238,7 @@ export async function readMenuForMember(
         if (!platform) return [];
         return [{ name: item.itemName, platform, revenuePaise: item.revenuePaise }];
       }),
+      swiggy,
     );
   });
 }
@@ -249,25 +251,81 @@ export async function readRatingsForMember(
 ) {
   const restaurant = await memberRestaurant(db, userId, restaurantId);
   return runAsTenant({ spaceId: restaurant.spaceId, userId }, async () => {
-    const row = await db.metricValue.findFirst({
-      where: {
-        restaurantId,
-        spaceId: restaurant.spaceId,
-        key: "rating",
-        state: "ok",
-        supersededAt: null,
-        rowRole: "fact",
-        platform: "zomato",
-        ...(outletId ? { outletId } : {}),
-      },
-      orderBy: { periodStart: "desc" },
-      select: { value: true },
+    const keys = ["rating", "poor_rated_orders", ...COMPLAINT_KEYS];
+    const facts = await latestFacts(db, restaurant, keys, outletId);
+    const app = (platform: "zomato" | "swiggy") => ({
+      platform,
+      rating: facts.get(`${platform}|rating`) ?? null,
+      poorRatedOrders: facts.get(`${platform}|poor_rated_orders`) ?? null,
+      complaints: Object.fromEntries(
+        COMPLAINT_KEYS.map((key) => [key, facts.get(`${platform}|${key}`) ?? null]),
+      ),
     });
     return composeOwnerRatings({
-      rating: row?.value == null ? null : Number(row.value),
+      rating: facts.get("zomato|rating") ?? null,
       reviews: [],
+      apps: [app("zomato"), app("swiggy")],
     });
   });
+}
+
+const MENU_FACT_KEYS = [
+  "menu_score",
+  "menu_photo_pct",
+  "menu_desc_pct",
+  "top5_items_revenue_paise",
+] as const;
+
+const COMPLAINT_KEYS = [
+  "complaints_missing",
+  "complaints_quality",
+  "complaints_packaging",
+  "complaints_wrong",
+] as const;
+
+async function swiggyMenuFacts(
+  db: PrismaClient,
+  restaurant: { restaurantId: string; spaceId: string },
+  outletId: string | undefined,
+) {
+  const facts = await latestFacts(db, restaurant, MENU_FACT_KEYS, outletId);
+  const present = MENU_FACT_KEYS.some((key) => facts.has(`swiggy|${key}`));
+  if (!present) return null;
+  return {
+    score: facts.get("swiggy|menu_score") ?? null,
+    photoPct: facts.get("swiggy|menu_photo_pct") ?? null,
+    descriptionPct: facts.get("swiggy|menu_desc_pct") ?? null,
+    top5RevenuePaise: facts.get("swiggy|top5_items_revenue_paise") ?? null,
+  };
+}
+
+async function latestFacts(
+  db: PrismaClient,
+  restaurant: { restaurantId: string; spaceId: string },
+  keys: readonly string[],
+  outletId: string | undefined,
+) {
+  const rows = await db.metricValue.findMany({
+    where: {
+      restaurantId: restaurant.restaurantId,
+      spaceId: restaurant.spaceId,
+      key: { in: [...keys] },
+      state: "ok",
+      supersededAt: null,
+      rowRole: "fact",
+      ...(outletId ? { outletId } : {}),
+    },
+    orderBy: { periodStart: "desc" },
+    select: { key: true, platform: true, value: true },
+    take: 400,
+  });
+  const kept = new Map<string, number | null>();
+  for (const row of rows) {
+    const id = `${row.platform}|${row.key}`;
+    if (kept.has(id)) continue;
+    kept.set(id, row.value == null ? null : Number(row.value));
+  }
+  return kept;
 }
 
 /** The newest menu window for each outlet and app. A later window on one app does not drop the other. */

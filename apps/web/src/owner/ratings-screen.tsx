@@ -7,9 +7,36 @@ export function RatingsScreen({ screen }: { screen: OwnerRatings }) {
   const { t } = useLingui();
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
-      {screen.rating != null ? (
-        <p className="text-heading2 font-medium">{screen.rating.toFixed(2)}</p>
-      ) : null}
+      <p>{t`Review replies are coming soon.`}</p>
+      {(screen.apps ?? []).map((app) => (
+        <section key={app.platform}>
+          <p className="flex items-center gap-2 font-medium">
+            <PlatformDot platform={app.platform} />
+            {app.ratingState === "not_in_report" ? (
+              <span className="text-body-sm font-normal text-muted-foreground">
+                {app.platform === "swiggy" ? t`Not in Swiggy's reports yet` : t`Not in reports`}
+              </span>
+            ) : (
+              <span>{app.rating?.toFixed(2)}</span>
+            )}
+          </p>
+          <p className="text-body-sm text-muted-foreground">
+            {t`Poorly rated orders`}{" "}
+            {app.poorRatedOrders == null ? t`Not in reports` : String(app.poorRatedOrders)}
+          </p>
+          <ul>
+            {app.complaints.map((row) => (
+              <li
+                key={row.id}
+                className="flex justify-between border-t border-border py-1 text-body-sm"
+              >
+                <span>{row.label}</span>
+                <span>{row.count == null ? "—" : String(row.count)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
       {screen.reviews.length === 0 ? (
         <p>{t`No reviews are in yet.`}</p>
       ) : (

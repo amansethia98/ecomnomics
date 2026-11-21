@@ -68,8 +68,8 @@ function payload(url: string): unknown {
       reports: [],
     };
   }
-  if (url.includes("/menu")) return { editing: false, missingCount: 0, rows: [] };
-  return { rating: null, reviews: [] };
+  if (url.includes("/menu")) return { editing: false, missingCount: 0, rows: [], swiggy: null };
+  return { rating: null, reviews: [], apps: [] };
 }
 
 afterEach(() => {
@@ -94,7 +94,7 @@ it("opens payments, documents, menu, and ratings from their routes", async () =>
   document.body.append(host);
   for (const [path, copy] of [
     ["/restaurants/r1/payments", "Check runs Thursday"],
-    ["/restaurants/r1/documents", "No reports yet."],
+    ["/restaurants/r1/documents", "Your first brief arrives tomorrow at 9:00 AM."],
     ["/restaurants/r1/menu", "Menu editing is coming soon."],
     ["/restaurants/r1/ratings", "No reviews are in yet."],
   ] as const) {
