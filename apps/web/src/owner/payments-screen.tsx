@@ -17,8 +17,9 @@ export function PaymentsScreen({
   const { t } = useLingui();
   const [open, setOpen] = useState(false);
   if (screen.payouts.length === 0) {
-    return <p>{t`No payout is in yet.`}</p>;
+    return <p>{t`This week's payout file isn't out yet (usually Thursday morning).`}</p>;
   }
+  const selected = screen.payouts.find((payout) => payout.id === screen.selectedId) ?? null;
   const visible = open ? screen.orders : screen.orders.slice(0, ORDER_FOLD);
   const hidden = Math.max(0, screen.orders.length - ORDER_FOLD);
   return (
@@ -49,10 +50,25 @@ export function PaymentsScreen({
           </li>
         ))}
       </ul>
-      {screen.plot ? (
+      {selected?.netPayoutPaise != null ? (
+        <p className="text-heading2 font-medium">
+          {selected.platform === "zomato"
+            ? t`${formatRupees(selected.netPayoutPaise)} paid to your bank (per Zomato)`
+            : t`${formatRupees(selected.netPayoutPaise)} paid to your bank (per Swiggy)`}
+        </p>
+      ) : null}
+      {screen.deductions.length > 0 ? (
         <section>
           <h2 className="text-label text-muted-foreground">{t`Where the money went`}</h2>
-          <PlotFigure plot={screen.plot} />
+          <ul>
+            {screen.deductions.map((row) => (
+              <li key={row.id} className="flex justify-between border-t border-border py-2">
+                <span>{row.label}</span>
+                <span>{formatRupees(row.paise)}</span>
+              </li>
+            ))}
+          </ul>
+          {screen.plot ? <PlotFigure plot={screen.plot} /> : null}
         </section>
       ) : null}
       {screen.orders.length > 0 ? (

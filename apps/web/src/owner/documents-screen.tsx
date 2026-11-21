@@ -41,13 +41,15 @@ export function DocumentsScreen({
   }, [reference, expiresOn, gstin, screen, onDirty]);
 
   const reminder =
-    screen.reminder === "expired"
-      ? t`Your FSSAI licence has expired.`
+    screen.reminder === "expired" && screen.expiresOn
+      ? t`FSSAI licence expired on ${formatCivilDay(screen.expiresOn)}.`
       : screen.reminder === "7" && screen.daysLeft === 0
         ? t`Your FSSAI licence expires today.`
         : screen.reminder != null && screen.expiresOn
           ? t`Your FSSAI licence expires on ${formatCivilDay(screen.expiresOn)}.`
-          : null;
+          : screen.expiresOn
+            ? t`All documents up to date.`
+            : null;
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-8">
@@ -123,7 +125,7 @@ export function DocumentsScreen({
       <section>
         <h2 className="text-label text-muted-foreground">{t`Reports`}</h2>
         {screen.reports.length === 0 ? (
-          <p className="mt-2">{t`No reports yet.`}</p>
+          <p className="mt-2">{t`Your first brief arrives tomorrow at 9:00 AM.`}</p>
         ) : (
           <ul>
             {screen.reports.map((report) => (
