@@ -21,12 +21,14 @@ export function OwnerHomeScreen({
   home,
   onSnooze,
   onAnswer,
+  readOnly = false,
 }: {
   restaurantId: string;
   restaurantName: string;
   home: OwnerHomeModel;
   onSnooze: (ids: string[], days: 1 | 3 | 7) => void;
   onAnswer: (question: OwnerHomeQuestion, status: "closed" | "not_sure") => void;
+  readOnly?: boolean;
 }) {
   const { t } = useLingui();
   const [open, setOpen] = useState(false);
@@ -115,7 +117,9 @@ export function OwnerHomeScreen({
             >
               {t`Ask chief of staff`}
             </Link>
-            {home.card.canSnooze ? <Snooze ids={home.card.ids} onSnooze={onSnooze} /> : null}
+            {home.card.canSnooze && !readOnly ? (
+              <Snooze ids={home.card.ids} onSnooze={onSnooze} />
+            ) : null}
           </div>
           {fix ? <p className="mt-3 text-body-sm">{home.card.fix}</p> : null}
         </article>
@@ -191,7 +195,7 @@ export function OwnerHomeScreen({
                 ? groupedHomeRows([...home.rows, ...home.overflow]).flatMap((group) => group.items)
                 : home.rows
               ).map((item) => (
-                <Row key={item.ids.join("-")} item={item} onSnooze={onSnooze} />
+                <Row key={item.ids.join("-")} item={item} onSnooze={onSnooze} readOnly={readOnly} />
               ))}
             </ul>
             <div className="flex items-center justify-between gap-3 border-t border-border py-3">
@@ -228,22 +232,24 @@ export function OwnerHomeScreen({
                     {t`If not, the app may not have updated yet. We'll check again for 2 days.`}
                   </p>
                 </div>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => onAnswer(question, "closed")}
-                  >
-                    {t`Yes, closed`}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => onAnswer(question, "not_sure")}
-                  >
-                    {t`Not sure`}
-                  </Button>
-                </div>
+                {readOnly ? null : (
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => onAnswer(question, "closed")}
+                    >
+                      {t`Yes, closed`}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => onAnswer(question, "not_sure")}
+                    >
+                      {t`Not sure`}
+                    </Button>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
@@ -364,9 +370,11 @@ function HeadlineNumber({
 function Row({
   item,
   onSnooze,
+  readOnly = false,
 }: {
   item: OwnerHomeItem;
   onSnooze: (ids: string[], days: 1 | 3 | 7) => void;
+  readOnly?: boolean;
 }) {
   return (
     <li className="flex items-center gap-3 py-3">
@@ -386,7 +394,7 @@ function Row({
           <span className="block text-body-sm text-muted-foreground">{item.detail}</span>
         ) : null}
       </span>
-      {item.canSnooze ? <Snooze ids={item.ids} onSnooze={onSnooze} /> : null}
+      {item.canSnooze && !readOnly ? <Snooze ids={item.ids} onSnooze={onSnooze} /> : null}
       <span className="text-muted-foreground" aria-hidden="true">
         ›
       </span>

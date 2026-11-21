@@ -12,11 +12,13 @@ export function MarketingActionsScreen({
   screen,
   onConfirm,
   onDecide,
+  readOnly = false,
 }: {
   restaurantId: string;
   screen: MarketingScreen;
   onConfirm: (actionId: string, done: boolean) => void;
   onDecide?: (actionId: string, choice: "approve" | "not_now") => void;
+  readOnly?: boolean;
 }) {
   const { t } = useLingui();
   const [stage, setStage] = useState<Stage>("all");
@@ -68,18 +70,20 @@ export function MarketingActionsScreen({
                   {t`Most it can cost ${formatRupees(row.maxCostPaise)} a week`}
                 </p>
               ) : null}
-              <div className="mt-3 flex gap-2">
-                <Button type="button" onClick={() => onDecide?.(row.id, "approve")}>
-                  {t`Approve`}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => onDecide?.(row.id, "not_now")}
-                >
-                  {t`Not now`}
-                </Button>
-              </div>
+              {readOnly ? null : (
+                <div className="mt-3 flex gap-2">
+                  <Button type="button" onClick={() => onDecide?.(row.id, "approve")}>
+                    {t`Approve`}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => onDecide?.(row.id, "not_now")}
+                  >
+                    {t`Not now`}
+                  </Button>
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -125,7 +129,7 @@ export function MarketingActionsScreen({
                 <td className="py-3">
                   <p className="font-medium">{row.title}</p>
                   <p className="text-muted-foreground">{row.detail}</p>
-                  {row.display === "not_seen" ? (
+                  {row.display === "not_seen" && !readOnly ? (
                     <div className="mt-2 flex items-center gap-2">
                       <p>{t`Did you switch it on?`}</p>
                       <Button

@@ -22,6 +22,45 @@ export interface AdminRestaurantInput {
   runs: readonly AdminRun[];
 }
 
+export interface AdminRestaurantRow {
+  restaurantId: string;
+  name: string;
+  paused: boolean;
+  outlets: number;
+  zomato: "connected" | "not_connected";
+  swiggy: "connected" | "not_connected";
+  run: "in_progress" | "done" | "not_started" | "failed" | "paused";
+  /** Civil date of the latest finished run. Null when none has finished. */
+  lastDownload: string | null;
+  costPaise: number | null;
+}
+
+export type AdminRestaurantFilter = "all" | "attention" | "paused";
+
+export function restaurantNeedsAttention(row: AdminRestaurantRow): boolean {
+  return (
+    row.paused ||
+    row.run === "failed" ||
+    row.run === "not_started" ||
+    row.zomato === "not_connected" ||
+    row.swiggy === "not_connected"
+  );
+}
+
+export function filterAdminRestaurants(
+  rows: readonly AdminRestaurantRow[],
+  query: string,
+  filter: AdminRestaurantFilter,
+): AdminRestaurantRow[] {
+  const needle = query.trim().toLowerCase();
+  return rows.filter((row) => {
+    if (needle && !row.name.toLowerCase().includes(needle)) return false;
+    if (filter === "paused") return row.paused;
+    if (filter === "attention") return restaurantNeedsAttention(row);
+    return true;
+  });
+}
+
 export interface AdminOwnerView {
   restaurantId: string;
   name: string;
@@ -36,7 +75,7 @@ export interface AdminPanel {
     restaurant: string;
     state: "in_progress" | "done" | "not_started" | "failed" | "paused";
   }>;
-  restaurants: Array<{ restaurantId: string; name: string; paused: boolean }>;
+  restaurants: AdminRestaurantRow[];
   connections: Array<{
     restaurant: string;
     outlet: string;
@@ -148,6 +187,12 @@ export function composeAdminPanel(input: {
       restaurantId: row.restaurant.restaurantId,
       name: row.restaurant.name,
       paused: paused(row.restaurant),
+      outlets: row.restaurant.outlets.filter((outlet) => outlet.active).length,
+      zomato: platformState(row.restaurant.outlets, "zomato"),
+      swiggy: platformState(row.restaurant.outlets, "swiggy"),
+      run: runState(row.latest, paused(row.restaurant)),
+      lastDownload: lastDownload(row.restaurant.runs),
+      costPaise: runCost(row.restaurant.runs),
     })),
     connections: rows.flatMap((row) =>
       row.restaurant.outlets
@@ -167,6 +212,28 @@ export function composeAdminPanel(input: {
 
 function rulesLine(openFindings: number): string {
   return openFindings === 0 ? "No rule placeholders left." : `${openFindings} need a person`;
+}
+
+function platformState(
+  outlets: readonly AdminOutlet[],
+  platform: "zomato" | "swiggy",
+): "connected" | "not_connected" {
+  return outlets.some((outlet) => outlet.active && outlet[platform] === "connected")
+    ? "connected"
+    : "not_connected";
+}
+
+function lastDownload(runs: readonly AdminRun[]): string | null {
+  const finished = [...runs]
+    .filter((run) => run.endedAt != null)
+    .sort((left, right) => (right.endedAt ?? "").localeCompare(left.endedAt ?? ""));
+  return finished[0]?.endedAt?.slice(0, 10) ?? null;
+}
+
+function runCost(runs: readonly AdminRun[]): number | null {
+  const known = runs.flatMap((run) => (run.costPaise == null ? [] : [run.costPaise]));
+  if (known.length === 0) return null;
+  return known.reduce((sum, value) => sum + value, 0);
 }
 
 function paused(restaurant: AdminRestaurantInput): boolean {

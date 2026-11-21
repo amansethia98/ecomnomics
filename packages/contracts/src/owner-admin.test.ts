@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { composeAdminPanel, ownerViewFromRestaurant, panelFromAdminRows } from "./owner-admin.js";
+import {
+  composeAdminPanel,
+  filterAdminRestaurants,
+  ownerViewFromRestaurant,
+  panelFromAdminRows,
+} from "./owner-admin.js";
 
 const outlet = {
   name: "HSR",
@@ -65,6 +70,17 @@ describe("platform admin panel", () => {
       restaurants: [{ restaurantId: "r1", name: "Sample", outlets: [outlet], runs: [] }],
     });
     expect(panel.health).toBe("Last night's run didn't start");
+    expect(panel.restaurants[0]).toMatchObject({
+      zomato: "connected",
+      swiggy: "not_connected",
+      run: "not_started",
+      lastDownload: null,
+      costPaise: null,
+    });
+    expect(
+      filterAdminRestaurants(panel.restaurants, "sam", "attention").map((row) => row.name),
+    ).toEqual(["Sample"]);
+    expect(filterAdminRestaurants(panel.restaurants, "other", "all")).toEqual([]);
     expect(panel.rules).toBe("2 need a person");
     expect(panel.costsPaise).toBeNull();
   });

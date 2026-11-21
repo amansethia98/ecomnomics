@@ -19,12 +19,14 @@ export function StaffScreen({
   notice,
   onAsk,
   onChoose,
+  readOnly = false,
 }: {
   restaurantId: string;
   thread: StaffThread;
   notice?: string | null;
   onAsk: (text: string, key: string) => void;
   onChoose: (actionId: string, choice: "approve" | "change" | "not_now") => void;
+  readOnly?: boolean;
 }) {
   const { t } = useLingui();
   const [text, setText] = useState("");
@@ -67,10 +69,15 @@ export function StaffScreen({
               {formatCivilDay(message.date)}
             </p>
           ) : null}
-          <Message message={message} restaurantId={restaurantId} onChoose={onChoose} />
+          <Message
+            message={message}
+            restaurantId={restaurantId}
+            onChoose={onChoose}
+            readOnly={readOnly}
+          />
         </div>
       ))}
-      {thread.starters.length > 0 ? (
+      {thread.starters.length > 0 && !readOnly ? (
         <div className="flex flex-wrap gap-2">
           {thread.starters.map((starter) => (
             <button
@@ -90,6 +97,7 @@ export function StaffScreen({
           {t`${thread.quota.remaining} of ${STAFF_QUESTION_LIMIT} questions left today`}
         </p>
       ) : null}
+      {readOnly ? null : (
       <form
         className="flex items-center gap-2"
         onSubmit={(event) => {
@@ -126,6 +134,7 @@ export function StaffScreen({
           {t`Send`}
         </Button>
       </form>
+      )}
       {notice ? <p className="text-body-sm text-destructive">{notice}</p> : null}
     </div>
   );
@@ -135,10 +144,12 @@ function Message({
   message,
   restaurantId,
   onChoose,
+  readOnly = false,
 }: {
   message: StaffMessage;
   restaurantId: string;
   onChoose: (actionId: string, choice: "approve" | "change" | "not_now") => void;
+  readOnly?: boolean;
 }) {
   const { t } = useLingui();
   const mine = message.role === "owner";
@@ -165,6 +176,7 @@ function Message({
             block={block}
             restaurantId={restaurantId}
             onChoose={onChoose}
+            readOnly={readOnly}
           />
         ))}
       </div>
@@ -176,10 +188,12 @@ function Block({
   block,
   restaurantId,
   onChoose,
+  readOnly = false,
 }: {
   block: StaffBlock;
   restaurantId: string;
   onChoose: (actionId: string, choice: "approve" | "change" | "not_now") => void;
+  readOnly?: boolean;
 }) {
   const { t } = useLingui();
   if (block.kind === "text") {
@@ -227,17 +241,21 @@ function Block({
     );
   }
   if (block.kind === "chart") return <PlotFigure plot={block.plot} />;
-  return <Choice block={block} restaurantId={restaurantId} onChoose={onChoose} />;
+  return (
+    <Choice block={block} restaurantId={restaurantId} onChoose={onChoose} readOnly={readOnly} />
+  );
 }
 
 function Choice({
   block,
   restaurantId,
   onChoose,
+  readOnly = false,
 }: {
   block: StaffChoiceBlock;
   restaurantId: string;
   onChoose: (actionId: string, choice: "approve" | "change" | "not_now") => void;
+  readOnly?: boolean;
 }) {
   const { t } = useLingui();
   if (block.answerId === "approve") {
@@ -257,25 +275,27 @@ function Choice({
       <p className="mt-1 text-body-sm">
         {t`Maximum cost`} {formatRupees(block.maxCostPaise)}
       </p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Button type="button" onClick={() => onChoose(block.actionId, "approve")}>
-          {t`Approve this offer`}
-        </Button>
-        <button
-          type="button"
-          className="text-body-sm text-primary"
-          onClick={() => onChoose(block.actionId, "change")}
-        >
-          {t`Change it`}
-        </button>
-        <button
-          type="button"
-          className="text-body-sm text-muted-foreground"
-          onClick={() => onChoose(block.actionId, "not_now")}
-        >
-          {t`Not now`}
-        </button>
-      </div>
+      {readOnly ? null : (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button type="button" onClick={() => onChoose(block.actionId, "approve")}>
+            {t`Approve this offer`}
+          </Button>
+          <button
+            type="button"
+            className="text-body-sm text-primary"
+            onClick={() => onChoose(block.actionId, "change")}
+          >
+            {t`Change it`}
+          </button>
+          <button
+            type="button"
+            className="text-body-sm text-muted-foreground"
+            onClick={() => onChoose(block.actionId, "not_now")}
+          >
+            {t`Not now`}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
