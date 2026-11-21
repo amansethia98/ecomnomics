@@ -1,3 +1,4 @@
+import { ownerViewFromRestaurant } from "@rakazo/contracts";
 import type { PrismaClient } from "./client.js";
 import type { LabelRejectMode } from "./metric-label-admin.js";
 import {
@@ -167,6 +168,16 @@ export function createPlatformAdminStore(db: PrismaClient) {
           select: restaurantSelect,
         });
         return rows.map(present);
+      });
+    },
+    async viewAsOwner(restaurantId: string, audit: PlatformAdminAudit) {
+      return runAsPlatformAdmin(audit.adminUserId, async () => {
+        await db.adminAuditLog.create({ data: { ...audit, ip: audit.ip?.slice(0, 64) ?? null } });
+        const row = await db.restaurant.findUnique({
+          where: { id: restaurantId },
+          select: restaurantSelect,
+        });
+        return row ? ownerViewFromRestaurant(present(row)) : null;
       });
     },
     async readRestaurant(

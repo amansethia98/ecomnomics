@@ -45,6 +45,7 @@ import {
 } from "./lib/sign-in-next";
 import { syncLogOutFailure } from "./lib/sign-out";
 import { completeSsoCallback, SSO_CALLBACK_PATH } from "./lib/sso-flow";
+import { PlatformAdminPage } from "./owner/admin-screen";
 import { OwnerEntry } from "./owner/owner-entry";
 import { OwnerPage } from "./owner/page";
 import { IntegrationCallbackPage } from "./pages/IntegrationCallback";
@@ -283,6 +284,16 @@ function SessionApp() {
                 path="/admin/access"
                 element={
                   user ? <AdminAccessPage /> : <Navigate to="/sign-in?next=/admin/access" replace />
+                }
+              />
+              <Route
+                path="/platform-admin"
+                element={
+                  user ? (
+                    <PlatformAdminPage />
+                  ) : (
+                    <Navigate to="/sign-in?next=/platform-admin" replace />
+                  )
                 }
               />
               <Route element={<CallLayout />}>
