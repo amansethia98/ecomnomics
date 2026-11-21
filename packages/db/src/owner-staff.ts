@@ -12,8 +12,10 @@ import {
   choiceReply,
   composeStaffThread,
   DEFAULT_OPS_RULES_CONFIG,
+  formatIstClock,
   indiaCivilDate,
   presentMarketing,
+  refreshBriefClosing,
   replaceWeekLine,
   STAFF_QUESTION_LIMIT,
   utcMidnight,
@@ -294,6 +296,7 @@ async function loadThread(
     dayReadings(db, restaurant, today),
   ]);
   const week = weekAnswer(readings, today).week;
+  const fresh = await briefFreshness(db, restaurant, today);
   const messages: StaffMessage[] = turns.map((turn) => ({
     id: turn.id,
     role: turn.role === "owner" ? "owner" : "staff",
@@ -310,7 +313,7 @@ async function loadThread(
       brief?.businessDate && brief.summaryMarkdown
         ? {
             date: indiaCivilDate(brief.businessDate),
-            text: replaceWeekLine(brief.summaryMarkdown, week),
+            text: refreshBriefClosing(replaceWeekLine(brief.summaryMarkdown, week), fresh),
           }
         : null,
     messages,
@@ -504,6 +507,56 @@ async function dayReadings(
       };
     })
     .sort((left, right) => left.date.localeCompare(right.date));
+}
+
+async function briefFreshness(
+  db: StaffStore,
+  restaurant: { restaurantId: string; spaceId: string },
+  today: string,
+) {
+  const yesterday = addIsoDays(today, -1);
+  const [outlets, rows, latest] = await Promise.all([
+    db.outlet.findMany({
+      where: { restaurantId: restaurant.restaurantId, spaceId: restaurant.spaceId, active: true },
+      select: { zomatoResId: true, swiggyRid: true },
+    }),
+    db.metricValue.findMany({
+      where: {
+        restaurantId: restaurant.restaurantId,
+        spaceId: restaurant.spaceId,
+        supersededAt: null,
+        rowRole: "fact",
+        granularity: "day",
+        state: "ok",
+        key: { in: ["ops_sales_paise", "swiggy_net_sales_paise"] },
+        periodStart: { gte: utcMidnight(yesterday), lt: utcMidnight(today) },
+      },
+      select: { key: true },
+    }),
+    db.metricValue.findFirst({
+      where: {
+        restaurantId: restaurant.restaurantId,
+        spaceId: restaurant.spaceId,
+        supersededAt: null,
+        rowRole: "fact",
+      },
+      orderBy: { capturedAt: "desc" },
+      select: { capturedAt: true },
+    }),
+  ]);
+  const ready = new Set(rows.map((row) => row.key));
+  const missing: Array<{ platform: "zomato" | "swiggy"; date: string }> = [];
+  if (outlets.some((outlet) => outlet.zomatoResId) && !ready.has("ops_sales_paise")) {
+    missing.push({ platform: "zomato", date: yesterday });
+  }
+  if (outlets.some((outlet) => outlet.swiggyRid) && !ready.has("swiggy_net_sales_paise")) {
+    missing.push({ platform: "swiggy", date: yesterday });
+  }
+  return {
+    capturedOn: latest ? indiaCivilDate(latest.capturedAt) : null,
+    dataAsOf: latest ? formatIstClock(latest.capturedAt) : null,
+    missing,
+  };
 }
 
 function weekAnswer(

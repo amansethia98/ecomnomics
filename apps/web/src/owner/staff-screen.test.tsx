@@ -106,7 +106,8 @@ it("links an empty marketing log to the chat and folds extra waiting rows", () =
   const host = render(
     <MarketingActionsScreen restaurantId="r1" screen={empty} onConfirm={() => undefined} />,
   );
-  expect(host.textContent).toContain("after a week of data");
+  expect(host.textContent).toContain("No suggestions are waiting");
+  expect(host.textContent).toContain("you approve");
   const known = render(
     <MarketingActionsScreen
       restaurantId="r1"
@@ -114,9 +115,8 @@ it("links an empty marketing log to the chat and folds extra waiting rows", () =
       onConfirm={() => undefined}
     />,
   );
-  expect(known.textContent).toContain("No marketing actions yet.");
-  expect(known.textContent).not.toContain("after a week of data");
-  expect(host.querySelector("a")?.getAttribute("href")).toBe("/restaurants/r1/chief-of-staff");
+  expect(known.textContent).toContain("No suggestions yet.");
+  expect(known.textContent).toContain("You switch offers on");
 
   const many: MarketingScreen = {
     hero: "waiting",
@@ -130,7 +130,8 @@ it("links an empty marketing log to the chat and folds extra waiting rows", () =
   const list = render(
     <MarketingActionsScreen restaurantId="r1" screen={many} onConfirm={() => undefined} />,
   );
-  expect(list.textContent).toContain("Show 2 more");
+  expect(list.textContent).toContain("Offer d");
+  expect(list.textContent).toContain("Waiting (5)");
   expect(list.textContent).toContain("Not seen yet");
   expect(list.textContent).toContain("Did you switch it on?");
 

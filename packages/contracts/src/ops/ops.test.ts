@@ -11,6 +11,7 @@ import {
   catchUpLine,
   combinedDaySales,
   composeDailyBrief,
+  refreshBriefClosing,
   replaceWeekLine,
   viewFromDaily,
   weekSales,
@@ -1232,6 +1233,28 @@ Note: Swiggy figures for Sat may change within 48 hours. Data as of Sun 15 Nov, 
         week,
       ),
     ).toBe(`Week so far (Mon–Sun): ₹9 vs the same days last week (+38.5%)\nNext`);
+  });
+
+  it("rebuilds a stale pending line and data stamp from the latest fetch", () => {
+    const text = refreshBriefClosing(
+      "All good on Zomato; Swiggy pending.\nSwiggy's figures for Sun 2 Nov aren't in yet (Swiggy can take up to 48 hours); we'll check them tomorrow. Data as of Mon 3 Nov, 05:42 IST.",
+      {
+        capturedOn: "2026-11-20",
+        dataAsOf: "06:10",
+        missing: [{ platform: "swiggy", date: "2026-11-19" }],
+      },
+    );
+    expect(text).not.toContain("Sun 2 Nov");
+    expect(text).not.toContain("Mon 3 Nov");
+    expect(text).toContain("Swiggy's figures for Thu 19 Nov aren't in yet");
+    expect(text).toContain("Data as of Fri 20 Nov, 06:10 IST.");
+    const ready = refreshBriefClosing(text, {
+      capturedOn: "2026-11-20",
+      dataAsOf: "06:10",
+      missing: [],
+    });
+    expect(ready).not.toContain("aren't in yet");
+    expect(ready).toContain("Data as of Fri 20 Nov, 06:10 IST.");
   });
 
   it("does not put a UTR-like token in a brief", () => {

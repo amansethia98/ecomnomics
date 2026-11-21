@@ -2,7 +2,7 @@ import * as z from "zod";
 import { addIsoDays } from "./metric-dates.js";
 import { formatCivilDay } from "./ops/format.js";
 import type { OwnerPlot } from "./owner-dashboard.js";
-import { ownerDateAxis, ownerRupeeAxis, ownerUtcDate } from "./owner-dashboard.js";
+import { ownerDateAxis, ownerRupeeAxis } from "./owner-dashboard.js";
 
 /** Questions one owner may ask in one Asia/Kolkata civil day. */
 export const STAFF_QUESTION_LIMIT = 30;
@@ -346,7 +346,7 @@ export function answerStaffQuestion(input: StaffAnswerInput): StaffAnswer {
           {
             type: "lineY",
             data: input.points.map((point) => ({
-              at: ownerUtcDate(point.week),
+              at: point.week,
               sales: point.sales,
             })),
             options: { x: "at", y: "sales", stroke: "var(--owner-zomato)" },

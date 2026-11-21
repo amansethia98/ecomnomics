@@ -13,6 +13,7 @@ const describePostgres =
 describePostgres("owner staff question (PostgreSQL)", () => {
   const suffix = `${process.pid}-${Date.now()}`;
   let db: PrismaClient;
+  let write: PrismaClient;
   let stop: () => Promise<void>;
   let routes: ReturnType<typeof restaurantOwnerRoutes>;
   const ids = {
@@ -26,6 +27,7 @@ describePostgres("owner staff question (PostgreSQL)", () => {
     const owner = createDb(migrationUrl!);
     const app = createDb(runtimeUrl!, { poolMax: 4 });
     db = app.prisma;
+    write = owner.prisma;
     stop = async () => {
       await owner.prisma.$disconnect();
       await owner.pool.end();
@@ -102,5 +104,63 @@ describePostgres("owner staff question (PostgreSQL)", () => {
     const text = JSON.stringify(body);
     expect(text).toContain("How were yesterday's sales?");
     expect(body.messages.some((message: { role: string }) => message.role === "staff")).toBe(true);
+  });
+
+  it("persists a chart answer as plain JSON against the migrated schema", async () => {
+    const outlet = await write.outlet.findFirst({ where: { restaurantId } });
+    expect(outlet?.id).toBeTruthy();
+    const start = new Date();
+    start.setUTCHours(0, 0, 0, 0);
+    await runAsSystem("staff chart fixture", async () => {
+      for (let offset = 16; offset >= 1; offset -= 1) {
+        const periodStart = new Date(start.getTime() - offset * 86_400_000);
+        await write.metricValue.create({
+          data: {
+            restaurantId,
+            spaceId: ids.space,
+            outletId: outlet?.id ?? "",
+            platform: "zomato",
+            granularity: "day",
+            periodStart,
+            periodEnd: new Date(periodStart.getTime() + 86_400_000),
+            key: "ops_sales_paise",
+            value: 20_000 + offset * 100,
+            state: "ok",
+            runId: `run-${suffix}`,
+            source: "fixture",
+            capturedAt: start,
+          },
+        });
+      }
+    });
+    const response = await routes.request(`/api/v1/restaurants/${restaurantId}/staff/questions`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${ids.user}`, "content-type": "application/json" },
+      body: JSON.stringify({ text: "Why did sales move?" }),
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      messages: Array<{
+        role: string;
+        blocks: Array<{
+          kind: string;
+          plot?: { x?: { format?: string }; y?: { format?: string } };
+        }>;
+      }>;
+    };
+    const chart = body.messages
+      .filter((message) => message.role === "staff")
+      .flatMap((message) => message.blocks)
+      .find((block) => block.kind === "chart");
+    expect(chart?.plot?.x?.format).toBe("date");
+    expect(chart?.plot?.y?.format).toBe("inr");
+    const stored = await write.ownerStaffTurn.findFirst({
+      where: { restaurantId, role: "staff" },
+      orderBy: { createdAt: "desc" },
+    });
+    const raw = JSON.stringify(stored?.body);
+    expect(raw).toContain('"format":"inr"');
+    expect(raw).toContain('"format":"date"');
+    expect(raw).not.toContain("tickFormat");
   });
 });

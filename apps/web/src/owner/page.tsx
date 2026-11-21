@@ -322,6 +322,17 @@ export function OwnerPage() {
                 },
               ).then((next) => setMarketing(next));
             }}
+            onDecide={(actionId, choice) => {
+              void ownerJson<StaffThread>(`/api/v1/restaurants/${restaurantId}/staff/choices`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ actionId, choice }),
+              })
+                .then(() =>
+                  ownerJson<MarketingScreen>(`/api/v1/restaurants/${restaurantId}/marketing`),
+                )
+                .then((next) => setMarketing(next));
+            }}
           />
         ) : (
           <p className="text-muted-foreground">{t`Loading`}</p>

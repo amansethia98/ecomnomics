@@ -668,6 +668,35 @@ function weekLine(view: DailyBriefView): string {
   return view.week ? formatWeekLine(view.week) : "";
 }
 
+/** Rewrite a stored brief's pending line and data stamp from the latest fetch. */
+export function refreshBriefClosing(
+  markdown: string,
+  fresh: {
+    capturedOn: string | null;
+    dataAsOf: string | null;
+    missing: ReadonlyArray<{ platform: "zomato" | "swiggy"; date: string }>;
+  },
+): string {
+  let text = markdown
+    .replace(/(?:Zomato|Swiggy)'s figures for [^.]*(?:aren't in yet|never came in)[^.]*\./g, "")
+    .replace(/Data as of [^.]+\./g, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  const gaps = fresh.missing.map((gap) => {
+    const day = formatCivilDay(gap.date);
+    return gap.platform === "swiggy"
+      ? `Swiggy's figures for ${day} aren't in yet (Swiggy can take up to 48 hours); we'll check them tomorrow.`
+      : `Zomato's figures for ${day} aren't in yet; we'll check them tomorrow.`;
+  });
+  if (gaps.length > 0) text = [text, ...gaps].filter((part) => part.length > 0).join("\n");
+  if (fresh.capturedOn) {
+    const clock = fresh.dataAsOf ? `, ${fresh.dataAsOf}` : "";
+    text = `${text} Data as of ${formatCivilDay(fresh.capturedOn)}${clock} IST.`.trim();
+  }
+  return text;
+}
+
 function closing(view: DailyBriefView): string {
   if (view.closingText) return view.closingText;
   const who = view.onlyApp ? view.onlyApp : "both apps";
