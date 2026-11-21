@@ -42,6 +42,9 @@ export function apiProxy(
   });
   return {
     "/api": options(false),
+    // Platform admin lives at /admin/v1, beside /api. Preview and dev both use this map,
+    // so a request for the admin API is not answered with the web app's index.html.
+    "/admin": options(false),
     // A user's own computer keeps its device socket open here, the API's only upgrade. Vite
     // matches other keys as prefixes, so this one is anchored to the exact path.
     [DEVICE_SOCKET]: options(true),

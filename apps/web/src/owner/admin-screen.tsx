@@ -27,7 +27,7 @@ export function AdminPanelScreen({
         {!panel.needsYou && panel.health.startsWith("All ") ? <p>{t`Nothing needs you`}</p> : null}
       </section>
       <section>
-        <h2 className="text-label text-muted-foreground">{t`Runs`}</h2>
+        <h2 className="text-label text-muted-foreground">{t`Nightly runs`}</h2>
         <ul>
           {panel.runs.map((run) => (
             <li key={run.restaurant} className="flex justify-between border-t border-border py-2">
@@ -77,7 +77,10 @@ export function AdminPanelScreen({
         </section>
       ) : null}
       <section>
-        <h2 className="text-label text-muted-foreground">{t`Connections`}</h2>
+        <h2 className="text-label text-muted-foreground">{t`Logins & connections`}</h2>
+        <p className="text-body-sm text-muted-foreground">
+          {t`Status only. Passwords and codes are never shown or stored here.`}
+        </p>
         <ul>
           {panel.connections.map((row) => (
             <li key={`${row.restaurant}-${row.outlet}`} className="border-t border-border py-2">
@@ -92,17 +95,18 @@ export function AdminPanelScreen({
         </ul>
       </section>
       <section>
-        <h2 className="text-label text-muted-foreground">{t`Messages`}</h2>
+        <h2 className="text-label text-muted-foreground">{t`Messages sent`}</h2>
         <p>{panel.messages}</p>
       </section>
       <section>
-        <h2 className="text-label text-muted-foreground">{t`Costs`}</h2>
+        <h2 className="text-label text-muted-foreground">{t`Costs & usage`}</h2>
         <p>{panel.costsPaise == null ? "—" : formatRupees(panel.costsPaise)}</p>
       </section>
       <section>
-        <h2 className="text-label text-muted-foreground">{t`Rules`}</h2>
+        <h2 className="text-label text-muted-foreground">{t`Rules & data quality`}</h2>
         <p>{panel.rules}</p>
       </section>
+      <p className="text-body-sm text-muted-foreground">{t`Admin access · never shows passwords`}</p>
     </div>
   );
 }
