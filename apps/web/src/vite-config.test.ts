@@ -76,8 +76,9 @@ describe("vite.config", () => {
         .map(([context]) => context);
       expect(upgrades).toEqual([DEVICE_SOCKET]);
       expect(proxy).toHaveProperty("/api");
-      expect(proxy).toHaveProperty("/admin");
-      expect((proxy?.["/admin"] as ProxyOptions | undefined)?.ws).toBe(false);
+      expect(proxy).toHaveProperty("/admin/v1");
+      expect(proxy).not.toHaveProperty("/admin");
+      expect((proxy?.["/admin/v1"] as ProxyOptions | undefined)?.ws).toBe(false);
     }
   });
 
