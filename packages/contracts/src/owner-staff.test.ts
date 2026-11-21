@@ -147,11 +147,13 @@ it("formats a chart that was stored before format keys existed", () => {
     ],
   };
   const resolved = resolveOwnerPlot(legacy);
-  const yTick = resolved.y?.tickFormat as (value: number) => string;
-  const xTick = resolved.x?.tickFormat as (value: Date) => string;
-  expect(yTick(500_000)).toBe("₹5k");
-  expect(yTick(500_000)).not.toBe("00,000");
-  expect(xTick(new Date("2026-11-02T00:00:00.000Z"))).toBe("2 Nov");
+  const yTick = (resolved.y as { tickFormat?: (value: number) => string } | undefined)?.tickFormat;
+  const xTick = (resolved.x as { tickFormat?: (value: Date) => string } | undefined)?.tickFormat;
+  expect(yTick).toBeTypeOf("function");
+  expect(yTick?.(500_000)).toBe("₹5k");
+  expect(yTick?.(500_000)).not.toBe("00,000");
+  expect(xTick).toBeTypeOf("function");
+  expect(xTick?.(new Date("2026-11-02T00:00:00.000Z"))).toBe("2 Nov");
 });
 
 it("offers an action once, and records the owner's choice in words", () => {
