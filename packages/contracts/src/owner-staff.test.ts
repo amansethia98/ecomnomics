@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { resolveOwnerPlot } from "./owner-dashboard.js";
 import type { MarketingActionRecord, MarketingReading } from "./owner-staff.js";
 import {
   answerStaffQuestion,
@@ -90,10 +91,11 @@ it("answers from the numbers it was given and does not count a failed try", () =
   expect(chart?.kind === "chart" && chart.plot.marks[0]?.type).toBe("lineY");
   if (chart?.kind === "chart") {
     const row = chart.plot.marks[0]?.data?.[0] as { at?: unknown; sales?: number } | undefined;
-    expect(row?.at).toBeInstanceOf(Date);
-    expect(chart.plot.x?.type).toBe("utc");
-    expect(chart.plot.y?.tickFormat).toEqual(expect.any(Function));
-    const tick = chart.plot.y?.tickFormat as (value: number) => string;
+    expect(row?.at).toBe("2026-11-02");
+    expect(chart.plot.x?.format).toBe("date");
+    expect(chart.plot.y?.format).toBe("inr");
+    expect(JSON.stringify(chart.plot)).not.toContain("tickFormat");
+    const tick = resolveOwnerPlot(chart.plot).y?.tickFormat as (value: number) => string;
     expect(tick(120)).toBe("₹1");
   }
   const lastWeek = answerStaffQuestion({
