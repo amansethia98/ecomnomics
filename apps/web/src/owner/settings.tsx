@@ -108,10 +108,9 @@ export function SettingsProfile({
           <label className="flex flex-col gap-1.5 text-body-sm" htmlFor={emailId}>
             {t`Email`}
             <Input id={emailId} value={profile.owner.email} readOnly />
-            <span className="text-body-sm text-muted-foreground">{t`Language for briefs and chat`}</span>
           </label>
           <label className="flex flex-col gap-1.5 text-body-sm" htmlFor={languageId}>
-            {t`Language`}
+            {t`Language for briefs and chat`}
             <select
               id={languageId}
               className="h-8 rounded-lg border border-input bg-background px-2"

@@ -357,6 +357,12 @@ it("names the busiest weekdays and the funnel drop from the data", () => {
   const heat = dashboardPlots(dash).find((plot) => plot.id === "heatmap");
   expect(heat?.color?.type).toBe("sqrt");
   expect(heat?.color?.scheme).toBe("purples");
+  const orders = dash.heatmap.flatMap((cell) =>
+    cell.orders != null && cell.orders > 0 ? [cell.orders] : [],
+  );
+  const domain = heat?.color?.domain as [number, number] | undefined;
+  expect(domain?.[0]).toBeLessThan(Math.min(...orders));
+  expect(domain?.[1]).toBe(Math.max(...orders));
   expect(heat?.y?.domain).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
 });
 

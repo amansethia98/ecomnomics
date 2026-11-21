@@ -64,7 +64,10 @@ function answer(over: Partial<OwnerDashboardModel["answer"]>): OwnerDashboardMod
     pendingNote: null,
     missingNote: null,
     compared: null,
-    periodPhrase: over.unit === "day" ? "last 7 days vs the same 7 days before" : "last 4 weeks vs the 4 before",
+    periodPhrase:
+      over.unit === "day"
+        ? "last 7 days vs the same 7 days before"
+        : "last 4 weeks vs the 4 before",
     heatmapLine: null,
     funnelLine: null,
     comparisonsStart: null,

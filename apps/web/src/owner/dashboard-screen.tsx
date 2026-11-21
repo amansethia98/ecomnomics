@@ -134,6 +134,7 @@ export function OwnerDashboard({
     <div className="mx-auto flex max-w-5xl flex-col gap-8">
       <Answer model={model} />
       <section className="owner-panel flex flex-col gap-2 p-3">
+        <p className="text-body-sm text-muted-foreground">{t`Each app on its own scale so the direction is clear`}</p>
         {plots
           .filter((plot) => plot.id.startsWith("sales-"))
           .map((plot) => (
