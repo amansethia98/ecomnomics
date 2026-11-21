@@ -25,6 +25,10 @@ export interface PaymentCycle {
   to: string;
   orderCount: number | null;
   netPayoutPaise: number | null;
+  /** Amount settled, when the payout file has it. Null is not the same as the net. */
+  paidAmountPaise: number | null;
+  grossSalesPaise: number | null;
+  outletName: string | null;
   commissionPaise: number | null;
   feesPaise: number | null;
   taxesPaise: number | null;
@@ -58,8 +62,13 @@ export interface OwnerPayments {
     to: string;
     orderCount: number | null;
     netPayoutPaise: number | null;
+    paidAmountPaise: number | null;
+    outletName: string | null;
+    /** paid uses the settled amount. net is the payout-file net, not the bank. */
+    bankBasis: "paid" | "net" | "missing";
     status: typeof PAYOUT_CHECK;
   }>;
+  breakdown: Array<{ id: string; label: string; paise: number }>;
   selectedId: string | null;
   deductions: Array<{ id: string; label: string; paise: number }>;
   plot: OwnerPlot | null;
@@ -203,6 +212,9 @@ export function composeOwnerPayments(input: {
       to: cycle.to,
       orderCount: cycle.orderCount,
       netPayoutPaise: cycle.netPayoutPaise,
+      paidAmountPaise: cycle.paidAmountPaise,
+      outletName: cycle.outletName,
+      bankBasis: bankBasis(cycle),
       status: PAYOUT_CHECK,
     }));
   const selected = payouts.find((payout) => payout.id === input.selectedId) ?? payouts[0] ?? null;
@@ -213,6 +225,7 @@ export function composeOwnerPayments(input: {
     selectedId: selected?.id ?? null,
     deductions,
     plot: deductions.length > 0 ? deductionPlot(deductions) : null,
+    breakdown: cycle ? paymentBreakdown(cycle) : [],
     orders: selected
       ? input.orders
           .filter((order) => order.cycleId === selected.id)
@@ -327,14 +340,91 @@ export function composeOwnerDocuments(input: {
     gstin: blank(input.gstin),
     reminder: licenceReminder(input.today, input.expiresOn),
     daysLeft: input.expiresOn ? daysUntil(input.today, input.expiresOn) : null,
-    reports: input.reports.map((report) => ({
+    reports: labelledReports(input.reports),
+  };
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** `2 Jan 2027` to an ISO civil date. Anything else is not a date. */
+export function parseDisplayDate(value: string): string | null {
+  const match = /^(\d{1,2}) ([A-Za-z]{3,}) (\d{4})$/.exec(value.trim());
+  if (!match) return null;
+  const month = MONTHS.findIndex(
+    (name) => name.toLowerCase() === match[2]?.slice(0, 3).toLowerCase(),
+  );
+  if (month < 0) return null;
+  const iso = `${match[3]}-${String(month + 1).padStart(2, "0")}-${String(Number(match[1])).padStart(2, "0")}`;
+  return isCivilDate(iso) ? iso : null;
+}
+
+function bankBasis(cycle: PaymentCycle): "paid" | "net" | "missing" {
+  if (cycle.paidAmountPaise != null) return "paid";
+  if (cycle.netPayoutPaise != null) return "net";
+  return "missing";
+}
+
+function paymentBreakdown(
+  cycle: PaymentCycle,
+): Array<{ id: string; label: string; paise: number }> {
+  const rows: Array<{ id: string; label: string; paise: number | null }> = [
+    { id: "sales", label: "Your sales", paise: cycle.grossSalesPaise },
+    { id: "discounts", label: "Discounts you paid for", paise: cycle.discountsPaise },
+    {
+      id: "commission",
+      label: "Commission & fees",
+      paise: sumPaise(cycle.commissionPaise, cycle.feesPaise),
+    },
+    { id: "ads", label: "Ads", paise: cycle.adsPaise },
+    {
+      id: "tax",
+      label: "GST & TDS",
+      paise: sumPaise(cycle.gstPaise, cycle.tdsPaise, cycle.tcsPaise, cycle.taxesPaise),
+    },
+  ];
+  const basis = bankBasis(cycle);
+  if (basis === "paid") {
+    rows.push({ id: "bank", label: "Paid to your bank", paise: cycle.paidAmountPaise });
+  } else if (basis === "net") {
+    rows.push({ id: "net", label: "Net in the payout file", paise: cycle.netPayoutPaise });
+  }
+  return rows.flatMap((row) =>
+    row.paise == null ? [] : [{ id: row.id, label: row.label, paise: row.paise }],
+  );
+}
+
+function sumPaise(...values: Array<number | null>): number | null {
+  const known = values.filter((value): value is number => value != null);
+  if (known.length === 0) return null;
+  return known.reduce((total, value) => total + value, 0);
+}
+
+function labelledReports(
+  reports: ReadonlyArray<{
+    id: string;
+    kind: string | null;
+    from: string;
+    to: string;
+    createdOn: string;
+  }>,
+): OwnerReportArchiveItem[] {
+  const seen = new Set<string>();
+  const rows: OwnerReportArchiveItem[] = [];
+  for (const report of reports) {
+    const kind = archiveKind(report.kind);
+    if (!kind) continue;
+    const key = `${kind}|${report.from}|${report.to}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push({
       id: report.id,
-      kind: archiveKind(report.kind),
+      kind,
       from: report.from,
       to: report.to,
       createdOn: report.createdOn,
-    })),
-  };
+    });
+  }
+  return rows;
 }
 
 function deductionRows(cycle: PaymentCycle): Array<{ id: string; label: string; paise: number }> {
@@ -377,11 +467,11 @@ function deductionPlot(rows: ReadonlyArray<{ label: string; paise: number }>): O
   };
 }
 
-function archiveKind(kind: string | null): OwnerReportArchiveItem["kind"] {
+function archiveKind(kind: string | null): OwnerReportArchiveItem["kind"] | null {
   if (kind === "daily_brief") return "daily";
   if (kind === "weekly_review") return "weekly";
   if (kind === "payout_check") return "payout";
-  return "report";
+  return null;
 }
 
 function blank(value: string | null): string | null {

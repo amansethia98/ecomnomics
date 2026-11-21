@@ -44,10 +44,14 @@ const payments: OwnerPayments = {
       to: "2026-11-09",
       orderCount: 4,
       netPayoutPaise: 80_000,
+      paidAmountPaise: null,
+      outletName: "Indiranagar",
+      bankBasis: "net",
       status: "pending_check",
     },
   ],
   selectedId: "cycle-1",
+  breakdown: [{ id: "net", label: "Net in the payout file", paise: 80_000 }],
   deductions: [],
   plot: null,
   orders: [{ cycleId: "cycle-1", orderId: "o-1", date: "2026-11-08", netPayoutPaise: 20_000 }],
@@ -57,6 +61,8 @@ const payments: OwnerPayments = {
 it("shows the Thursday check on a payout and not a match", () => {
   const host = render(<PaymentsScreen screen={payments} onSelect={() => undefined} />);
   expect(host.textContent).toContain("Check runs Thursday");
+  expect(host.textContent).toContain("net in the payout file");
+  expect(host.textContent).toContain("Where your money went");
   expect(host.textContent).toContain("₹800");
   expect(host.textContent).not.toContain("Matches");
   expect(host.textContent).toContain("o-1");
@@ -82,7 +88,8 @@ it("asks for a licence date and reminds inside seven days", () => {
       onDirty={() => undefined}
     />,
   );
-  expect(empty.querySelector("input[type='date']")).not.toBeNull();
+  expect(empty.querySelector("input[type='date']")).toBeNull();
+  expect(empty.querySelector("input[placeholder='DD MMM YYYY']")).not.toBeNull();
   expect(empty.textContent).toContain("Your first brief arrives tomorrow at 9:00 AM.");
   document.body.replaceChildren();
 
@@ -132,7 +139,7 @@ it("says menu editing is coming soon and names a missing app", () => {
     swiggy: { score: null, photoPct: 80, descriptionPct: 0, top5RevenuePaise: 12_000 },
   };
   const host = render(<MenuScreen screen={menu} />);
-  expect(host.textContent).toContain("Menu editing is coming soon.");
+  expect(host.textContent).toContain("Dish-by-dish insights are on the way");
   expect(host.textContent).toContain("Not in reports");
   expect(host.textContent).toContain("80%");
   expect(host.textContent).toContain("0%");
@@ -180,7 +187,8 @@ it("copies a review reply and does not post it", () => {
   expect(button).toBeTruthy();
   expect(host.textContent).not.toContain("Post");
   expect(host.textContent).toContain("Not in Swiggy's reports yet");
-  expect(host.textContent).toContain("Review replies are coming soon.");
+  expect(host.textContent).toContain("Reviews and replies are on the way");
+  expect(host.textContent).toContain("Poorly rated orders —");
   act(() => {
     button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });

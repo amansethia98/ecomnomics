@@ -3,11 +3,23 @@ import type { OwnerRatings } from "@rakazo/contracts";
 import { formatCivilDay } from "@rakazo/contracts";
 import { PlatformDot } from "./marks";
 
+export function reportedPoor(app: OwnerRatings["apps"][number]): number | null {
+  if (app.poorRatedOrders == null) return null;
+  if (app.poorRatedOrders === 0 && app.complaints.every((row) => row.count == null)) return null;
+  return app.poorRatedOrders;
+}
+
 export function RatingsScreen({ screen }: { screen: OwnerRatings }) {
   const { t } = useLingui();
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
-      <p>{t`Review replies are coming soon.`}</p>
+      <div className="owner-panel p-4">
+        <p className="text-label text-primary">{t`Coming soon`}</p>
+        <h2 className="owner-title">{t`Reviews and replies are on the way`}</h2>
+        <p className="mt-2 text-body-sm text-muted-foreground">
+          {t`Soon you'll read every review here, with a reply drafted for you to approve. Until then, here is what the ratings and complaints already say. Copy reply never posts.`}
+        </p>
+      </div>
       {(screen.apps ?? []).map((app) => (
         <section key={app.platform}>
           <p className="flex items-center gap-2 font-medium">
@@ -22,7 +34,13 @@ export function RatingsScreen({ screen }: { screen: OwnerRatings }) {
           </p>
           <p className="text-body-sm text-muted-foreground">
             {t`Poorly rated orders`}{" "}
-            {app.poorRatedOrders == null ? t`Not in reports` : String(app.poorRatedOrders)}
+            {reportedPoor(app) == null ? (
+              <>
+                — <span>{t`Not in reports`}</span>
+              </>
+            ) : (
+              String(reportedPoor(app))
+            )}
           </p>
           <ul>
             {app.complaints.map((row) => (

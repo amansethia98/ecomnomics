@@ -44,10 +44,14 @@ const payments = {
       to: "2026-11-09",
       orderCount: 2,
       netPayoutPaise: 80_000,
+      paidAmountPaise: 60_000,
+      outletName: "Indiranagar",
+      bankBasis: "paid",
       status: "pending_check",
     },
   ],
   selectedId: "cycle-1",
+  breakdown: [],
   deductions: [],
   plot: null,
   orders: [],
@@ -95,7 +99,7 @@ it("opens payments, documents, menu, and ratings from their routes", async () =>
   for (const [path, copy] of [
     ["/restaurants/r1/payments", "Check runs Thursday"],
     ["/restaurants/r1/documents", "Your first brief arrives tomorrow at 9:00 AM."],
-    ["/restaurants/r1/menu", "Menu editing is coming soon."],
+    ["/restaurants/r1/menu", "Dish-by-dish insights are on the way"],
     ["/restaurants/r1/ratings", "No reviews are in yet."],
   ] as const) {
     const root = createRoot(host);
