@@ -52,7 +52,20 @@ describe("owner payments", () => {
     expect(screen.adjustments).toHaveLength(1);
     expect(screen.deductions.map((row) => row.id)).toEqual(["commission", "ads"]);
     expect(screen.payouts[0]?.bankBasis).toBe("net");
-    expect(screen.breakdown.map((row) => row.id)).toEqual(["sales", "commission", "ads", "net"]);
+    expect(screen.breakdown.map((row) => row.id)).toEqual([
+      "sales",
+      "discounts",
+      "commission",
+      "ads",
+      "tax",
+      "deductions",
+      "net",
+    ]);
+    expect(screen.breakdown.find((row) => row.id === "discounts")?.paise).toBeNull();
+    expect(screen.breakdown.find((row) => row.id === "net")).toMatchObject({
+      paise: 80_000,
+      basis: "net",
+    });
     expect(screen.plot?.marks[0]?.type).toBe("rectY");
     expect(JSON.stringify(screen)).not.toContain("Matches");
   });
@@ -212,10 +225,26 @@ describe("owner menu and ratings", () => {
     expect(told.apps.find((app) => app.platform === "swiggy")).toMatchObject({
       rating: null,
       ratingState: "not_in_report",
-      poorRatedOrders: 0,
+      poorRatedOrders: null,
     });
     expect(told.apps.find((app) => app.platform === "swiggy")?.complaints[0]).toMatchObject({
-      count: 0,
+      count: null,
     });
+    const reported = composeOwnerRatings({
+      rating: null,
+      reviews: [],
+      apps: [
+        {
+          platform: "zomato",
+          rating: 4.2,
+          poorRatedOrders: 2,
+          complaints: { complaints_missing: 2, complaints_quality: 0 },
+        },
+      ],
+    });
+    const zomato = reported.apps.find((app) => app.platform === "zomato");
+    expect(zomato?.poorRatedOrders).toBe(2);
+    expect(zomato?.complaints.find((row) => row.id === "complaints_quality")?.count).toBe(0);
+    expect(zomato?.complaints.find((row) => row.id === "complaints_packaging")?.count).toBeNull();
   });
 });

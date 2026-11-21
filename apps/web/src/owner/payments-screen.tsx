@@ -16,10 +16,15 @@ export function PaymentsScreen({
 }) {
   const { t } = useLingui();
   const [open, setOpen] = useState(false);
+  const selected = screen.payouts.find((payout) => payout.id === screen.selectedId) ?? null;
+  const [week, setWeek] = useState(selected ? `${selected.from}|${selected.to}` : "");
   if (screen.payouts.length === 0) {
     return <p>{t`This week's payout file isn't out yet (usually Thursday morning).`}</p>;
   }
-  const selected = screen.payouts.find((payout) => payout.id === screen.selectedId) ?? null;
+  const weeks = [
+    ...new Map(screen.payouts.map((payout) => [`${payout.from}|${payout.to}`, payout])).values(),
+  ];
+  const shown = screen.payouts.filter((payout) => `${payout.from}|${payout.to}` === week);
   const visible = open ? screen.orders : screen.orders.slice(0, ORDER_FOLD);
   const hidden = Math.max(0, screen.orders.length - ORDER_FOLD);
   const heroPaise =
@@ -53,14 +58,36 @@ export function PaymentsScreen({
             {(screen.breakdown ?? []).map((row) => (
               <li key={row.id} className="flex justify-between border-t border-border py-2">
                 <span>{row.label}</span>
-                <span>{formatRupees(row.paise)}</span>
+                <span>{row.paise == null ? "—" : formatRupees(row.paise)}</span>
               </li>
             ))}
           </ul>
         </section>
       ) : null}
+      {weeks.length > 0 ? (
+        <label className="flex items-center gap-2 text-body-sm">
+          {t`Week`}
+          <select
+            aria-label={t`Week`}
+            className="h-8 rounded-lg border border-border bg-background px-2"
+            value={week}
+            onChange={(event) => {
+              const next = event.target.value;
+              setWeek(next);
+              const payout = screen.payouts.find((item) => `${item.from}|${item.to}` === next);
+              if (payout) onSelect(payout.id);
+            }}
+          >
+            {weeks.map((payout) => (
+              <option key={`${payout.from}|${payout.to}`} value={`${payout.from}|${payout.to}`}>
+                {formatCivilDay(payout.from)} – {formatCivilDay(payout.to)}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       <ul>
-        {screen.payouts.map((payout) => (
+        {(shown.length > 0 ? shown : screen.payouts).map((payout) => (
           <li key={payout.id} className="border-t border-border">
             <button
               type="button"
@@ -72,12 +99,16 @@ export function PaymentsScreen({
               <span className="flex-1">
                 <span className="block font-medium">{payout.outletName ?? t`Outlet`}</span>
                 <span className="block text-body-sm text-muted-foreground">
-                  {formatCivilDay(payout.from)} – {formatCivilDay(payout.to)}
+                  {payout.bankBasis === "paid"
+                    ? t`Paid to bank`
+                    : payout.bankBasis === "net"
+                      ? t`Net in file`
+                      : t`Net in file`}
                   {payout.paidAmountPaise != null
                     ? ` · ${formatRupees(payout.paidAmountPaise)}`
                     : payout.netPayoutPaise != null
                       ? ` · ${formatRupees(payout.netPayoutPaise)}`
-                      : ""}
+                      : " · —"}
                 </span>
               </span>
               <span className="owner-pill owner-pill-watch">{t`Check runs Thursday`}</span>
