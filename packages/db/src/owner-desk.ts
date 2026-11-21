@@ -47,6 +47,7 @@ export async function readPaymentsForMember(
       },
       orderBy: { cycleEnd: "desc" },
       take: 24,
+      include: { outlet: { select: { name: true } } },
     });
     const mapped = cycles.flatMap((cycle) => {
       const platform = namedPlatform(cycle.platform);
@@ -59,6 +60,9 @@ export async function readPaymentsForMember(
         to: indiaCivilDate(cycle.cycleEnd),
         orderCount: cycle.orderCount,
         netPayoutPaise: cycle.netPayoutPaise,
+        paidAmountPaise: cycle.paidAmountPaise,
+        grossSalesPaise: cycle.grossSalesPaise,
+        outletName: cycle.outlet.name,
         commissionPaise: cycle.commissionPaise,
         feesPaise: cycle.platformFeesPaise,
         taxesPaise: cycle.taxesPaise,

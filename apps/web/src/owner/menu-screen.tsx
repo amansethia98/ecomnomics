@@ -13,7 +13,13 @@ export function MenuScreen({ screen }: { screen: OwnerMenu }) {
     : screen.rows;
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4">
-      <p>{t`Menu editing is coming soon.`}</p>
+      <div className="owner-panel p-4">
+        <p className="text-label text-primary">{t`Coming soon`}</p>
+        <h2 className="owner-title">{t`Dish-by-dish insights are on the way`}</h2>
+        <p className="mt-2 text-body-sm text-muted-foreground">
+          {t`To tell you which dishes to promote, re-price or drop, we need dish-level sales. That download is being added. Nothing for you to set up.`}
+        </p>
+      </div>
       {screen.swiggy ? (
         <ul className="text-body-sm">
           <Fact label={t`Menu score`} value={screen.swiggy.score} />
@@ -79,7 +85,7 @@ function Fact({
     <li className="flex justify-between gap-3 border-t border-border py-2">
       <span>{label}</span>
       <span>
-        {shown}
+        {value == null ? "—" : shown}
         {value == null ? (
           <span className="ml-2 text-muted-foreground">{t`Not in reports`}</span>
         ) : null}

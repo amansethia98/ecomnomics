@@ -7,6 +7,7 @@ import {
   composeOwnerRatings,
   LicencePatchSchema,
   PAYOUT_CHECK,
+  parseDisplayDate,
 } from "./owner-desk.js";
 
 function cycle(id: string, to: string, extra: Partial<PaymentCycle> = {}): PaymentCycle {
@@ -18,6 +19,9 @@ function cycle(id: string, to: string, extra: Partial<PaymentCycle> = {}): Payme
     to,
     orderCount: 4,
     netPayoutPaise: 80_000,
+    paidAmountPaise: null,
+    grossSalesPaise: 100_000,
+    outletName: "Indiranagar",
     commissionPaise: 10_000,
     feesPaise: null,
     taxesPaise: null,
@@ -47,6 +51,8 @@ describe("owner payments", () => {
     expect(screen.orders.map((order) => order.orderId)).toEqual(["o-1"]);
     expect(screen.adjustments).toHaveLength(1);
     expect(screen.deductions.map((row) => row.id)).toEqual(["commission", "ads"]);
+    expect(screen.payouts[0]?.bankBasis).toBe("net");
+    expect(screen.breakdown.map((row) => row.id)).toEqual(["sales", "commission", "ads", "net"]);
     expect(screen.plot?.marks[0]?.type).toBe("rectY");
     expect(JSON.stringify(screen)).not.toContain("Matches");
   });
@@ -61,6 +67,19 @@ describe("owner payments", () => {
     expect(screen.payouts).toEqual([]);
     expect(screen.selectedId).toBeNull();
     expect(screen.plot).toBeNull();
+  });
+
+  it("uses the settled amount for the bank line when the file has one", () => {
+    const screen = composeOwnerPayments({
+      cycles: [cycle("paid", "2026-11-09", { paidAmountPaise: 60_000, netPayoutPaise: 80_000 })],
+      orders: [],
+      adjustments: [],
+      selectedId: null,
+    });
+    expect(screen.payouts[0]?.bankBasis).toBe("paid");
+    expect(screen.payouts[0]?.paidAmountPaise).toBe(60_000);
+    expect(screen.breakdown.find((row) => row.id === "bank")?.paise).toBe(60_000);
+    expect(screen.breakdown.some((row) => row.id === "net")).toBe(false);
   });
 });
 
@@ -97,6 +116,32 @@ describe("owner documents", () => {
     expect(expired.daysLeft).toBe(-1);
     expect(expired.gstin).toBeNull();
     expect(expired.reports[0]?.kind).toBe("weekly");
+    const labelled = composeOwnerDocuments({
+      ...base,
+      today: "2026-11-01",
+      expiresOn: null,
+      reports: [
+        ...base.reports,
+        {
+          id: "dup",
+          kind: "weekly_review",
+          from: "2026-11-03",
+          to: "2026-11-09",
+          createdOn: "2026-11-11",
+        },
+        { id: "plain", kind: null, from: "2026-11-01", to: "2026-11-02", createdOn: "2026-11-02" },
+        {
+          id: "day",
+          kind: "daily_brief",
+          from: "2026-11-10",
+          to: "2026-11-10",
+          createdOn: "2026-11-11",
+        },
+      ],
+    });
+    expect(labelled.reports.map((report) => report.kind)).toEqual(["weekly", "daily"]);
+    expect(parseDisplayDate("2 Jan 2027")).toBe("2027-01-02");
+    expect(parseDisplayDate("02/01/2027")).toBeNull();
   });
 
   it("rejects a licence date that is not a civil day", () => {

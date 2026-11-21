@@ -22,8 +22,43 @@ export function PaymentsScreen({
   const selected = screen.payouts.find((payout) => payout.id === screen.selectedId) ?? null;
   const visible = open ? screen.orders : screen.orders.slice(0, ORDER_FOLD);
   const hidden = Math.max(0, screen.orders.length - ORDER_FOLD);
+  const heroPaise =
+    selected?.bankBasis === "paid"
+      ? selected.paidAmountPaise
+      : selected?.bankBasis === "net"
+        ? selected.netPayoutPaise
+        : null;
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-8">
+      {selected && heroPaise != null ? (
+        <div>
+          <h2 className="owner-title">
+            {selected.bankBasis === "paid"
+              ? selected.platform === "zomato"
+                ? t`${formatRupees(heroPaise)} paid to your bank (per Zomato)`
+                : t`${formatRupees(heroPaise)} paid to your bank (per Swiggy)`
+              : t`${formatRupees(heroPaise)} net in the payout file`}
+          </h2>
+          {selected.bankBasis === "net" ? (
+            <p className="text-body-sm text-muted-foreground">
+              {t`The bank amount isn't in this file.`}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      {(screen.breakdown ?? []).length > 0 ? (
+        <section>
+          <h2 className="text-label text-muted-foreground">{t`Where your money went`}</h2>
+          <ul>
+            {(screen.breakdown ?? []).map((row) => (
+              <li key={row.id} className="flex justify-between border-t border-border py-2">
+                <span>{row.label}</span>
+                <span>{formatRupees(row.paise)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       <ul>
         {screen.payouts.map((payout) => (
           <li key={payout.id} className="border-t border-border">
@@ -35,14 +70,14 @@ export function PaymentsScreen({
             >
               <PlatformDot platform={payout.platform} />
               <span className="flex-1">
-                <span className="block font-medium">
-                  {payout.netPayoutPaise != null
-                    ? formatRupees(payout.netPayoutPaise)
-                    : t`Net payout`}
-                </span>
+                <span className="block font-medium">{payout.outletName ?? t`Outlet`}</span>
                 <span className="block text-body-sm text-muted-foreground">
                   {formatCivilDay(payout.from)} – {formatCivilDay(payout.to)}
-                  {payout.orderCount != null ? ` · ${payout.orderCount} orders` : ""}
+                  {payout.paidAmountPaise != null
+                    ? ` · ${formatRupees(payout.paidAmountPaise)}`
+                    : payout.netPayoutPaise != null
+                      ? ` · ${formatRupees(payout.netPayoutPaise)}`
+                      : ""}
                 </span>
               </span>
               <span className="owner-pill owner-pill-watch">{t`Check runs Thursday`}</span>
@@ -50,13 +85,6 @@ export function PaymentsScreen({
           </li>
         ))}
       </ul>
-      {selected?.netPayoutPaise != null ? (
-        <p className="text-heading2 font-medium">
-          {selected.platform === "zomato"
-            ? t`${formatRupees(selected.netPayoutPaise)} paid to your bank (per Zomato)`
-            : t`${formatRupees(selected.netPayoutPaise)} paid to your bank (per Swiggy)`}
-        </p>
-      ) : null}
       {screen.deductions.length > 0 ? (
         <section>
           <h2 className="text-label text-muted-foreground">{t`Where the money went`}</h2>

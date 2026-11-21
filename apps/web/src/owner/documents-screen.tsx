@@ -1,6 +1,6 @@
 import { useLingui } from "@lingui/react/macro";
 import type { OwnerDocuments } from "@rakazo/contracts";
-import { formatCivilDay } from "@rakazo/contracts";
+import { formatCivilDay, parseDisplayDate } from "@rakazo/contracts";
 import { Button } from "@rakazo/ui-web";
 import { useEffect, useState } from "react";
 
@@ -22,12 +22,14 @@ export function DocumentsScreen({
   const { t } = useLingui();
   const [editing, setEditing] = useState(screen.expiresOn == null);
   const [reference, setReference] = useState(screen.reference ?? "");
-  const [expiresOn, setExpiresOn] = useState(screen.expiresOn ?? "");
+  const [expiresOn, setExpiresOn] = useState(
+    screen.expiresOn ? formatCivilDay(screen.expiresOn) : "",
+  );
   const [gstin, setGstin] = useState(screen.gstin ?? "");
 
   useEffect(() => {
     setReference(screen.reference ?? "");
-    setExpiresOn(screen.expiresOn ?? "");
+    setExpiresOn(screen.expiresOn ? formatCivilDay(screen.expiresOn) : "");
     setGstin(screen.gstin ?? "");
     setEditing(screen.expiresOn == null);
   }, [screen]);
@@ -35,7 +37,7 @@ export function DocumentsScreen({
   useEffect(() => {
     const dirty =
       (reference.trim() || null) !== screen.reference ||
-      (expiresOn || null) !== screen.expiresOn ||
+      (parseDisplayDate(expiresOn) || null) !== screen.expiresOn ||
       (gstin.trim() || null) !== screen.gstin;
     onDirty(dirty);
   }, [reference, expiresOn, gstin, screen, onDirty]);
@@ -54,14 +56,38 @@ export function DocumentsScreen({
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-8">
       {reminder ? (
-        <p
-          className={
-            screen.reminder === "7" || screen.reminder === "expired"
-              ? "text-destructive"
-              : undefined
-          }
-        >
-          {reminder}
+        <div className="owner-panel p-4">
+          <p className="text-label text-muted-foreground">
+            {screen.reminder === "30" || screen.reminder === "7"
+              ? t`1 licence expires soon`
+              : screen.reminder === "expired"
+                ? t`Licence expired`
+                : t`Documents`}
+          </p>
+          <p
+            className={
+              screen.reminder === "7" || screen.reminder === "expired"
+                ? "mt-1 text-destructive"
+                : "mt-1"
+            }
+          >
+            {reminder}
+          </p>
+          <p className="mt-2">
+            <span
+              className={
+                screen.reminder === "expired" || screen.reminder === "7"
+                  ? "owner-pill owner-pill-act"
+                  : "owner-pill owner-pill-watch"
+              }
+            >
+              {screen.reminder === "expired" ? t`Expired` : t`Renew soon`}
+            </span>
+          </p>
+        </div>
+      ) : screen.expiresOn ? (
+        <p>
+          <span className="owner-pill owner-pill-good">{t`Valid`}</span>
         </p>
       ) : null}
       {editing ? (
@@ -71,7 +97,7 @@ export function DocumentsScreen({
             event.preventDefault();
             onSave({
               reference: reference.trim() || null,
-              expiresOn: expiresOn || null,
+              expiresOn: parseDisplayDate(expiresOn),
               gstin: gstin.trim() || null,
             });
           }}
@@ -87,8 +113,10 @@ export function DocumentsScreen({
           <label className="flex flex-col gap-1 text-body-sm">
             {t`Licence expiry`}
             <input
-              type="date"
               required
+              inputMode="text"
+              placeholder={t`DD MMM YYYY`}
+              aria-label={t`Licence expiry, DD MMM YYYY`}
               className="h-9 rounded-lg border border-border bg-background px-2"
               value={expiresOn}
               onChange={(event) => setExpiresOn(event.target.value)}
