@@ -474,10 +474,20 @@ export function weekSales(
   for (const day of [...rows.keys()].filter((item) => item >= start && item <= date).sort()) {
     const now = rows.get(day);
     const prior = rows.get(addIso(day, -7));
-    if (!now || !prior || now.size === 0 || prior.size !== now.size) continue;
-    if ([...now.keys()].some((key) => !prior.has(key))) continue;
-    for (const sales of now.values()) current += sales;
-    for (const sales of prior.values()) baseline += sales;
+    if (!now || !prior || now.size === 0) continue;
+    let dayNow = 0;
+    let dayBase = 0;
+    let shared = 0;
+    for (const [key, sales] of now) {
+      const before = prior.get(key);
+      if (before == null) continue;
+      dayNow += sales;
+      dayBase += before;
+      shared += 1;
+    }
+    if (shared === 0) continue;
+    current += dayNow;
+    baseline += dayBase;
     pairs += 1;
     used.add(day);
     if (!firstData || day < firstData) firstData = day;
@@ -628,11 +638,34 @@ function salesLine(view: DailyBriefView): string | null {
   return parts.join(" · ");
 }
 
-function weekLine(view: DailyBriefView): string {
-  const week = view.week;
-  if (!week) return "";
+export function formatWeekLine(week: {
+  startLabel: string;
+  endLabel: string;
+  currentPaise: number;
+  changePct: number;
+  pendingLabel?: string | null;
+}): string {
   const pending = week.pendingLabel ? `, ${week.pendingLabel}` : "";
   return `Week so far (${week.startLabel}–${week.endLabel}${pending}): ${formatRupees(week.currentPaise)} vs the same days last week (${formatSignedPct(week.changePct)})`;
+}
+
+/** Swap a stored week sentence for the same days, measured again. */
+export function replaceWeekLine(
+  markdown: string,
+  week: {
+    startLabel: string;
+    endLabel: string;
+    currentPaise: number;
+    changePct: number;
+    pendingLabel?: string | null;
+  } | null,
+): string {
+  if (!week || !markdown.includes("Week so far (")) return markdown;
+  return markdown.replace(/Week so far \([^)\n]*\):[^\n]*/, formatWeekLine(week));
+}
+
+function weekLine(view: DailyBriefView): string {
+  return view.week ? formatWeekLine(view.week) : "";
 }
 
 function closing(view: DailyBriefView): string {

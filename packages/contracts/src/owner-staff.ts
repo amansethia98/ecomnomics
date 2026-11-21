@@ -2,6 +2,7 @@ import * as z from "zod";
 import { addIsoDays } from "./metric-dates.js";
 import { formatCivilDay } from "./ops/format.js";
 import type { OwnerPlot } from "./owner-dashboard.js";
+import { ownerDateAxis, ownerRupeeAxis, ownerUtcDate } from "./owner-dashboard.js";
 
 /** Questions one owner may ask in one Asia/Kolkata civil day. */
 export const STAFF_QUESTION_LIMIT = 30;
@@ -79,6 +80,8 @@ export interface StaffAnswerInput {
   salesPaise: number | null;
   changePct: number | null;
   compare: string | null;
+  /** Days actually compared, such as "Mon–Sun", when the question is about a week. */
+  period?: string | null;
   points: ReadonlyArray<{ week: string; sales: number }>;
   suggestion: StaffSuggestion | null;
   suppressedUntil: string | null;
@@ -324,7 +327,9 @@ export function answerStaffQuestion(input: StaffAnswerInput): StaffAnswer {
       text:
         input.salesPaise == null
           ? "Your first numbers arrive after tonight's download."
-          : "Here is the latest week I can measure.",
+          : /\bweek\b/i.test(input.question) && input.period
+            ? `Last week (${input.period}) vs the same days last week.`
+            : "Here is the latest week I can measure.",
     },
     metric(input),
   ];
@@ -335,13 +340,16 @@ export function answerStaffQuestion(input: StaffAnswerInput): StaffAnswer {
         id: "staff-sales",
         width: 640,
         height: 160,
-        x: { label: null },
-        y: { label: null, grid: true },
+        x: ownerDateAxis(input.points.map((point) => point.week)),
+        y: ownerRupeeAxis(input.points.map((point) => point.sales)),
         marks: [
           {
             type: "lineY",
-            data: input.points.map((point) => ({ week: point.week, sales: point.sales })),
-            options: { x: "week", y: "sales", stroke: "var(--owner-zomato)" },
+            data: input.points.map((point) => ({
+              at: ownerUtcDate(point.week),
+              sales: point.sales,
+            })),
+            options: { x: "at", y: "sales", stroke: "var(--owner-zomato)" },
           },
         ],
       },
