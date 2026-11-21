@@ -79,6 +79,44 @@ it("keeps each app's fetch clock and leaves a pending app blank", () => {
   expect(both.updated).toEqual({ zomato: "05:42", swiggy: "10:05" });
 });
 
+it("features an act-now from the latest day and leaves an older one out of the card", () => {
+  const current = composeOwnerHome(
+    input({
+      alerts: [
+        alert({
+          id: "act",
+          severity: "act_now",
+          date: "2026-11-15",
+          impactPaise: 250_000,
+          text: "Indiranagar was offline.",
+        }),
+        alert({ id: "eye", date: "2026-11-15", outletId: "hsr", outletName: "HSR Layout" }),
+      ],
+    }),
+  );
+  expect(current.card?.ids).toContain("act");
+  expect(current.rows.flatMap((row) => row.ids)).not.toContain("act");
+  expect(current.card?.detail).toContain("Swiggy");
+  expect(current.card?.detail).toMatch(/Nov/);
+  expect(current.card?.impactPaise).toBe(250_000);
+  const waiting = composeOwnerHome(
+    input({
+      today: "2026-11-21",
+      brief: {
+        ...input().brief!,
+        form: "no_data",
+        date: "2026-11-20",
+      },
+      alerts: [
+        alert({ id: "old", severity: "act_now", date: "2026-11-14" }),
+        alert({ id: "fresh", date: "2026-11-20" }),
+      ],
+    }),
+  );
+  expect(waiting.card?.ids).toEqual(["fresh"]);
+  expect(waiting.rows.flatMap((row) => row.ids)).not.toContain("old");
+});
+
 it("writes a delayed-order alert as a sentence and keeps the date in the sub-line", () => {
   const home = composeOwnerHome(
     input({

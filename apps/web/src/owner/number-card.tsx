@@ -46,6 +46,7 @@ export function NumberCard({ tile, onOpen }: { tile: DashTile; onOpen: () => voi
           label={formatSignedPct(tile.changePct)}
         />
       ) : null}
+      {tile.basis ? <p className="text-body-sm text-muted-foreground">{tile.basis}</p> : null}
       <Spark values={tile.spark} />
       {word ? (
         <p

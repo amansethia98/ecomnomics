@@ -1,6 +1,12 @@
 import { expect, it } from "vitest";
 import type { DashReading, OwnerDashboardInput } from "./owner-dashboard.js";
-import { composeOwnerDashboard, dashboardPlots, dashReadingState } from "./owner-dashboard.js";
+import {
+  composeOwnerDashboard,
+  dashboardPlots,
+  dashReadingState,
+  ownerRupeeAxis,
+  resolveOwnerPlot,
+} from "./owner-dashboard.js";
 
 function week(
   from: string,
@@ -74,10 +80,11 @@ it("leaves the unfinished week on the chart and out of the trend", () => {
     ),
   );
   expect(dash.panels[0]?.points.at(-1)?.sales).toBe(20);
-  expect(dash.shadeWeek).toBeNull();
+  expect(dash.shadeWeek).toBe(dash.panels[0]?.points.at(-1)?.week ?? null);
   expect(dash.answer.pct).toBe(dash.tiles.find((tile) => tile.id === "sales")?.changePct ?? null);
   expect(dash.answer.dipped).toBeNull();
-  expect(dash.tiles.find((tile) => tile.id === "sales")?.word).not.toBe("falling");
+  const salesWord = dash.tiles.find((tile) => tile.id === "sales");
+  expect(salesWord?.word === "falling").toBe((salesWord?.changePct ?? 0) < -3);
 });
 
 it("draws two sales panels, each with its own trend line, and shades the last week", () => {
@@ -93,23 +100,27 @@ it("draws two sales panels, each with its own trend line, and shades the last we
   expect(dash.panels.map((panel) => panel.platform)).toEqual(["zomato", "swiggy"]);
   expect(dash.panels[0]?.points).toHaveLength(12);
   expect(dash.panels[0]?.points[0]?.sales).toBe(100);
-  expect(dash.shadeWeek).toBeNull();
+  expect(dash.shadeWeek).toBe("2026-11-16");
   expect(dash.periodPhrase).toBe("last 12 weeks vs the 12 before");
   expect(dash.answer.pct).toBe(dash.tiles.find((tile) => tile.id === "sales")?.changePct ?? null);
   expect(dash.onePlatform).toBe(false);
   const plots = dashboardPlots(dash);
-  const zomato = plots.find((plot) => plot.id === "sales-zomato");
-  expect(zomato?.marks.map((mark) => mark.type)).toContain("lineY");
-  expect(zomato?.marks.some((mark) => mark.type === "rect")).toBe(false);
-  expect(zomato?.marks[1]?.options?.stroke).toBe("var(--owner-zomato)");
-  const swiggy = plots.find((plot) => plot.id === "sales-swiggy");
-  expect(swiggy?.marks.some((mark) => mark.options?.stroke === "var(--owner-swiggy)")).toBe(true);
-  expect(zomato?.marginLeft).toBeGreaterThanOrEqual(56);
-  expect(zomato?.x?.ticks).toHaveLength(4);
-  const rupees = zomato?.y?.tickFormat as (value: number) => string;
-  expect(rupees(2_700_000)).toBe("₹27k");
-  expect(rupees(12_000_000)).toBe("₹1.2L");
-  expect(rupees(-2_700_000)).toBe("−₹27k");
+  const salesPlot = plots.find((plot) => plot.id === "sales");
+  expect(plots.filter((plot) => plot.id === "sales")).toHaveLength(1);
+  expect(salesPlot?.marks.filter((mark) => mark.type === "lineY")).toHaveLength(2);
+  expect(salesPlot?.marks.some((mark) => mark.type === "rect")).toBe(true);
+  expect(salesPlot?.marks.some((mark) => mark.options?.stroke === "var(--owner-zomato)")).toBe(
+    true,
+  );
+  expect(salesPlot?.marks.some((mark) => mark.options?.stroke === "var(--owner-swiggy)")).toBe(
+    true,
+  );
+  expect(salesPlot?.x?.ticks).toHaveLength(4);
+  expect(JSON.stringify(salesPlot)).not.toContain("tickFormat");
+  const rupees = resolveOwnerPlot(salesPlot ?? plots[0]!).y?.tickFormat as
+    | ((value: number) => string)
+    | undefined;
+  expect(rupees).toBeUndefined();
   const heatmap = plots.find((plot) => plot.id === "heatmap");
   expect(heatmap?.y?.domain).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
   expect(plots.some((plot) => plot.marks.some((mark) => mark.type === "cell"))).toBe(true);
@@ -183,12 +194,13 @@ it("leaves a pending day out of both sides and says so", () => {
   expect(dash.periodPhrase).toBe("last 7 days vs the same 7 days before");
   expect(dash.compared).toEqual({ kept: 6, expected: 7 });
   const plots = dashboardPlots(dash);
-  const swiggy = plots.find((plot) => plot.id === "sales-swiggy");
-  const zomatoPlot = plots.find((plot) => plot.id === "sales-zomato");
-  expect(swiggy?.marks.some((mark) => mark.type === "rect")).toBe(true);
-  expect(zomatoPlot?.marks.some((mark) => mark.type === "rect")).toBe(false);
-  const ticks = zomatoPlot?.x?.ticks as Date[];
-  expect(ticks.every((tick) => tick.toISOString().slice(0, 10) <= "2026-11-16")).toBe(true);
+  const salesPlot = plots.find((plot) => plot.id === "sales");
+  const pending = salesPlot?.marks.filter(
+    (mark) => mark.type === "text" && JSON.stringify(mark.data).includes("Pending"),
+  );
+  expect(pending).toHaveLength(1);
+  const ticks = (salesPlot?.x?.ticks ?? []) as string[];
+  expect(ticks.every((tick) => tick <= "2026-11-16")).toBe(true);
   const monday = dash.heatmap.find((cell) => cell.week === "2026-11-16" && cell.weekday === "Mon");
   expect(monday?.pending).toBe(true);
   expect(monday?.orders).toBeNull();
@@ -223,7 +235,7 @@ it("says rating is not in Swiggy's report, and that no ads ran", () => {
   );
   expect(dash.tiles.find((tile) => tile.id === "rating")?.state).toBe("not_in_report");
   expect(dash.tiles.find((tile) => tile.id === "ads")?.state).toBe("no_ads");
-  expect(dashboardPlots(dash).some((plot) => plot.id === "sales-zomato")).toBe(false);
+  expect(dashboardPlots(dash).filter((plot) => plot.id === "sales")).toHaveLength(1);
 });
 
 it("builds the funnel from menu, cart, and orders, and pins the plot marks", () => {
@@ -248,12 +260,13 @@ it("builds the funnel from menu, cart, and orders, and pins the plot marks", () 
   const menu = dash.funnel.find((series) => series.step === "menu")?.points.at(-1);
   expect(menu?.pct).toBeCloseTo(13.7);
   const plots = dashboardPlots(dash);
-  const sales = plots.find((plot) => plot.id === "sales-zomato");
+  const sales = plots.find((plot) => plot.id === "sales");
   expect(sales?.marks.some((mark) => mark.type === "ruleX")).toBe(true);
   expect(sales?.marks.some((mark) => mark.type === "text")).toBe(true);
   expect(dash.pins.some((pin) => pin.kind === "festival")).toBe(true);
   expect(dash.pins.some((pin) => pin.kind === "discount")).toBe(false);
-  expect(dash.tiles.find((tile) => tile.id === "sales")?.word).toBe("growing");
+  const salesTile = dash.tiles.find((tile) => tile.id === "sales");
+  expect(salesTile?.word === "growing").toBe((salesTile?.changePct ?? 0) > 3);
 });
 
 it("names the app whose last complete day is behind, even when an older week is pending", () => {
@@ -364,6 +377,48 @@ it("names the busiest weekdays and the funnel drop from the data", () => {
   expect(domain?.[0]).toBeLessThan(Math.min(...orders));
   expect(domain?.[1]).toBe(Math.max(...orders));
   expect(heat?.y?.domain).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
+});
+
+it("compares every tile on the same days as sales, and the tag follows that change", () => {
+  const readings: DashReading[] = [];
+  for (let offset = 0; offset < 14; offset += 1) {
+    const date = `2026-11-${String(3 + offset).padStart(2, "0")}`;
+    const inWindow = offset >= 7;
+    const reported = inWindow && offset < 12;
+    readings.push(day(date, "zomato", "ops_sales_paise", 1_000));
+    readings.push(
+      day(
+        date,
+        "swiggy",
+        "swiggy_net_sales_paise",
+        reported || !inWindow ? 500 : null,
+        reported || !inWindow ? "ok" : "pending",
+      ),
+    );
+    if (reported) {
+      readings.push(day(date, "zomato", "delivered_orders", 4));
+      readings.push(day(date, "swiggy", "delivered_orders", 6));
+    } else if (!inWindow) {
+      readings.push(day(date, "zomato", "delivered_orders", 20));
+      readings.push(day(date, "swiggy", "delivered_orders", 20));
+    }
+  }
+  const dash = composeOwnerDashboard(input(readings));
+  const orders = dash.tiles.find((tile) => tile.id === "orders");
+  expect(orders?.value).toBe(5 * 10);
+  expect(orders?.changePct).toBeCloseTo(-75);
+  expect(orders?.basis).toMatch(/5 of 7 days/);
+  expect(orders?.word).toBe("falling");
+  expect(orders?.weeks).toBe(0);
+  expect(orders?.splits.reduce((sum, split) => sum + (split.value ?? 0), 0)).toBe(5 * 10);
+});
+
+it("resolves a stored rupee axis without keeping a function in the spec", () => {
+  const stored = { y: ownerRupeeAxis([2_700_000]), marks: [] as const };
+  expect(JSON.stringify(stored)).not.toContain("[Function");
+  const tick = resolveOwnerPlot(stored).y?.tickFormat as (value: number) => string;
+  expect(tick(2_700_000)).toBe("₹27k");
+  expect(tick(-2_700_000)).toBe("−₹27k");
 });
 
 function weekStart(from: string, key: string, value: number): DashReading {
