@@ -214,8 +214,8 @@ export function Answer({ model }: { model: OwnerDashboardModel }) {
   const dip = dipPct
     ? model.answer.unit === "day"
       ? model.answer.festival
-        ? t`The last day dipped ${dipPct} after a festival week`
-        : t`The last day dipped ${dipPct}`
+        ? t`The last day dipped ${dipPct} vs ${model.answer.dipped?.against ?? "the day before"} after a festival week`
+        : t`The last day dipped ${dipPct} vs ${model.answer.dipped?.against ?? "the day before"}`
       : model.answer.festival
         ? t`Last week dipped ${dipPct} after a festival week`
         : t`Last week dipped ${dipPct}`

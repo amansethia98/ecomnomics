@@ -27,7 +27,7 @@ it("drops the sign when the verb already says the direction", () => {
       pct: 12.5,
       weeks: 4,
       unit: "week",
-      dipped: { platform: "swiggy", pct: -8.4 },
+      dipped: { platform: "swiggy", pct: -8.4, against: "the day before" },
     }),
   );
   expect(host.textContent).toContain("up 12.5%, last 4 weeks vs the 4 before");
@@ -39,6 +39,19 @@ it("drops the sign when the verb already says the direction", () => {
 it("counts the selected range in days", () => {
   const host = render(answer({ direction: "down", pct: -4, weeks: 7, unit: "day", dipped: null }));
   expect(host.textContent).toContain("down 4.0%, last 7 days vs the same 7 days before");
+});
+
+it("says when a daily dip is against the previous day", () => {
+  const host = render(
+    answer({
+      direction: "down",
+      pct: -4,
+      weeks: 7,
+      unit: "day",
+      dipped: { platform: "swiggy", pct: -6, against: "the day before" },
+    }),
+  );
+  expect(host.textContent).toContain("The last day dipped 6.0% vs the day before");
 });
 
 function answer(over: Partial<OwnerDashboardModel["answer"]>): OwnerDashboardModel {

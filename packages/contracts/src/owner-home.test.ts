@@ -416,6 +416,50 @@ it("welcomes a restaurant that has no history yet", () => {
   expect(home.questions).toEqual([]);
 });
 
+it("features the last complete day's act now while yesterday is still waiting", () => {
+  const home = composeOwnerHome(
+    input({
+      today: "2026-11-17",
+      brief: {
+        ...input().brief!,
+        form: "no_data",
+        date: "2026-11-16",
+        sales: null,
+        delivered: null,
+        statusText: "",
+      },
+      lastComplete: { date: "2026-11-14", salesPaise: 80_000, delivered: 12 },
+      alerts: [
+        alert({ id: "older", severity: "act_now", date: "2026-11-10", impactPaise: 900_000 }),
+        alert({
+          id: "act",
+          severity: "act_now",
+          date: "2026-11-14",
+          impactPaise: 250_000,
+          platform: "zomato",
+          text: "Indiranagar was offline.",
+        }),
+        alert({
+          id: "watch",
+          severity: "watch",
+          date: "2026-11-14",
+          outletId: "hsr",
+          outletName: "HSR Layout",
+          impactPaise: 10_000,
+        }),
+      ],
+    }),
+  );
+  expect(home.kind).toBe("waiting");
+  expect(home.urgent).toBe(1);
+  expect(home.watch).toBe(1);
+  expect(home.card?.ids).toEqual(["act"]);
+  expect(home.card?.detail).toContain("Zomato");
+  expect(home.card?.detail).toMatch(/14 Nov/);
+  expect(home.card?.impactPaise).toBe(250_000);
+  expect(home.rows.flatMap((row) => row.ids)).toEqual(["watch"]);
+});
+
 it("uses the last complete day when yesterday is not in yet", () => {
   const home = composeOwnerHome(
     input({
