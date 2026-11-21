@@ -558,7 +558,7 @@ function measureTile(
     const current = onePeriod(tile, input.readings, window, day, platforms);
     if (current.kind === "pending") pending = true;
     if (current.kind === "updating") updating = true;
-    if (current.kind === "missing" || current.kind === "not_in_report") missing = true;
+    if (current.kind === "missing") missing = true;
     if (current.kind !== "value" || current.total == null) continue;
     shown += current.total;
     shownCount += 1;
