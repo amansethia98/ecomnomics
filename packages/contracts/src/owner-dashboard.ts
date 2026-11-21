@@ -1620,8 +1620,8 @@ export function resolveOwnerPlot<
 >(plot: T): T {
   return {
     ...plot,
-    x: resolveAxis(plot.x),
-    y: resolveAxis(plot.y),
+    x: resolveAxis(legacyAxis(plot.x)),
+    y: resolveAxis(legacyAxis(plot.y)),
     marks: plot.marks.map((mark) => ({
       ...mark,
       data: mark.data?.map((row) => {
@@ -1637,6 +1637,16 @@ export function resolveOwnerPlot<
       }),
     })),
   };
+}
+
+/** Charts saved before format keys dropped their tick functions and kept a bare axis. */
+function legacyAxis(
+  axis: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!axis || axis.format != null || typeof axis.tickFormat === "function") return axis;
+  if (axis.type === "utc") return { ...axis, format: "date" };
+  if (axis.grid === true) return { ...axis, format: "inr" };
+  return axis;
 }
 
 function resolveAxis(

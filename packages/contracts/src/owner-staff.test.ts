@@ -124,6 +124,36 @@ it("answers from the numbers it was given and does not count a failed try", () =
   expect(looking.blocks[0]?.kind === "text" && looking.blocks[0].text).toMatch(/looking into it/);
 });
 
+it("formats a chart that was stored before format keys existed", () => {
+  const legacy = {
+    id: "staff-sales",
+    width: 640,
+    height: 160,
+    x: {
+      label: null,
+      type: "utc",
+      domain: ["2026-11-02T00:00:00.000Z", "2026-11-09T00:00:00.000Z"],
+      ticks: ["2026-11-02T00:00:00.000Z"],
+      clamp: true,
+      padding: 0,
+    },
+    y: { label: null, grid: true, domain: [100, 500_000] },
+    marks: [
+      {
+        type: "lineY" as const,
+        data: [{ at: "2026-11-02", sales: 120 }],
+        options: { x: "at", y: "sales" },
+      },
+    ],
+  };
+  const resolved = resolveOwnerPlot(legacy);
+  const yTick = resolved.y?.tickFormat as (value: number) => string;
+  const xTick = resolved.x?.tickFormat as (value: Date) => string;
+  expect(yTick(500_000)).toBe("₹5k");
+  expect(yTick(500_000)).not.toBe("00,000");
+  expect(xTick(new Date("2026-11-02T00:00:00.000Z"))).toBe("2 Nov");
+});
+
 it("offers an action once, and records the owner's choice in words", () => {
   const offer = answerStaffQuestion(base("Should I run an offer?"));
   expect(offer.suggest).toBe(true);
