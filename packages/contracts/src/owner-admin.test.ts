@@ -1,0 +1,119 @@
+import { describe, expect, it } from "vitest";
+import { composeAdminPanel, ownerViewFromRestaurant, panelFromAdminRows } from "./owner-admin.js";
+
+const outlet = {
+  name: "HSR",
+  city: "Bengaluru",
+  active: true,
+  zomato: "connected" as const,
+  swiggy: "not_connected" as const,
+};
+
+describe("platform admin panel", () => {
+  it("asks for the first restaurant and hides an empty list", () => {
+    const panel = composeAdminPanel({ restaurants: [], openFindings: 0 });
+    expect(panel.health).toBe("Add your first restaurant");
+    expect(panel.restaurants).toEqual([]);
+    expect(panel.needsYou).toBe(false);
+    expect(panel.rules).toBe("No rule placeholders left.");
+    expect(panel.messages).toBe("No messages are in this view.");
+  });
+
+  it("counts a run that is still going and leaves a paused restaurant out", () => {
+    const panel = composeAdminPanel({
+      openFindings: 0,
+      restaurants: [
+        {
+          restaurantId: "r-live",
+          name: "Live",
+          outlets: [outlet],
+          runs: [
+            { status: "ok", startedAt: "2026-11-21T00:00:00.000Z", endedAt: null, costPaise: 100 },
+          ],
+        },
+        {
+          restaurantId: "r-done",
+          name: "Done",
+          outlets: [outlet],
+          runs: [
+            {
+              status: "ok",
+              startedAt: "2026-11-21T00:00:00.000Z",
+              endedAt: "2026-11-21T01:00:00.000Z",
+              costPaise: 0,
+            },
+          ],
+        },
+        {
+          restaurantId: "r-paused",
+          name: "Paused",
+          outlets: [{ ...outlet, active: false }],
+          runs: [],
+        },
+      ],
+    });
+    expect(panel.health).toBe("Run in progress, 1 of 2 done");
+    expect(panel.runs.find((run) => run.restaurant === "Paused")?.state).toBe("paused");
+    expect(panel.connections.map((row) => row.restaurant)).toEqual(["Done", "Live"]);
+    expect(panel.costsPaise).toBe(100);
+    expect(panel.needsYou).toBe(true);
+  });
+
+  it("says the run did not start when an active restaurant has no run", () => {
+    const panel = composeAdminPanel({
+      openFindings: 2,
+      restaurants: [{ restaurantId: "r1", name: "Sample", outlets: [outlet], runs: [] }],
+    });
+    expect(panel.health).toBe("Last night's run didn't start");
+    expect(panel.rules).toBe("2 need a person");
+    expect(panel.costsPaise).toBeNull();
+  });
+
+  it("drops platform ids from a view-as-owner snapshot", () => {
+    const view = ownerViewFromRestaurant({
+      restaurantId: "r1",
+      name: "Sample",
+      outlets: [
+        {
+          name: "HSR",
+          city: "Bengaluru",
+          active: true,
+          zomato: { resId: "should-not-leak" },
+          swiggy: null,
+        },
+      ],
+    });
+    expect(view.readOnly).toBe(true);
+    expect(view.outlets[0]).toEqual({
+      name: "HSR",
+      city: "Bengaluru",
+      active: true,
+      zomato: "connected",
+      swiggy: "not_connected",
+    });
+    const encoded = JSON.stringify(view);
+    expect(encoded).not.toContain("should-not-leak");
+    expect(encoded).not.toMatch(/password|token|secret|resId/i);
+    const panel = panelFromAdminRows(
+      [
+        {
+          restaurantId: "r1",
+          name: "Sample",
+          outlets: [
+            {
+              name: "HSR",
+              city: "Bengaluru",
+              active: true,
+              zomato: { resId: "should-not-leak" },
+              swiggy: null,
+            },
+          ],
+          jobRuns: [],
+        },
+      ],
+      0,
+    );
+    expect(JSON.stringify(panel)).not.toContain("should-not-leak");
+    expect(panel.connections[0]?.zomato).toBe("connected");
+  });
+});
