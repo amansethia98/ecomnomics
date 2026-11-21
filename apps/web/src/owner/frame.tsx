@@ -89,7 +89,7 @@ export function OwnerFrame({
   const outlets = profile.outlets.filter((outlet) => outlet.active);
   const showRange = screen === "dashboard";
   const showPlatform = showRange && platforms.length > 1;
-  const showOutlets = outlets.length > 1 && screen !== "settings";
+  const showOutlets = outlets.length > 0 && screen !== "settings";
   const base = `/restaurants/${restaurantId}`;
 
   const go = (next: OwnerView) => {

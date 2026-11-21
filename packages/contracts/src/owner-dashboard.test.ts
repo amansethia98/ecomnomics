@@ -108,7 +108,9 @@ it("draws two sales panels, each with its own trend line, and shades the last we
   const salesPlot = plots.find((plot) => plot.id === "sales");
   expect(plots.filter((plot) => plot.id === "sales")).toHaveLength(1);
   expect(salesPlot?.marks.filter((mark) => mark.type === "lineY")).toHaveLength(2);
+  expect(salesPlot?.marks.some((mark) => mark.type === "linearRegressionY")).toBe(false);
   expect(salesPlot?.marks.some((mark) => mark.type === "rect")).toBe(true);
+  expect(salesPlot?.y?.format).toBe("inr");
   expect(salesPlot?.marks.some((mark) => mark.options?.stroke === "var(--owner-zomato)")).toBe(
     true,
   );
@@ -120,7 +122,11 @@ it("draws two sales panels, each with its own trend line, and shades the last we
   const rupees = resolveOwnerPlot(salesPlot ?? plots[0]!).y?.tickFormat as
     | ((value: number) => string)
     | undefined;
-  expect(rupees).toBeUndefined();
+  expect(rupees?.(2_700_000)).toBe("₹27k");
+  const label = salesPlot?.marks.find(
+    (mark) => mark.type === "text" && JSON.stringify(mark.data).includes("Zomato"),
+  );
+  expect(label?.options?.textAnchor).toBe("end");
   const heatmap = plots.find((plot) => plot.id === "heatmap");
   expect(heatmap?.y?.domain).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
   expect(plots.some((plot) => plot.marks.some((mark) => mark.type === "cell"))).toBe(true);
@@ -196,9 +202,10 @@ it("leaves a pending day out of both sides and says so", () => {
   const plots = dashboardPlots(dash);
   const salesPlot = plots.find((plot) => plot.id === "sales");
   const pending = salesPlot?.marks.filter(
-    (mark) => mark.type === "text" && JSON.stringify(mark.data).includes("Pending"),
+    (mark) => mark.type === "text" && JSON.stringify(mark.data).includes("Swiggy pending"),
   );
   expect(pending).toHaveLength(1);
+  expect(JSON.stringify(pending?.[0]?.data)).toContain("2026-11-16");
   const ticks = (salesPlot?.x?.ticks ?? []) as string[];
   expect(ticks.every((tick) => tick <= "2026-11-16")).toBe(true);
   const monday = dash.heatmap.find((cell) => cell.week === "2026-11-16" && cell.weekday === "Mon");
@@ -410,7 +417,31 @@ it("compares every tile on the same days as sales, and the tag follows that chan
   expect(orders?.basis).toMatch(/5 of 7 days/);
   expect(orders?.word).toBe("falling");
   expect(orders?.weeks).toBe(0);
+  expect(orders?.span).toBe("7 days");
   expect(orders?.splits.reduce((sum, split) => sum + (split.value ?? 0), 0)).toBe(5 * 10);
+});
+
+it("leaves a missing app out of that day's baseline", () => {
+  const readings: DashReading[] = [];
+  for (let offset = 0; offset < 14; offset += 1) {
+    const date = `2026-11-${String(3 + offset).padStart(2, "0")}`;
+    const missing = date === "2026-11-16";
+    readings.push(day(date, "zomato", "ops_sales_paise", 1_000));
+    readings.push(day(date, "zomato", "delivered_orders", 10));
+    if (!missing) {
+      readings.push(day(date, "swiggy", "swiggy_net_sales_paise", 500));
+      readings.push(day(date, "swiggy", "delivered_orders", 20));
+    }
+  }
+  const dash = composeOwnerDashboard(input(readings));
+  const orders = dash.tiles.find((tile) => tile.id === "orders");
+  const sales = dash.tiles.find((tile) => tile.id === "sales");
+  expect(orders?.value).toBe(190);
+  expect(orders?.changePct).toBeCloseTo(0);
+  expect(sales?.value).toBe(10_000);
+  expect(sales?.changePct).toBe(dash.answer.pct);
+  expect(orders?.splits.reduce((sum, split) => sum + (split.value ?? 0), 0)).toBe(190);
+  expect(orders?.span).toBe("7 days");
 });
 
 it("resolves a stored rupee axis without keeping a function in the spec", () => {

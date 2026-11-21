@@ -162,8 +162,28 @@ it("leaves an inactive outlet out of the selector", () => {
       <p>Home</p>
     </OwnerFrame>,
   );
-  expect(host.querySelector("select")).toBeNull();
-  expect(host.textContent).not.toContain("Koramangala");
+  expect(host.querySelector("select")?.textContent).toContain("Indiranagar");
+  expect(host.querySelector("select")?.textContent).not.toContain("Koramangala");
+});
+
+it("keeps an outlet dropdown when the restaurant has one outlet", () => {
+  const host = render(
+    <OwnerFrame
+      restaurantId="r1"
+      profile={{ ...profile, outlets: profile.outlets.slice(0, 1) }}
+      screen="home"
+      view={view}
+      today="2026-11-15"
+      onView={() => undefined}
+      confirmLeave={() => true}
+    >
+      <p>Home</p>
+    </OwnerFrame>,
+  );
+  const selector = host.querySelector("select");
+  expect(selector?.getAttribute("aria-label")).toBe("Outlet");
+  expect(selector?.textContent).toContain("All outlets (1)");
+  expect(selector?.textContent).toContain("Indiranagar");
 });
 
 it("hides the range on settings and the outlet list when there is one outlet", () => {
