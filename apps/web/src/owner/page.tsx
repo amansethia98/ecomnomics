@@ -35,8 +35,10 @@ interface RestaurantList {
   restaurants: { id: string; name: string }[];
 }
 
-async function ownerJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, { ...init, credentials: "include" });
+async function ownerJson<T>(path: string, init?: RequestInit, readOnly = false): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (readOnly) headers.set("x-owner-view", "readonly");
+  const response = await fetch(path, { ...init, headers, credentials: "include" });
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
     throw new Error(typeof body?.error === "string" ? body.error : String(response.status));
@@ -48,6 +50,7 @@ export function OwnerPage() {
   const { t } = useLingui();
   const { restaurantId, screen: screenParam } = useParams();
   const [params] = useSearchParams();
+  const readOnly = params.get("readonly") === "1";
   const search = params.toString();
   const navigate = useNavigate();
   const today = indiaCivilDate(new Date());
@@ -70,7 +73,7 @@ export function OwnerPage() {
 
   useEffect(() => {
     let live = true;
-    ownerJson<RestaurantList>("/api/v1/restaurants")
+    ownerJson<RestaurantList>("/api/v1/restaurants", undefined, readOnly)
       .then((list) => {
         if (live) setRestaurants(list);
       })
@@ -80,13 +83,13 @@ export function OwnerPage() {
     return () => {
       live = false;
     };
-  }, []);
+  }, [readOnly]);
 
   useEffect(() => {
     if (!restaurantId) return;
     let live = true;
     setProfile(null);
-    ownerJson<OwnerProfile>(`/api/v1/restaurants/${restaurantId}/profile`)
+    ownerJson<OwnerProfile>(`/api/v1/restaurants/${restaurantId}/profile`, undefined, readOnly)
       .then((next) => {
         if (live) setProfile(next);
       })
@@ -96,7 +99,7 @@ export function OwnerPage() {
     return () => {
       live = false;
     };
-  }, [restaurantId]);
+  }, [restaurantId, readOnly]);
 
   useEffect(() => {
     if (!restaurantId || screenParam !== "home") return;
@@ -104,7 +107,11 @@ export function OwnerPage() {
     setHome(null);
     const outlet = new URLSearchParams(search).get("outlet");
     const query = outlet && outlet !== "all" ? `?outletId=${encodeURIComponent(outlet)}` : "";
-    ownerJson<OwnerHomeModel>(`/api/v1/restaurants/${restaurantId}/home${query}`)
+    ownerJson<OwnerHomeModel>(
+      `/api/v1/restaurants/${restaurantId}/home${query}`,
+      undefined,
+      readOnly,
+    )
       .then((next) => {
         if (live) setHome(next);
       })
@@ -114,7 +121,7 @@ export function OwnerPage() {
     return () => {
       live = false;
     };
-  }, [restaurantId, screenParam, search, homeTick]);
+  }, [restaurantId, screenParam, search, homeTick, readOnly]);
 
   useEffect(() => {
     if (!restaurantId || (screenParam !== "chief-of-staff" && screenParam !== "marketing")) return;
@@ -125,7 +132,7 @@ export function OwnerPage() {
       screenParam === "marketing"
         ? `/api/v1/restaurants/${restaurantId}/marketing`
         : `/api/v1/restaurants/${restaurantId}/staff`;
-    ownerJson<StaffThread | MarketingScreen>(path)
+    ownerJson<StaffThread | MarketingScreen>(path, undefined, readOnly)
       .then((next) => {
         if (!live) return;
         if (screenParam === "marketing") setMarketing(next as MarketingScreen);
@@ -137,7 +144,7 @@ export function OwnerPage() {
     return () => {
       live = false;
     };
-  }, [restaurantId, screenParam]);
+  }, [restaurantId, screenParam, readOnly]);
 
   useEffect(() => {
     if (!restaurantId || !isDeskScreen(screenParam)) return;
@@ -161,7 +168,7 @@ export function OwnerPage() {
           : screenParam === "menu"
             ? `/api/v1/restaurants/${restaurantId}/menu${outletQuery ? `?${outletQuery}` : ""}`
             : `/api/v1/restaurants/${restaurantId}/ratings${outletQuery ? `?${outletQuery}` : ""}`;
-    ownerJson<OwnerPayments | OwnerDocuments | OwnerMenu | OwnerRatings>(path)
+    ownerJson<OwnerPayments | OwnerDocuments | OwnerMenu | OwnerRatings>(path, undefined, readOnly)
       .then((next) => {
         if (!live) return;
         if (screenParam === "payments") setPayments(next as OwnerPayments);
@@ -175,7 +182,7 @@ export function OwnerPage() {
     return () => {
       live = false;
     };
-  }, [restaurantId, screenParam, search]);
+  }, [restaurantId, screenParam, search, readOnly]);
 
   useEffect(() => {
     setDirty(false);
@@ -223,7 +230,9 @@ export function OwnerPage() {
   if (!profile) return null;
   const screen: OwnerScreenId = isOwnerScreen(screenParam) ? screenParam : "home";
   if (!isOwnerScreen(screenParam)) {
-    return <Navigate to={`/restaurants/${restaurantId}/home`} replace />;
+    return (
+      <Navigate to={`/restaurants/${restaurantId}/home${readOnly ? "?readonly=1" : ""}`} replace />
+    );
   }
   const view = effectiveView(parseOwnerView(params, today), profile);
   const setView = (next: OwnerView) => {
@@ -235,6 +244,7 @@ export function OwnerPage() {
       params.set("from", next.from);
       params.set("to", next.to);
     }
+    if (readOnly) params.set("readonly", "1");
     navigate({ search: `?${params.toString()}` });
   };
   const save = async (draft: ProfileDraft) => {
@@ -242,6 +252,7 @@ export function OwnerPage() {
     setSaveError(false);
     const previousLocale = profile.owner.locale;
     try {
+      if (readOnly) return;
       const next = await ownerJson<OwnerProfile>(`/api/v1/restaurants/${restaurantId}/profile`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
@@ -273,14 +284,19 @@ export function OwnerPage() {
       today={today}
       onView={setView}
       confirmLeave={confirmLeave}
+      readOnly={readOnly}
     >
       {screen === "settings" ? (
-        <>
-          <SettingsProfile profile={profile} saving={saving} onSave={save} onDirty={setDirty} />
-          {saveError ? (
-            <p className="mt-3 text-body-sm text-destructive">{t`Couldn't save. Try again.`}</p>
-          ) : null}
-        </>
+        readOnly ? (
+          <p>{t`Read only. This view cannot change the restaurant.`}</p>
+        ) : (
+          <>
+            <SettingsProfile profile={profile} saving={saving} onSave={save} onDirty={setDirty} />
+            {saveError ? (
+              <p className="mt-3 text-body-sm text-destructive">{t`Couldn't save. Try again.`}</p>
+            ) : null}
+          </>
+        )
       ) : screen === "home" ? (
         profile.outlets.length === 0 ? (
           <MetricState kind="empty" />
@@ -289,7 +305,9 @@ export function OwnerPage() {
             restaurantId={restaurantId}
             restaurantName={profile.restaurant.name}
             home={home}
+            readOnly={readOnly}
             onSnooze={(ids, days) => {
+              if (readOnly) return;
               void Promise.all(
                 ids.map((id) =>
                   ownerJson(`/api/v1/restaurants/${restaurantId}/ops/alerts/${id}/snooze`, {
@@ -301,6 +319,7 @@ export function OwnerPage() {
               ).then(() => setHomeTick((value) => value + 1));
             }}
             onAnswer={(question: OwnerHomeQuestion, status) => {
+              if (readOnly) return;
               void ownerJson(`/api/v1/restaurants/${restaurantId}/outlet-days`, {
                 method: "POST",
                 headers: { "content-type": "application/json" },
@@ -319,7 +338,9 @@ export function OwnerPage() {
             restaurantId={restaurantId}
             thread={staff}
             notice={staffNotice}
+            readOnly={readOnly}
             onAsk={(text, key) => {
+              if (readOnly) return;
               setStaffNotice(null);
               void ownerJson<StaffThread>(`/api/v1/restaurants/${restaurantId}/staff/questions`, {
                 method: "POST",
@@ -332,6 +353,7 @@ export function OwnerPage() {
                 );
             }}
             onChoose={(actionId, choice) => {
+              if (readOnly) return;
               setStaffNotice(null);
               void ownerJson<StaffThread>(`/api/v1/restaurants/${restaurantId}/staff/choices`, {
                 method: "POST",
@@ -352,7 +374,9 @@ export function OwnerPage() {
           <MarketingActionsScreen
             restaurantId={restaurantId}
             screen={marketing}
+            readOnly={readOnly}
             onConfirm={(actionId, done) => {
+              if (readOnly) return;
               void ownerJson<MarketingScreen>(
                 `/api/v1/restaurants/${restaurantId}/marketing/${actionId}/confirm`,
                 {
@@ -363,6 +387,7 @@ export function OwnerPage() {
               ).then((next) => setMarketing(next));
             }}
             onDecide={(actionId, choice) => {
+              if (readOnly) return;
               void ownerJson<StaffThread>(`/api/v1/restaurants/${restaurantId}/staff/choices`, {
                 method: "POST",
                 headers: { "content-type": "application/json" },
@@ -397,8 +422,10 @@ export function OwnerPage() {
             <DocumentsScreen
               screen={documents}
               saving={licenceSaving}
+              readOnly={readOnly}
               onDirty={setDirty}
               onSave={(draft) => {
+                if (readOnly) return;
                 setLicenceSaving(true);
                 setSaveError(false);
                 void ownerJson<OwnerDocuments>(`/api/v1/restaurants/${restaurantId}/documents`, {
