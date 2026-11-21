@@ -88,6 +88,24 @@ it("answers from the numbers it was given and does not count a failed try", () =
   expect(sales.blocks.map((block) => block.kind)).toEqual(["text", "metric", "chart"]);
   const chart = sales.blocks[2];
   expect(chart?.kind === "chart" && chart.plot.marks[0]?.type).toBe("lineY");
+  if (chart?.kind === "chart") {
+    const row = chart.plot.marks[0]?.data?.[0] as { at?: unknown; sales?: number } | undefined;
+    expect(row?.at).toBeInstanceOf(Date);
+    expect(chart.plot.x?.type).toBe("utc");
+    expect(chart.plot.y?.tickFormat).toEqual(expect.any(Function));
+    const tick = chart.plot.y?.tickFormat as (value: number) => string;
+    expect(tick(120)).toBe("₹1");
+  }
+  const lastWeek = answerStaffQuestion({
+    ...base("How were sales last week?"),
+    salesPaise: 500_000,
+    changePct: 4,
+    compare: "vs the same days last week",
+    period: "Mon–Sun",
+  });
+  expect(lastWeek.blocks[0]?.kind === "text" && lastWeek.blocks[0].text).toBe(
+    "Last week (Mon–Sun) vs the same days last week.",
+  );
 
   const failed = answerStaffQuestion({
     ...base("Why did sales move?"),

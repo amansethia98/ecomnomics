@@ -11,6 +11,7 @@ import {
   catchUpLine,
   combinedDaySales,
   composeDailyBrief,
+  replaceWeekLine,
   viewFromDaily,
   weekSales,
 } from "./brief.js";
@@ -1186,9 +1187,9 @@ Note: Swiggy figures for Sat may change within 48 hours. Data as of Sun 15 Nov, 
       { date: "2026-11-05", platform: "swiggy", salesPaise: 900 },
     );
     const week = weekSales("2026-11-12", days);
-    expect(week?.endLabel).toBe("Wed");
-    expect(week?.currentPaise).toBe(600);
-    expect(week?.changePct).toBeCloseTo(-50, 1);
+    expect(week?.endLabel).toBe("Thu");
+    expect(week?.currentPaise).toBe(700);
+    expect(week?.changePct).toBeCloseTo(-76.7, 1);
     const line = composeDailyBrief({
       restaurantName: "Sample Kitchen",
       date: "2026-11-12",
@@ -1209,6 +1210,28 @@ Note: Swiggy figures for Sat may change within 48 hours. Data as of Sun 15 Nov, 
       outletCount: 1,
     }).text;
     expect(line).toContain("vs the same days last week");
+  });
+
+  it("keeps a Sunday that both weeks share and ignores a day that exists only last week", () => {
+    const days = [
+      { date: "2026-11-09", platform: "zomato" as const, salesPaise: 400 },
+      { date: "2026-11-15", platform: "zomato" as const, salesPaise: 500 },
+      { date: "2026-11-02", platform: "zomato" as const, salesPaise: 300 },
+      { date: "2026-11-08", platform: "zomato" as const, salesPaise: 350 },
+      { date: "2026-11-08", platform: "swiggy" as const, salesPaise: 999 },
+      { date: "2026-11-01", platform: "zomato" as const, salesPaise: 999 },
+    ];
+    const week = weekSales("2026-11-15", days);
+    expect(week?.startLabel).toBe("Mon");
+    expect(week?.endLabel).toBe("Sun");
+    expect(week?.currentPaise).toBe(900);
+    expect(week?.changePct).toBeCloseTo(38.5, 1);
+    expect(
+      replaceWeekLine(
+        "Week so far (Mon–Wed): ₹100 vs the same days last week (−50.0%)\nNext",
+        week,
+      ),
+    ).toBe(`Week so far (Mon–Sun): ₹9 vs the same days last week (+38.5%)\nNext`);
   });
 
   it("does not put a UTR-like token in a brief", () => {
