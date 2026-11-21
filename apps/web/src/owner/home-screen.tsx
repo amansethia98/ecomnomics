@@ -104,7 +104,7 @@ export function OwnerHomeScreen({
               {t`See what to check`}
             </Button>
             <Link
-              className="inline-flex h-9 items-center rounded-lg px-3 text-body-sm text-primary"
+              className="inline-flex h-9 items-center rounded-lg border border-border bg-background px-3 text-body-sm"
               to={`/restaurants/${restaurantId}/chief-of-staff`}
             >
               {t`Ask chief of staff`}
@@ -155,37 +155,41 @@ export function OwnerHomeScreen({
       ) : null}
       {home.rows.length > 0 ? (
         <section>
-          <div className="flex items-baseline justify-between gap-3">
-            <h3 className="text-label text-muted-foreground">{t`Also keep an eye on · ${home.rows.length + home.overflow.length}`}</h3>
-            <span className="text-body-sm text-muted-foreground">{t`Most costly first`}</span>
+          <h3 className="text-label text-muted-foreground">{t`Also keep an eye on · ${home.rows.length + home.overflow.length}`}</h3>
+          <div className="owner-panel mt-2 px-4">
+            <ul className="divide-y divide-border">
+              {(open
+                ? groupedHomeRows([...home.rows, ...home.overflow]).flatMap((group) => group.items)
+                : home.rows
+              ).map((item) => (
+                <Row key={item.ids.join("-")} item={item} onSnooze={onSnooze} />
+              ))}
+            </ul>
+            <div className="flex items-center justify-between gap-3 border-t border-border py-3">
+              {home.overflow.length > 0 ? (
+                <button
+                  type="button"
+                  className="text-body-sm text-primary"
+                  onClick={() => setOpen((value) => !value)}
+                >
+                  {open ? t`Show less` : t`Show ${home.overflow.length} more`}
+                </button>
+              ) : (
+                <span />
+              )}
+              <span className="text-body-sm text-muted-foreground">{t`Most costly first`}</span>
+            </div>
           </div>
-          <ul className="mt-2">
-            {(open
-              ? groupedHomeRows([...home.rows, ...home.overflow]).flatMap((group) => group.items)
-              : home.rows
-            ).map((item) => (
-              <Row key={item.ids.join("-")} item={item} onSnooze={onSnooze} />
-            ))}
-          </ul>
-          {home.overflow.length > 0 ? (
-            <button
-              type="button"
-              className="mt-2 text-body-sm text-primary"
-              onClick={() => setOpen((value) => !value)}
-            >
-              {open ? t`Show less` : t`Show ${home.overflow.length} more`}
-            </button>
-          ) : null}
         </section>
       ) : null}
       {home.questions.length > 0 ? (
         <section>
           <h3 className="text-label text-muted-foreground">{t`Quick question`}</h3>
-          <ul className="mt-2 flex flex-col gap-3">
+          <ul className="owner-panel mt-2 flex flex-col px-4">
             {home.questions.map((question) => (
               <li
                 key={`${question.outletId}-${question.date}`}
-                className="flex flex-wrap items-center justify-between gap-3 border-t border-border py-3"
+                className="flex flex-wrap items-center justify-between gap-3 py-3"
               >
                 <div>
                   <p>
@@ -308,7 +312,7 @@ function Row({
   onSnooze: (ids: string[], days: 1 | 3 | 7) => void;
 }) {
   return (
-    <li className="flex items-center gap-3 border-t border-border py-3">
+    <li className="flex items-center gap-3 py-3">
       <span
         className={
           item.severity === "act_now"

@@ -1083,7 +1083,7 @@ export function dashboardPlots(model: OwnerDashboardModel): OwnerPlot[] {
     width: 640,
     height: 180,
     marginLeft: 64,
-    marginRight: 72,
+    marginRight: 108,
     x: ownerDateAxis(panel.points.map((point) => point.week)),
     y: ownerRupeeAxis(panel.points.flatMap((point) => (point.sales == null ? [] : [point.sales]))),
     marks: salesMarks(panel, model),
@@ -1103,7 +1103,11 @@ export function dashboardPlots(model: OwnerDashboardModel): OwnerPlot[] {
       tickFormat: (value: string) => formatAxisDay(utcDate(value)),
     },
     y: { label: null, domain: [...WEEKDAY_ORDER], padding: 0 },
-    color: { type: "sqrt", scheme: "purples" },
+    color: {
+      type: "sqrt",
+      scheme: "purples",
+      domain: heatmapDomain(model.heatmap),
+    },
     marks: [
       {
         type: "cell",
@@ -1191,7 +1195,12 @@ function salesMarks(panel: SalesPanel, model: OwnerDashboardModel): OwnerPlotMar
   if (last?.sales != null) {
     marks.push({
       type: "text",
-      data: [{ ...last, label: formatCompactRupees(last.sales) }],
+      data: [
+        {
+          ...last,
+          label: `${panel.platform === "zomato" ? "Zomato" : "Swiggy"} ${formatCompactRupees(last.sales)}`,
+        },
+      ],
       options: { x: "at", y: "sales", text: "label", dx: 6, anchor: "start" },
     });
   }
@@ -1212,6 +1221,15 @@ function salesMarks(panel: SalesPanel, model: OwnerDashboardModel): OwnerPlotMar
     });
   }
   return marks;
+}
+
+/** Keep the quietest day above the white end of the purple ramp. */
+function heatmapDomain(cells: ReadonlyArray<{ orders: number | null }>): [number, number] {
+  const max = Math.max(
+    1,
+    ...cells.flatMap((cell) => (cell.orders != null && cell.orders > 0 ? [cell.orders] : [])),
+  );
+  return [max / 8, max];
 }
 
 export function heatmapHeadline(
