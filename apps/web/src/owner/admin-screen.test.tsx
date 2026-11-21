@@ -64,7 +64,10 @@ it("shows the health line and a read-only view with no credential field", () => 
   expect(host.textContent).toContain("Read only");
   expect(host.textContent).toContain("Zomato connected");
   expect(host.textContent).toContain("Swiggy not connected");
-  expect(host.textContent).not.toMatch(/password|token|secret/i);
+  expect(host.textContent).toContain("Admin access · never shows passwords");
+  expect(host.textContent).toContain("Status only");
+  expect(host.querySelector("input")).toBeNull();
+  expect(host.textContent).not.toMatch(/\btoken\b|\bsecret\b/i);
   const button = [...host.querySelectorAll("button")].find(
     (item) => item.textContent === "View as owner",
   );
