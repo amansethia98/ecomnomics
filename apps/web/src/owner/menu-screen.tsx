@@ -32,6 +32,30 @@ export function MenuScreen({ screen }: { screen: OwnerMenu }) {
           {t`Zomato doesn't share menu scores in its reports.`}
         </p>
       )}
+      <section className="owner-panel p-4">
+        <h2 className="text-label text-muted-foreground">{t`What you'll get`}</h2>
+        <ul className="mt-2 text-body-sm">
+          <li>{t`Which dishes to keep and promote`}</li>
+          <li>{t`Which to raise the price on`}</li>
+          <li>{t`Which need a better photo`}</li>
+          <li>{t`Which to think about removing`}</li>
+        </ul>
+        <ul className="mt-3 text-body-sm">
+          {(
+            [
+              [t`Paneer butter masala`, t`Keep & promote`],
+              [t`Veg biryani`, t`Raise price a little`],
+              [t`Malai kofta`, t`Needs a better photo`],
+              [t`Corn soup`, t`Think about removing`],
+            ] as const
+          ).map(([name, action]) => (
+            <li key={name} className="flex items-center justify-between gap-3 py-2">
+              <span>{name}</span>
+              <span className="text-muted-foreground">{action}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
       {screen.missingCount > 0 ? (
         <p className="text-body-sm text-muted-foreground">
           {screen.missingCount === 1

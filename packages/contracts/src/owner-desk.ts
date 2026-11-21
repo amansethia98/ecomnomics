@@ -68,7 +68,13 @@ export interface OwnerPayments {
     bankBasis: "paid" | "net" | "missing";
     status: typeof PAYOUT_CHECK;
   }>;
-  breakdown: Array<{ id: string; label: string; paise: number }>;
+  breakdown: Array<{
+    id: string;
+    label: string;
+    paise: number | null;
+    /** Set on the closing line. Null on the lines above it. */
+    basis: "paid" | "net" | null;
+  }>;
   selectedId: string | null;
   deductions: Array<{ id: string; label: string; paise: number }>;
   plot: OwnerPlot | null;
@@ -284,6 +290,29 @@ const COMPLAINTS = [
   ["complaints_wrong", "Wrong items"],
 ] as const;
 
+function appReported(
+  app:
+    | {
+        poorRatedOrders?: number | null;
+        complaints?: Readonly<Record<string, number | null>>;
+      }
+    | undefined,
+): boolean {
+  if (!app) return false;
+  if ((app.poorRatedOrders ?? 0) > 0) return true;
+  return Object.values(app.complaints ?? {}).some((count) => (count ?? 0) > 0);
+}
+
+/** A stored zero is unreported when the app sent no complaint figures at all. */
+function reportedFigure(
+  value: number | null | undefined,
+  app: Parameters<typeof appReported>[0],
+): number | null {
+  if (value == null) return null;
+  if (value === 0 && !appReported(app)) return null;
+  return value;
+}
+
 export function composeOwnerRatings(input: {
   rating: number | null;
   reviews: readonly OwnerReview[];
@@ -304,11 +333,11 @@ export function composeOwnerRatings(input: {
       rating,
       ratingState:
         platform === "swiggy" ? "not_in_report" : rating == null ? "not_in_report" : "ok",
-      poorRatedOrders: app?.poorRatedOrders ?? null,
+      poorRatedOrders: reportedFigure(app?.poorRatedOrders, app),
       complaints: COMPLAINTS.map(([id, label]) => ({
         id,
         label,
-        count: app?.complaints?.[id] ?? null,
+        count: reportedFigure(app?.complaints?.[id], app),
       })),
     };
   });
@@ -364,33 +393,34 @@ function bankBasis(cycle: PaymentCycle): "paid" | "net" | "missing" {
   return "missing";
 }
 
-function paymentBreakdown(
-  cycle: PaymentCycle,
-): Array<{ id: string; label: string; paise: number }> {
-  const rows: Array<{ id: string; label: string; paise: number | null }> = [
-    { id: "sales", label: "Your sales", paise: cycle.grossSalesPaise },
-    { id: "discounts", label: "Discounts you paid for", paise: cycle.discountsPaise },
+function paymentBreakdown(cycle: PaymentCycle): OwnerPayments["breakdown"] {
+  const basis = bankBasis(cycle);
+  return [
+    { id: "sales", label: "Your sales", paise: cycle.grossSalesPaise, basis: null },
+    { id: "discounts", label: "Discounts you paid for", paise: cycle.discountsPaise, basis: null },
     {
       id: "commission",
       label: "Commission & fees",
       paise: sumPaise(cycle.commissionPaise, cycle.feesPaise),
+      basis: null,
     },
-    { id: "ads", label: "Ads", paise: cycle.adsPaise },
+    { id: "ads", label: "Ads", paise: cycle.adsPaise, basis: null },
     {
       id: "tax",
       label: "GST & TDS",
       paise: sumPaise(cycle.gstPaise, cycle.tdsPaise, cycle.tcsPaise, cycle.taxesPaise),
+      basis: null,
     },
+    { id: "deductions", label: "Other deductions", paise: cycle.complaintsPaise, basis: null },
+    basis === "paid"
+      ? { id: "bank", label: "Paid to bank", paise: cycle.paidAmountPaise, basis: "paid" }
+      : {
+          id: "net",
+          label: "Net in file",
+          paise: cycle.netPayoutPaise,
+          basis: basis === "net" ? "net" : null,
+        },
   ];
-  const basis = bankBasis(cycle);
-  if (basis === "paid") {
-    rows.push({ id: "bank", label: "Paid to your bank", paise: cycle.paidAmountPaise });
-  } else if (basis === "net") {
-    rows.push({ id: "net", label: "Net in the payout file", paise: cycle.netPayoutPaise });
-  }
-  return rows.flatMap((row) =>
-    row.paise == null ? [] : [{ id: row.id, label: row.label, paise: row.paise }],
-  );
 }
 
 function sumPaise(...values: Array<number | null>): number | null {

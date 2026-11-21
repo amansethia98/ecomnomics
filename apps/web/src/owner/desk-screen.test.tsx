@@ -51,7 +51,10 @@ const payments: OwnerPayments = {
     },
   ],
   selectedId: "cycle-1",
-  breakdown: [{ id: "net", label: "Net in the payout file", paise: 80_000 }],
+  breakdown: [
+    { id: "discounts", label: "Discounts you paid for", paise: null, basis: null },
+    { id: "net", label: "Net in file", paise: 80_000, basis: "net" },
+  ],
   deductions: [],
   plot: null,
   orders: [{ cycleId: "cycle-1", orderId: "o-1", date: "2026-11-08", netPayoutPaise: 20_000 }],
@@ -61,6 +64,9 @@ const payments: OwnerPayments = {
 it("shows the Thursday check on a payout and not a match", () => {
   const host = render(<PaymentsScreen screen={payments} onSelect={() => undefined} />);
   expect(host.textContent).toContain("Check runs Thursday");
+  expect(host.textContent).toContain("Net in file");
+  expect(host.textContent).toContain("—");
+  expect(host.querySelector("select[aria-label='Week']")).not.toBeNull();
   expect(host.textContent).toContain("net in the payout file");
   expect(host.textContent).toContain("Where your money went");
   expect(host.textContent).toContain("₹800");
@@ -90,6 +96,10 @@ it("asks for a licence date and reminds inside seven days", () => {
   );
   expect(empty.querySelector("input[type='date']")).toBeNull();
   expect(empty.querySelector("input[placeholder='DD MMM YYYY']")).not.toBeNull();
+  expect(empty.textContent).toContain("Add your FSSAI licence expiry");
+  expect(empty.textContent).toContain("Daily briefs");
+  expect(empty.textContent).toContain("Payout checks");
+  expect(empty.textContent).toContain("FSSAI licence");
   expect(empty.textContent).toContain("Your first brief arrives tomorrow at 9:00 AM.");
   document.body.replaceChildren();
 
@@ -140,6 +150,12 @@ it("says menu editing is coming soon and names a missing app", () => {
   };
   const host = render(<MenuScreen screen={menu} />);
   expect(host.textContent).toContain("Dish-by-dish insights are on the way");
+  expect(host.textContent).toContain("What you'll get");
+  expect(host.textContent).toContain("Keep & promote");
+  const top = [...host.querySelectorAll("li")].find((item) =>
+    item.textContent?.includes("Top dishes"),
+  );
+  expect(top?.querySelector("[class*='h-1']")).toBeNull();
   expect(host.textContent).toContain("Not in reports");
   expect(host.textContent).toContain("80%");
   expect(host.textContent).toContain("0%");
@@ -189,6 +205,10 @@ it("copies a review reply and does not post it", () => {
   expect(host.textContent).toContain("Not in Swiggy's reports yet");
   expect(host.textContent).toContain("Reviews and replies are on the way");
   expect(host.textContent).toContain("Poorly rated orders —");
+  expect(host.textContent).toContain("Not in reports");
+  expect(host.textContent).toContain("★ 4.20");
+  const bars = host.querySelectorAll("span.bg-primary");
+  expect(bars).toHaveLength(1);
   act(() => {
     button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });

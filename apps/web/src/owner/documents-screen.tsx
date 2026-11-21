@@ -21,6 +21,7 @@ export function DocumentsScreen({
 }) {
   const { t } = useLingui();
   const [editing, setEditing] = useState(screen.expiresOn == null);
+  const [reportFilter, setReportFilter] = useState<"all" | "daily" | "weekly" | "payout">("all");
   const [reference, setReference] = useState(screen.reference ?? "");
   const [expiresOn, setExpiresOn] = useState(
     screen.expiresOn ? formatCivilDay(screen.expiresOn) : "",
@@ -76,20 +77,27 @@ export function DocumentsScreen({
           <p className="mt-2">
             <span
               className={
-                screen.reminder === "expired" || screen.reminder === "7"
-                  ? "owner-pill owner-pill-act"
-                  : "owner-pill owner-pill-watch"
+                screen.reminder == null
+                  ? "owner-pill owner-pill-good"
+                  : screen.reminder === "expired" || screen.reminder === "7"
+                    ? "owner-pill owner-pill-act"
+                    : "owner-pill owner-pill-watch"
               }
             >
-              {screen.reminder === "expired" ? t`Expired` : t`Renew soon`}
+              {screen.reminder == null
+                ? t`Valid`
+                : screen.reminder === "expired"
+                  ? t`Expired`
+                  : t`Renew soon`}
             </span>
           </p>
         </div>
-      ) : screen.expiresOn ? (
-        <p>
-          <span className="owner-pill owner-pill-good">{t`Valid`}</span>
-        </p>
-      ) : null}
+      ) : (
+        <div className="owner-panel p-4">
+          <p className="text-label text-muted-foreground">{t`Documents`}</p>
+          <h2 className="owner-title mt-1">{t`Add your FSSAI licence expiry`}</h2>
+        </div>
+      )}
       {editing ? (
         <form
           className="flex flex-col gap-3"
@@ -151,27 +159,75 @@ export function DocumentsScreen({
         </div>
       )}
       <section>
-        <h2 className="text-label text-muted-foreground">{t`Reports`}</h2>
+        <h2 className="text-label text-muted-foreground">{t`Business documents`}</h2>
+        <ul>
+          <li className="flex items-center justify-between gap-3 border-t border-border py-2">
+            <span>
+              <span className="block font-medium">{t`FSSAI licence`}</span>
+              <span className="block text-body-sm text-muted-foreground">
+                {screen.expiresOn ? formatCivilDay(screen.expiresOn) : t`No expiry typed`}
+              </span>
+            </span>
+            <span
+              className={
+                screen.reminder === "expired" || screen.reminder === "7" || screen.reminder === "30"
+                  ? "owner-pill owner-pill-watch"
+                  : screen.expiresOn
+                    ? "owner-pill owner-pill-good"
+                    : "owner-pill"
+              }
+            >
+              {screen.expiresOn ? (screen.reminder ? t`Renew soon` : t`Valid`) : t`Add expiry`}
+            </span>
+          </li>
+        </ul>
+      </section>
+      <section>
+        <h2 className="text-label text-muted-foreground">{t`Reports we sent you`}</h2>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {(
+            [
+              ["all", t`All`],
+              ["daily", t`Daily briefs`],
+              ["weekly", t`Weekly`],
+              ["payout", t`Payout checks`],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={reportFilter === id}
+              className={
+                reportFilter === id ? "owner-pill bg-primary text-primary-foreground" : "owner-pill"
+              }
+              onClick={() => setReportFilter(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         {screen.reports.length === 0 ? (
           <p className="mt-2">{t`Your first brief arrives tomorrow at 9:00 AM.`}</p>
         ) : (
           <ul>
-            {screen.reports.map((report) => (
-              <li key={report.id} className="border-t border-border py-2">
-                <span className="font-medium">
-                  {report.kind === "daily"
-                    ? t`Daily brief`
-                    : report.kind === "weekly"
-                      ? t`Weekly review`
-                      : report.kind === "payout"
-                        ? t`Payout check`
-                        : t`Report`}
-                </span>
-                <span className="ml-2 text-body-sm text-muted-foreground">
-                  {formatCivilDay(report.from)} – {formatCivilDay(report.to)}
-                </span>
-              </li>
-            ))}
+            {screen.reports
+              .filter((report) => reportFilter === "all" || report.kind === reportFilter)
+              .map((report) => (
+                <li key={report.id} className="border-t border-border py-2">
+                  <span className="font-medium">
+                    {report.kind === "daily"
+                      ? t`Daily brief`
+                      : report.kind === "weekly"
+                        ? t`Weekly review`
+                        : report.kind === "payout"
+                          ? t`Payout check`
+                          : t`Report`}
+                  </span>
+                  <span className="ml-2 text-body-sm text-muted-foreground">
+                    {formatCivilDay(report.from)} – {formatCivilDay(report.to)}
+                  </span>
+                </li>
+              ))}
           </ul>
         )}
       </section>

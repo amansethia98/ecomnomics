@@ -28,8 +28,10 @@ export function RatingsScreen({ screen }: { screen: OwnerRatings }) {
               <span className="text-body-sm font-normal text-muted-foreground">
                 {app.platform === "swiggy" ? t`Not in Swiggy's reports yet` : t`Not in reports`}
               </span>
+            ) : app.rating != null ? (
+              <span>★ {app.rating.toFixed(2)}</span>
             ) : (
-              <span>{app.rating?.toFixed(2)}</span>
+              <span className="text-body-sm font-normal text-muted-foreground">{t`Not in reports`}</span>
             )}
           </p>
           <p className="text-body-sm text-muted-foreground">
@@ -43,15 +45,35 @@ export function RatingsScreen({ screen }: { screen: OwnerRatings }) {
             )}
           </p>
           <ul>
-            {app.complaints.map((row) => (
-              <li
-                key={row.id}
-                className="flex justify-between border-t border-border py-1 text-body-sm"
-              >
-                <span>{row.label}</span>
-                <span>{row.count == null ? "—" : String(row.count)}</span>
-              </li>
-            ))}
+            {app.complaints.map((row) => {
+              const max = Math.max(
+                1,
+                ...app.complaints.map((item) => (item.count == null ? 0 : item.count)),
+              );
+              return (
+                <li
+                  key={row.id}
+                  className="flex items-center justify-between gap-3 border-t border-border py-1 text-body-sm"
+                >
+                  <span>{row.label}</span>
+                  {row.count == null ? (
+                    <span>
+                      — <span className="text-muted-foreground">{t`Not in reports`}</span>
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-2">
+                      {row.count > 0 ? (
+                        <span
+                          className="block h-1.5 bg-primary"
+                          style={{ width: `${Math.max(8, (row.count / max) * 64)}px` }}
+                        />
+                      ) : null}
+                      {String(row.count)}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </section>
       ))}
