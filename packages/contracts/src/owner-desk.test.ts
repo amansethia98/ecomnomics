@@ -62,7 +62,9 @@ describe("owner payments", () => {
       "commission",
       "ads",
       "tax",
+      "gst",
       "complaints",
+      "adjustments",
       "other",
       "net",
     ]);
@@ -277,6 +279,8 @@ describe("owner payments", () => {
           commissionPaise: 5_000,
           feesPaise: 1_000,
           taxesPaise: 200,
+          tdsPaise: 40,
+          tcsPaise: 20,
           gstCollectedPaise: 300,
         },
         {
@@ -288,22 +292,32 @@ describe("owner payments", () => {
           commissionPaise: 2_500,
           feesPaise: 500,
           taxesPaise: 100,
+          tdsPaise: 10,
+          tcsPaise: null,
           gstCollectedPaise: null,
+          gstDeductionPaise: 100,
         },
       ],
       adjustments: [
         { cycleId: "z", label: "ADS", amountPaise: 2_000_000 },
         { cycleId: "z", label: "ADS", amountPaise: 52_800 },
+        { cycleId: "z", label: "Packaging recovery", amountPaise: 15_000 },
       ],
       selectedId: "z",
     });
-    expect(screen.breakdown.find((row) => row.id === "sales")?.paise).toBe(90_000);
-    expect(screen.breakdown.find((row) => row.id === "commission")?.paise).toBe(9_000);
-    expect(screen.breakdown.find((row) => row.id === "ads")?.paise).toBe(2_052_800);
-    expect(screen.breakdown.find((row) => row.id === "tax")?.paise).toBe(300);
-    expect(screen.deductions.find((row) => row.id === "gst")?.paise).toBe(300);
-    expect(screen.deductions.find((row) => row.id === "tds")).toBeUndefined();
-    expect(screen.breakdown.find((row) => row.id === "discounts")?.paise).toBeNull();
+    const paise = (id: string) => screen.breakdown.find((row) => row.id === id)?.paise;
+    expect(paise("sales")).toBe(90_000);
+    expect(paise("commission")).toBe(9_000);
+    expect(paise("tax")).toBe(370);
+    expect(paise("gst")).toBe(400);
+    expect(paise("ads")).toBe(2_052_800);
+    expect(paise("adjustments")).toBe(15_000);
+    expect(paise("discounts")).toBeNull();
+    expect(paise("complaints")).toBeNull();
+    for (const id of ["commission", "tax", "gst", "ads", "adjustments"]) {
+      expect(paise(id)).not.toBe(0);
+      expect(paise(id)).not.toBeNull();
+    }
   });
 
   it("signs a positive other adjustment as a credit", () => {

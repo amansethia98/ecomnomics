@@ -111,6 +111,7 @@ export async function readPaymentsForMember(
               tdsPaise: true,
               tcsPaise: true,
               gstCollectedPaise: true,
+              gstDeductionPaise: true,
               complaintsCancellationChargesPaise: true,
             },
           })
@@ -150,6 +151,7 @@ export async function readPaymentsForMember(
       tdsPaise: order.tdsPaise,
       tcsPaise: order.tcsPaise,
       gstCollectedPaise: order.gstCollectedPaise,
+      gstDeductionPaise: order.gstDeductionPaise,
       complaintsPaise: order.complaintsCancellationChargesPaise,
     }));
     const adjustmentRows: PaymentAdjustment[] = adjustments.flatMap((row) => {

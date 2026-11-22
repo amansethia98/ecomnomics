@@ -54,6 +54,7 @@ export interface PaymentOrder {
   tdsPaise?: number | null;
   tcsPaise?: number | null;
   gstCollectedPaise?: number | null;
+  gstDeductionPaise?: number | null;
   complaintsPaise?: number | null;
 }
 
@@ -626,12 +627,22 @@ function bankBasis(cycle: PaymentCycle): "paid" | "net" | "missing" {
 }
 
 /** Ads rows on the detail sheet, including a GST-on-ads line. The breakup cell can omit one. */
-function storedAdsPaise(adjustments: readonly PaymentAdjustment[]): number | null {
-  const rows = adjustments.filter((row) =>
-    /\b(ads?|advertis\w*|cpc|sponsored|hyperboost|marketing)\b|top picks|co-branded/i.test(
-      row.label,
-    ),
+function isAdsLabel(label: string): boolean {
+  return /\b(ads?|advertis\w*|cpc|sponsored|hyperboost|marketing)\b|top picks|co-branded/i.test(
+    label,
   );
+}
+
+function storedAdsPaise(adjustments: readonly PaymentAdjustment[]): number | null {
+  return summedAmounts(adjustments.filter((row) => isAdsLabel(row.label)));
+}
+
+/** Non-ads adjustment rows. Null when the report has none, never a stand-in zero. */
+function storedAdjustmentPaise(adjustments: readonly PaymentAdjustment[]): number | null {
+  return summedAmounts(adjustments.filter((row) => !isAdsLabel(row.label)));
+}
+
+function summedAmounts(rows: readonly PaymentAdjustment[]): number | null {
   if (rows.length === 0) return null;
   return rows.reduce((total, row) => total + row.amountPaise, 0);
 }
@@ -645,10 +656,11 @@ function paymentBreakdown(
   const fromRows = storedAdsPaise(adjustments);
   const ads =
     fromRows == null
-      ? (cycle.adsPaise ?? (adjustmentPaise !== 0 ? adjustmentPaise : null))
+      ? cycle.adsPaise
       : cycle.adsPaise == null
         ? fromRows
         : Math.max(cycle.adsPaise, fromRows);
+  const adjustmentsPaise = storedAdjustmentPaise(adjustments);
   const settled = settledPayoutPaise({
     paidAmountPaise: cycle.paidAmountPaise,
     netPayoutPaise: cycle.netPayoutPaise,
@@ -689,12 +701,14 @@ function paymentBreakdown(
       paise: sumPaise(cycle.taxesPaise, cycle.tdsPaise, cycle.tcsPaise),
       basis: null,
     },
+    { id: "gst", label: "GST", paise: cycle.gstPaise, basis: null },
     {
       id: "complaints",
       label: "− Complaints and cancellations",
       paise: cycle.complaintsPaise,
       basis: null,
     },
+    { id: "adjustments", label: "Adjustments", paise: adjustmentsPaise, basis: null },
     { id: "other", label: otherLabel, paise: other, basis: null },
     basis === "paid"
       ? { id: "bank", label: "= Paid to your bank", paise: settled, basis: "paid" }
@@ -761,6 +775,9 @@ export function fillCycleFromOrders(
     return any ? total : null;
   };
   const ads = storedAdsPaise(adjustments);
+  const gst = sum((order) =>
+    order.gstCollectedPaise != null ? order.gstCollectedPaise : order.gstDeductionPaise,
+  );
   return {
     ...cycle,
     grossSalesPaise: cycle.grossSalesPaise ?? sum((order) => order.grossSalesPaise),
@@ -770,7 +787,7 @@ export function fillCycleFromOrders(
     taxesPaise: cycle.taxesPaise ?? sum((order) => order.taxesPaise),
     tdsPaise: cycle.tdsPaise ?? sum((order) => order.tdsPaise),
     tcsPaise: cycle.tcsPaise ?? sum((order) => order.tcsPaise),
-    gstPaise: cycle.gstPaise ?? sum((order) => order.gstCollectedPaise),
+    gstPaise: cycle.gstPaise ?? gst,
     complaintsPaise: cycle.complaintsPaise ?? sum((order) => order.complaintsPaise),
     adsPaise: cycle.adsPaise ?? ads,
   };
