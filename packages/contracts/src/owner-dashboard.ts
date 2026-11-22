@@ -62,7 +62,7 @@ export interface DashTile {
   splits: DashSplit[];
   /** The same window the value and the percent used, in words. */
   basis: string;
-  /** Selected range, as on the trend tag: `7 days` or `12 weeks`. */
+  /** Compared span on the trend tag: `7 days`, or `3 of 12 weeks` when fewer were compared. */
   span: string;
 }
 
@@ -559,7 +559,7 @@ function tileFor(
     festival,
     splits,
     basis: basisPhrase(window, measured.pairs),
-    span: spanLabel(window),
+    span: spanLabel(window, measured.pairs),
   };
 }
 
@@ -752,10 +752,12 @@ function periodStarts(window: ComparedWindow): string[] {
   return dates;
 }
 
-function spanLabel(window: ComparedWindow): string {
+function spanLabel(window: ComparedWindow, pairs: number): string {
   const count = window.count;
-  if (window.unit === "week") return count === 1 ? "1 week" : `${count} weeks`;
-  return count === 1 ? "1 day" : `${count} days`;
+  const noun =
+    window.unit === "week" ? (count === 1 ? "week" : "weeks") : count === 1 ? "day" : "days";
+  if (pairs > 0 && pairs !== count) return `${pairs} of ${count} ${noun}`;
+  return count === 1 ? `1 ${noun}` : `${count} ${noun}`;
 }
 
 function basisPhrase(window: ComparedWindow, pairs: number): string {
@@ -1401,7 +1403,9 @@ function combinedSalesMarks(model: OwnerDashboardModel): OwnerPlotMark[] {
   const y1 = domain?.[0] ?? 0;
   const y2 = domain?.[1] ?? 1;
   const step = model.answer.unit === "day" ? 1 : 7;
-  if (model.shadeWeek) {
+  const chartDays = model.panels[0]?.points.length ?? 0;
+  const shadeCoversWindow = model.answer.unit === "day" && chartDays > 0 && chartDays <= 7;
+  if (model.shadeWeek && !shadeCoversWindow) {
     const shadeEnd = addDays(model.shadeWeek, step);
     marks.push({
       type: "rect",

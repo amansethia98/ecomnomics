@@ -206,6 +206,9 @@ it("leaves a pending day out of both sides and says so", () => {
   );
   expect(pending).toHaveLength(1);
   expect(JSON.stringify(pending?.[0]?.data)).toContain("2026-11-16");
+  const bands = salesPlot?.marks.filter((mark) => mark.type === "rect") ?? [];
+  expect(bands).toHaveLength(1);
+  expect(bands[0]?.data?.[0]).toMatchObject({ x1: "2026-11-16", x2: "2026-11-17" });
   const ticks = (salesPlot?.x?.ticks ?? []) as string[];
   expect(ticks.every((tick) => tick <= "2026-11-16")).toBe(true);
   const monday = dash.heatmap.find((cell) => cell.week === "2026-11-16" && cell.weekday === "Mon");
@@ -417,7 +420,7 @@ it("compares every tile on the same days as sales, and the tag follows that chan
   expect(orders?.basis).toMatch(/5 of 7 days/);
   expect(orders?.word).toBe("falling");
   expect(orders?.weeks).toBe(0);
-  expect(orders?.span).toBe("7 days");
+  expect(orders?.span).toBe("5 of 7 days");
   expect(orders?.splits.reduce((sum, split) => sum + (split.value ?? 0), 0)).toBe(5 * 10);
 });
 
@@ -442,6 +445,27 @@ it("leaves a missing app out of that day's baseline", () => {
   expect(sales?.changePct).toBe(dash.answer.pct);
   expect(orders?.splits.reduce((sum, split) => sum + (split.value ?? 0), 0)).toBe(190);
   expect(orders?.span).toBe("7 days");
+});
+
+it("names the weeks that were compared, not the whole selected range", () => {
+  const current = salesWeeks("zomato", [10, 10, 10, 10, 10, 10, 10, 10, 10, 20, 20, 30]);
+  const prior = [
+    week("2026-08-10", "zomato", "ops_sales_paise", 10),
+    week("2026-08-17", "zomato", "ops_sales_paise", 10),
+    week("2026-08-24", "zomato", "ops_sales_paise", 10),
+  ];
+  const dash = composeOwnerDashboard(
+    input([...current, ...prior], {
+      platform: "zomato",
+      range: "12w",
+      from: "2026-08-26",
+      to: "2026-11-17",
+    }),
+  );
+  const sales = dash.tiles.find((tile) => tile.id === "sales");
+  expect(dash.compared).toEqual({ kept: 3, expected: 12 });
+  expect(sales?.span).toBe("3 of 12 weeks");
+  expect(sales?.basis).toMatch(/3 of 12 weeks/);
 });
 
 it("resolves a stored rupee axis without keeping a function in the spec", () => {
