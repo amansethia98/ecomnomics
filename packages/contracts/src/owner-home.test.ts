@@ -1,6 +1,11 @@
 import { expect, it } from "vitest";
 import type { OwnerHomeAlert, OwnerHomeInput } from "./owner-home.js";
-import { composeOwnerHome, groupedHomeRows, plainHomeTitle } from "./owner-home.js";
+import {
+  composeOwnerHome,
+  groupedHomeRows,
+  plainHomeTitle,
+  settledPayoutPaise,
+} from "./owner-home.js";
 
 function alert(over: Partial<OwnerHomeAlert> & Pick<OwnerHomeAlert, "id">): OwnerHomeAlert {
   return {
@@ -471,6 +476,38 @@ it("uses the last complete day when yesterday is not in yet", () => {
   expect(home.sales).toMatchObject({ paise: 80_000, asOf: "2026-11-14" });
   expect(home.delivered).toMatchObject({ count: 12, asOf: "2026-11-14" });
   expect(home.questions).toEqual([]);
+});
+
+it("labels a one-app last complete day and its weekday change", () => {
+  const home = composeOwnerHome(
+    input({
+      brief: { ...input().brief!, form: "no_data", sales: null, delivered: null, statusText: "" },
+      lastComplete: {
+        date: "2026-11-20",
+        salesPaise: 16_000,
+        delivered: 19,
+        salesChangePct: -22.6,
+        ordersChangePct: -42.4,
+        onlyPlatform: "zomato",
+      },
+    }),
+  );
+  expect(home.sales).toMatchObject({
+    paise: 16_000,
+    changePct: -22.6,
+    pendingPlatform: "swiggy",
+    asOf: "2026-11-20",
+  });
+  expect(home.delivered.changePct).toBeCloseTo(-42.4);
+});
+
+it("nets a payout that has no bank figure after adjustments", () => {
+  expect(
+    settledPayoutPaise({ paidAmountPaise: null, netPayoutPaise: 10_000, adjustmentPaise: 2_500 }),
+  ).toBe(7_500);
+  expect(
+    settledPayoutPaise({ paidAmountPaise: 8_000, netPayoutPaise: 10_000, adjustmentPaise: 2_500 }),
+  ).toBe(8_000);
 });
 
 it("names the next Thursday for the payout tile", () => {

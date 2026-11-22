@@ -94,7 +94,7 @@ it("shows the act-now card without a snooze, and snooze only on a watch row", ()
   expect(host.textContent).toContain("New since 9 AM");
   expect(host.textContent).toContain("Yes, closed");
   expect(host.textContent).toContain("Not sure");
-  expect(host.textContent).toContain("Zomato only · Swiggy pending");
+  expect(host.textContent).toContain("● Zomato only · ● Swiggy pending");
   expect(host.textContent).toContain("Yesterday");
   expect(host.textContent).toContain("Zomato updated 5:42 AM");
   expect(host.textContent).toContain("Swiggy pending, usually in by 11 AM");
@@ -127,7 +127,8 @@ it("names the day a fallback figure comes from", () => {
   });
   expect(host.textContent).toContain("₹800");
   expect(host.textContent).toContain("12");
-  expect(host.textContent).toContain("As of Sat 14 Nov");
+  expect(host.textContent).toContain("Last complete day · Sat 14 Nov");
+  expect(host.textContent).toContain("Check runs Thursday");
 });
 
 it("hides the question when there is nothing to ask and says all good", () => {

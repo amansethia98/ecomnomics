@@ -90,14 +90,14 @@ function draw(plot: OwnerPlot): string {
 it("draws the sales lines and the weekday heatmap when one platform lags a day", () => {
   for (const input of [view({}), view({ range: "custom", from: "2026-10-18", to: "2026-11-17" })]) {
     const plots = dashboardPlots(composeOwnerDashboard(input));
-    for (const id of ["sales", "heatmap"]) {
+    for (const id of ["sales-zomato", "sales-swiggy", "heatmap"]) {
       const plot = plots.find((item) => item.id === id);
       expect(plot, id).toBeTruthy();
       const svg = draw(plot!);
       expect(svg.startsWith("<svg"), id).toBe(true);
       expect(svg.length, id).toBeGreaterThan(100);
     }
-    const sales = resolveOwnerPlot(plots.find((item) => item.id === "sales")!);
+    const sales = resolveOwnerPlot(plots.find((item) => item.id === "sales-swiggy")!);
     const ticks = ((sales.x?.ticks as Date[] | undefined) ?? []).map((tick) =>
       tick.toISOString().slice(0, 10),
     );

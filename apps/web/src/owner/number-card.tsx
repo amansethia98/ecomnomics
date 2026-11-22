@@ -1,6 +1,6 @@
 import { useLingui } from "@lingui/react/macro";
 import type { DashTile } from "@rakazo/contracts";
-import { formatRupees, formatSignedPct } from "@rakazo/contracts";
+import { formatCount, formatRupees, formatSignedPct } from "@rakazo/contracts";
 import { ChangeBadge } from "./marks";
 
 export function NumberCard({ tile, onOpen }: { tile: DashTile; onOpen: () => void }) {
@@ -40,33 +40,38 @@ export function NumberCard({ tile, onOpen }: { tile: DashTile; onOpen: () => voi
       {tile.state === "not_in_report" ? (
         <p className="text-body-sm text-muted-foreground">{t`Not in reports`}</p>
       ) : null}
-      {tile.changePct != null ? (
+      {tile.changePct != null && tile.format !== "rating" ? (
         <ChangeBadge
           direction={tile.changePct < 0 ? "down" : "up"}
+          good={tile.good}
           label={formatSignedPct(tile.changePct)}
         />
       ) : null}
-      {tile.basis ? <p className="text-body-sm text-muted-foreground">{tile.basis}</p> : null}
+      {tile.format === "rating" && tile.changePct != null ? (
+        <p className="text-body-sm text-muted-foreground">
+          {Math.abs(tile.changePct) < 0.05
+            ? t`no change`
+            : `${tile.changePct > 0 ? "▲" : "▼"}${Math.abs(tile.changePct).toFixed(1)}`}
+        </p>
+      ) : null}
       <Spark values={tile.spark} />
       {word ? (
         <p
           className={
             tile.good === false
-              ? "owner-pill owner-change-down mt-1"
+              ? "owner-pill owner-pill-act mt-1"
               : tile.good
-                ? "owner-pill owner-change-up mt-1"
-                : "owner-pill mt-1 text-muted-foreground"
+                ? "owner-pill owner-pill-good mt-1"
+                : "owner-pill mt-1 bg-muted text-muted-foreground"
           }
         >
+          {tile.good === false ? "▼ " : tile.good ? "▲ " : "— "}
           {word}
-          {tile.span
-            ? ` · ${tile.span}`
-            : tile.weeks > 0
-              ? ` · ${tile.weeks} ${tile.weeks === 1 ? t`wk` : t`wks`}`
-              : ""}
         </p>
       ) : null}
-      {tile.splits.length > 1 ? (
+      {tile.id === "rating" && tile.splits.some((split) => split.platform === "swiggy") ? (
+        <p className="mt-1 text-body-sm text-muted-foreground">{t`Zomato only · Swiggy not in reports`}</p>
+      ) : tile.splits.length > 1 ? (
         <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-body-sm text-muted-foreground">
           {tile.splits.map((split) => (
             <span key={split.platform} className="inline-flex items-center gap-1">
@@ -80,6 +85,10 @@ export function NumberCard({ tile, onOpen }: { tile: DashTile; onOpen: () => voi
               />
               {split.inReport && split.value != null ? (
                 <SplitValue tile={tile} value={split.value} />
+              ) : split.gap === "no_spend" ? (
+                t`No ad spend in file`
+              ) : tile.id === "rating" && split.platform === "swiggy" ? (
+                t`Swiggy not in reports`
               ) : (
                 t`Not in reports`
               )}
@@ -112,7 +121,7 @@ function SplitValue({ tile, value }: { tile: DashTile; value: number }) {
   if (tile.format === "minutes") return t`${value.toFixed(1)} min`;
   if (tile.format === "rating") return value.toFixed(1);
   if (tile.format === "ratio") return `₹${value.toFixed(2)}`;
-  return String(Math.round(value));
+  return formatCount(Math.round(value));
 }
 
 function Spark({ values }: { values: Array<number | null> }) {

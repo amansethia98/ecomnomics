@@ -161,7 +161,20 @@ export const DEFAULT_OPS_RULES_CONFIG = {
   escalation: { stayActNow: true },
   partial: { deliveredRatio: placeholder(0.5) },
   shadowMode: true,
-  holidayDates: [],
+  holidayDates: [
+    "2026-09-14",
+    "2026-10-11",
+    "2026-10-12",
+    "2026-10-13",
+    "2026-10-14",
+    "2026-10-15",
+    "2026-10-16",
+    "2026-10-17",
+    "2026-10-18",
+    "2026-10-19",
+    "2026-10-20",
+    "2026-11-08",
+  ],
 } satisfies OpsRulesConfig;
 
 const thresholdOverride = z.object({ value: z.number().finite() }).strict();

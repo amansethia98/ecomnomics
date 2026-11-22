@@ -45,6 +45,7 @@
 }
 
 .ecomnomics .owner-plot svg {
+  width: 100%;
   max-width: 100%;
   height: auto;
 }

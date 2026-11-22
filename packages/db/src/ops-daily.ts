@@ -36,9 +36,11 @@ import {
   istMorning,
   nextReportDelivery,
   noteFailedFetch,
+  pctChange,
   resolvedLine,
   resolveOpsRulesConfig,
   rollupDailyApps,
+  settledPayoutPaise,
   snoozeAlert,
   utcMidnight,
   viewFromDaily,
@@ -47,7 +49,6 @@ import {
 import { recordAuditEvent } from "./audit-events.js";
 import type { PrismaClient } from "./client.js";
 import type { Prisma } from "./generated/prisma/client.js";
-import { readOwnerMetrics } from "./owner-metrics.js";
 import { parseMissingPeriods } from "./owner-metrics-assemble.js";
 import type { RestaurantScope } from "./restaurant-agent.js";
 import { RestaurantAgentError } from "./restaurant-agent.js";
@@ -653,28 +654,56 @@ export async function readOwnerHomeForMember(
 async function payoutTile(
   db: PrismaClient,
   scope: Pick<RestaurantScope, "restaurantId" | "spaceId">,
-  today: string,
+  _today: string,
   outletId?: string,
 ): Promise<{ paise: number | null }> {
   try {
-    const metrics = await readOwnerMetrics(
-      db,
-      scope,
-      {
-        platform: "all",
-        from: addIsoDays(today, -7),
-        to: today,
-        keys: ["paid_amount_paise"],
-        basis: "settlement_date",
-        likeForLike: false,
-        ...(outletId ? { outletIds: [outletId] } : {}),
+    const cycles = await db.payoutCycle.findMany({
+      where: {
+        restaurantId: scope.restaurantId,
+        spaceId: scope.spaceId,
+        supersededAt: null,
+        ...(outletId ? { outletId } : {}),
       },
-      today,
-    );
-    const value = metrics.values.find(
-      (item) => item.key === "paid_amount_paise" && item.status === "ok",
-    );
-    return { paise: value?.value ?? null };
+      orderBy: { cycleEnd: "desc" },
+    });
+    const latest = new Map<string, (typeof cycles)[number]>();
+    for (const cycle of cycles) {
+      const key = `${cycle.outletId}:${cycle.platform}`;
+      if (!latest.has(key)) latest.set(key, cycle);
+    }
+    const chosen = [...latest.values()];
+    if (chosen.length === 0) return { paise: null };
+    const adjustments = await db.payoutAdjustment.findMany({
+      where: {
+        restaurantId: scope.restaurantId,
+        spaceId: scope.spaceId,
+        supersededAt: null,
+        cycleId: { in: [...new Set(chosen.map((cycle) => cycle.cycleId))] },
+      },
+      select: { cycleId: true, outletId: true, platform: true, amountPaise: true },
+    });
+    let total = 0;
+    let any = false;
+    for (const cycle of chosen) {
+      const adjustmentPaise = adjustments
+        .filter(
+          (row) =>
+            row.cycleId === cycle.cycleId &&
+            row.outletId === cycle.outletId &&
+            row.platform === cycle.platform,
+        )
+        .reduce((sum, row) => sum + row.amountPaise, 0);
+      const settled = settledPayoutPaise({
+        paidAmountPaise: cycle.paidAmountPaise,
+        netPayoutPaise: cycle.netPayoutPaise,
+        adjustmentPaise,
+      });
+      if (settled == null) continue;
+      any = true;
+      total += settled;
+    }
+    return { paise: any ? total : null };
   } catch {
     return { paise: null };
   }
@@ -698,23 +727,59 @@ function sameWeekdaySales(days: OpsAppDay[], date: string): number[] | null {
 function lastCompleteDay(
   days: OpsAppDay[],
   before: string,
-): { date: string; salesPaise: number | null; delivered: number | null } | null {
-  const byDate = new Map<string, { sales: number; delivered: number }>();
+): {
+  date: string;
+  salesPaise: number | null;
+  delivered: number | null;
+  salesChangePct: number | null;
+  ordersChangePct: number | null;
+  onlyPlatform: "zomato" | "swiggy" | null;
+} | null {
+  const byDate = new Map<string, Map<string, { sales: number | null; delivered: number | null }>>();
   for (const day of days) {
     if (!day.stored || day.date >= before) continue;
     const sales = salesPaise(day);
     const delivered =
       day.metrics.delivered_orders?.state === "ok" ? day.metrics.delivered_orders.value : null;
     if (sales == null && delivered == null) continue;
-    const current = byDate.get(day.date) ?? { sales: 0, delivered: 0 };
-    current.sales += sales ?? 0;
-    current.delivered += delivered ?? 0;
-    byDate.set(day.date, current);
+    const apps = byDate.get(day.date) ?? new Map();
+    apps.set(day.platform, { sales, delivered });
+    byDate.set(day.date, apps);
   }
   const latest = [...byDate.keys()].sort().at(-1);
   if (!latest) return null;
-  const totals = byDate.get(latest);
-  return { date: latest, salesPaise: totals?.sales ?? null, delivered: totals?.delivered ?? null };
+  const apps = byDate.get(latest);
+  const names = [...(apps?.keys() ?? [])];
+  const onlyPlatform =
+    names.length === 1 && (names[0] === "zomato" || names[0] === "swiggy") ? names[0] : null;
+  const use = onlyPlatform ? [onlyPlatform] : names;
+  const sum = (date: string, field: "sales" | "delivered"): number | null => {
+    const row = byDate.get(date);
+    if (!row) return null;
+    let total = 0;
+    let any = false;
+    for (const platform of use) {
+      const value = row.get(platform)?.[field];
+      if (value == null) continue;
+      any = true;
+      total += value;
+    }
+    return any ? total : null;
+  };
+  const sales = sum(latest, "sales");
+  const delivered = sum(latest, "delivered");
+  const prior = addIsoDays(latest, -7);
+  const priorSales = sum(prior, "sales");
+  const priorOrders = sum(prior, "delivered");
+  return {
+    date: latest,
+    salesPaise: sales,
+    delivered,
+    salesChangePct: sales != null && priorSales != null ? pctChange(sales, priorSales) : null,
+    ordersChangePct:
+      delivered != null && priorOrders != null ? pctChange(delivered, priorOrders) : null,
+    onlyPlatform,
+  };
 }
 
 export async function listOpsAlertsForMember(

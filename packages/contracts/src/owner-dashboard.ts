@@ -2,6 +2,8 @@ import {
   addDays,
   formatAxisDay,
   formatCompactRupees,
+  formatInclusiveRange,
+  formatPct1,
   formatWeekdayName,
   pctChange,
   weekMonday,
@@ -46,6 +48,8 @@ export interface DashSplit {
   value: number | null;
   /** False when that app's report does not carry this metric. A real zero stays a value. */
   inReport: boolean;
+  /** `no_spend` is sales with a zero spend file. `missing` is absent from the report. */
+  gap: "missing" | "no_spend" | null;
 }
 
 export interface DashTile {
@@ -102,6 +106,8 @@ export interface OwnerDashboardModel {
     points: Array<{ week: string; pct: number | null }>;
   }>;
   pendingNote: string | null;
+  /** The pending day left out of both sides, when one app is behind. */
+  pendingDate?: string | null;
   missingNote: string | null;
   compared: { kept: number; expected: number } | null;
   /** The words for the one window the headline, tiles, and footnote share. */
@@ -140,15 +146,18 @@ const TILES: TileDef[] = [
 export function composeOwnerDashboard(input: OwnerDashboardInput): OwnerDashboardModel {
   const platforms = selected(input);
   const bounded = { ...input, to: clampEnd(input.to, input.today) };
-  const chart = chartSeries(bounded);
-  const trendWeeks = weekStarts(bounded.today, 12);
+  const window = comparisonWindow(bounded, platforms);
+  const chart = { grain: window.grain, starts: periodStarts(window) };
+  const trendWeeks = completeWeeks(bounded.today, 12);
   const panels = platforms.map((platform) =>
     salesPanel(bounded.readings, platform, chart.starts, chart.grain),
   );
   const pinWeeks = chart.grain === "week" ? chart.starts : weekBuckets(chart.starts);
   const pins = pinsFor(bounded, pinWeeks, platforms);
-  const window = comparisonWindow(bounded, platforms);
-  const aligned = alignedSales(bounded.readings, platforms, window);
+  const aligned =
+    window.unit === "week" && window.count >= 12
+      ? blockSales(bounded.readings, platforms, window)
+      : alignedSales(bounded.readings, platforms, window);
   const earliest = earliestDay(bounded.readings);
   const young = bounded.historyDays < 7;
   const comparisonsStart = young && earliest ? addDays(earliest, 7) : null;
@@ -164,8 +173,17 @@ export function composeOwnerDashboard(input: OwnerDashboardInput): OwnerDashboar
         : aligned.change > 0
           ? "up"
           : "down";
-  const heatmap = heatmapFor(bounded.readings, pinWeeks, platforms);
-  const funnel = funnelFor(bounded.readings, pinWeeks, platforms);
+  const heatmap = heatmapFor(bounded.readings, trendWeeks, platforms);
+  const funnel = funnelFor(bounded.readings, chart.starts, chart.grain, platforms);
+  const week = lastCompleteWeekChange(bounded.readings, platforms, bounded.today);
+  const dipped =
+    window.unit === "week" && week && week.pct <= -3
+      ? {
+          platform: platforms[0] ?? "zomato",
+          pct: week.pct,
+          against: formatInclusiveRange(week.from, week.to),
+        }
+      : answer.dipped;
   return {
     answer: {
       ...answer,
@@ -173,16 +191,18 @@ export function composeOwnerDashboard(input: OwnerDashboardInput): OwnerDashboar
       pct: young ? null : aligned.change,
       weeks: window.count,
       unit: window.unit,
+      dipped,
     },
     panels,
     pins,
-    shadeWeek: chart.starts.filter((date) => date < bounded.today).at(-1) ?? null,
+    shadeWeek: window.unit === "week" ? (chart.starts.at(-1) ?? null) : null,
     tiles,
     heatmap,
     funnel,
     pendingNote: laggingPlatform(bounded.readings, platforms),
+    pendingDate: pendingDateIn(bounded.readings, platforms, window),
     missingNote: missingNote(bounded.readings, platforms, chart.starts, chart.grain),
-    compared: { kept: aligned.kept, expected: window.count },
+    compared: null,
     periodPhrase: periodPhrase(window.unit, window.count),
     heatmapLine: heatmapHeadline(heatmap),
     funnelLine: funnelHeadline(funnel),
@@ -213,29 +233,163 @@ interface ComparedWindow {
   previousTo: string;
 }
 
-/** The selected range, trimmed so it never runs past today, and the window before it. */
+/** Last day at or before `through` with an ok sales reading for a selected app. */
+function lastSalesDay(
+  readings: readonly DashReading[],
+  platforms: OpsPlatform[],
+  through: string,
+): string | null {
+  const dates = readings
+    .filter(
+      (reading) =>
+        reading.grain === "day" &&
+        platforms.includes(reading.platform) &&
+        reading.key === SALES_KEY[reading.platform] &&
+        reading.state === "ok" &&
+        reading.value != null &&
+        reading.from <= through,
+    )
+    .map((reading) => reading.from);
+  dates.sort();
+  return dates.at(-1) ?? null;
+}
+
+/** Monday of the last week that has fully ended by `today`, at or before `onOrBefore`. */
+function completeMonday(today: string, onOrBefore: string): string {
+  let monday = weekMonday(onOrBefore);
+  if (addDays(monday, 7) > today) monday = addDays(monday, -7);
+  return monday;
+}
+
+function rangeCap(to: string, today: string): string {
+  const end = to < addDays(today, 1) ? to : addDays(today, 1);
+  return addDays(end, -1);
+}
+
+/**
+ * A day range stays its full length and ends on the last day before today that has sales.
+ * A week range ends on the last complete week, so a trailing partial week is never a point.
+ */
 function comparisonWindow(input: OwnerDashboardInput, platforms: OpsPlatform[]): ComparedWindow {
   const span = Math.max(1, daysBetween(input.from, input.to));
   const unit = span <= 14 ? "day" : "week";
-  const count = unit === "day" ? span : Math.max(1, Math.round(span / 7));
-  const length = unit === "day" ? span : count * 7;
-  const step = unit === "day" ? 1 : 7;
-  const grain = unit;
-  const currentTo = unit === "week" ? addDays(weekMonday(addDays(input.to, -1)), 7) : input.to;
+  if (unit === "day") {
+    const cap = rangeCap(input.to, input.today);
+    const end = lastSalesDay(input.readings, platforms, cap) ?? cap;
+    const currentTo = addDays(end, 1);
+    const currentFrom = addDays(currentTo, -span);
+    return {
+      unit,
+      count: span,
+      length: span,
+      grain: "day",
+      step: 1,
+      currentFrom,
+      currentTo,
+      previousFrom: addDays(currentFrom, -span),
+      previousTo: addDays(currentTo, -span),
+    };
+  }
+  const count = Math.max(1, Math.round(span / 7));
+  const length = count * 7;
+  const endMonday = completeMonday(input.today, rangeCap(input.to, input.today));
+  const currentTo = addDays(endMonday, 7);
   const currentFrom = addDays(currentTo, -length);
-  const lag = salesLag(input.readings, platforms, currentFrom, currentTo, grain);
-  const trimmedTo = addDays(currentTo, -lag * step);
   return {
     unit,
     count,
     length,
-    grain,
-    step,
+    grain: "week",
+    step: 7,
     currentFrom,
-    currentTo: trimmedTo,
+    currentTo,
     previousFrom: addDays(currentFrom, -length),
-    previousTo: addDays(trimmedTo, -length),
+    previousTo: addDays(currentTo, -length),
   };
+}
+
+/** Last 4 complete weeks against the first 4 inside a 12-week window. The value is the whole window. */
+function blockSales(
+  readings: readonly DashReading[],
+  platforms: OpsPlatform[],
+  window: ComparedWindow,
+): AlignedSales {
+  const weeks = periodStarts(window);
+  const sum = (slice: readonly string[]): number | null => {
+    let total = 0;
+    let any = false;
+    for (const week of slice) {
+      const keys = salesKeys(readings, platforms, week, "week");
+      if (keys.size === 0) continue;
+      any = true;
+      for (const value of keys.values()) total += value;
+    }
+    return any ? total : null;
+  };
+  const current = sum(weeks);
+  const first = sum(weeks.slice(0, 4));
+  const last = sum(weeks.slice(-4));
+  return {
+    current,
+    change: first != null && last != null && first !== 0 ? pctChange(last, first) : null,
+    kept: weeks.length,
+  };
+}
+
+/** One percent for "last week", shared by the dashboard subtitle and the chief of staff. */
+export function lastCompleteWeekChange(
+  readings: readonly DashReading[],
+  platforms: readonly OpsPlatform[],
+  today: string,
+): {
+  pct: number;
+  from: string;
+  to: string;
+  previousFrom: string;
+  previousTo: string;
+} | null {
+  const from = completeMonday(today, addDays(today, -1));
+  const to = addDays(from, 6);
+  const previousFrom = addDays(from, -7);
+  const previousTo = addDays(to, -7);
+  const current = sumSales(readings, platforms, from, addDays(to, 1));
+  const previous = sumSales(readings, platforms, previousFrom, addDays(previousTo, 1));
+  if (current == null || previous == null || previous === 0) return null;
+  const pct = pctChange(current, previous);
+  if (pct == null) return null;
+  return { pct, from, to, previousFrom, previousTo };
+}
+
+function sumSales(
+  readings: readonly DashReading[],
+  platforms: readonly OpsPlatform[],
+  from: string,
+  to: string,
+): number | null {
+  let total = 0;
+  let any = false;
+  for (let day = from; day < to; day = addDays(day, 1)) {
+    const keys = salesKeys(readings, platforms, day, "day");
+    if (keys.size === 0) continue;
+    any = true;
+    for (const value of keys.values()) total += value;
+  }
+  if (any) return total;
+  for (const platform of platforms) {
+    const row = readings.find(
+      (reading) =>
+        reading.grain === "week" &&
+        reading.platform === platform &&
+        reading.key === SALES_KEY[platform] &&
+        reading.from === from &&
+        reading.state === "ok" &&
+        reading.value != null,
+    );
+    if (row?.value == null) continue;
+    any = true;
+    total += row.value;
+  }
+  return any ? total : null;
 }
 
 interface AlignedSales {
@@ -262,7 +416,7 @@ function alignedSales(
     for (const value of now.values()) shown += value;
     const prior = salesKeys(readings, platforms, addDays(day, -window.length), window.grain);
     const shared = [...now.keys()].filter((key) => prior.has(key));
-    if (shared.length === 0 || shared.length !== now.size) continue;
+    if (shared.length === 0) continue;
     kept += 1;
     for (const key of shared) {
       pairedNow += now.get(key) ?? 0;
@@ -299,8 +453,9 @@ function salesKeys(
   return keys;
 }
 
-/** `last 4 weeks vs the 4 before`, or `last 7 days vs the same 7 days before`. */
+/** `in 12 weeks`, `last 4 weeks vs the 4 before`, or `last 7 days vs the same 7 days before`. */
 export function periodPhrase(unit: "day" | "week", count: number): string {
+  if (unit === "week" && count >= 12) return "in 12 weeks";
   if (unit === "week") {
     const noun = count === 1 ? "week" : "weeks";
     return `last ${count} ${noun} vs the ${count} before`;
@@ -309,35 +464,8 @@ export function periodPhrase(unit: "day" | "week", count: number): string {
   return `last ${count} ${noun} vs the same ${count} ${noun} before`;
 }
 
-function chartSeries(input: OwnerDashboardInput): { grain: "day" | "week"; starts: string[] } {
-  const span =
-    input.range === "custom"
-      ? Math.max(1, daysBetween(input.from, input.to))
-      : ownerRangeDays(input.range);
-  if (span <= 14) {
-    const starts: string[] = [];
-    for (let cursor = input.from; cursor < input.to; cursor = addDays(cursor, 1))
-      starts.push(cursor);
-    return { grain: "day", starts };
-  }
-  const count = Math.max(1, Math.round(span / 7));
-  const end = weekMonday(addDays(input.to, -1));
-  const start = addDays(end, -7 * (count - 1));
-  const starts: string[] = [];
-  for (let cursor = start; cursor <= end; cursor = addDays(cursor, 7)) starts.push(cursor);
-  return { grain: "week", starts };
-}
-
 function weekBuckets(days: readonly string[]): string[] {
   return [...new Set(days.map((date) => weekMonday(date)))].sort();
-}
-
-function weekStarts(today: string, count: number): string[] {
-  const end = weekMonday(addDays(today, -1));
-  const start = addDays(end, -7 * (count - 1));
-  const weeks: string[] = [];
-  for (let cursor = start; cursor <= end; cursor = addDays(cursor, 7)) weeks.push(cursor);
-  return weeks;
 }
 
 function salesPanel(
@@ -534,13 +662,20 @@ function tileFor(
   }
   const spark = weeks.map((week) => weekValue(tile, input.readings, week, platforms));
   const days = salesDays(input.readings, platforms, window);
-  const measured = measureTile(tile, input, platforms, window, days);
+  const measured =
+    window.unit === "week" && window.count >= 12
+      ? measureBlock(tile, input.readings, platforms, window)
+      : measureTile(tile, input, platforms, window, days);
   const splits = platforms.map((platform) => {
-    const part = measureTile(tile, input, [platform], window, days);
+    const part =
+      window.unit === "week" && window.count >= 12
+        ? measureBlock(tile, input.readings, [platform], window)
+        : measureTile(tile, input, [platform], window, days);
     return {
       platform,
       value: part.current,
       inReport: part.state === "value",
+      gap: part.state === "na" ? "no_spend" : part.state === "value" ? null : "missing",
     };
   });
   if (measured.state !== "value") return { ...emptyTile(tile, measured.state), spark, splits };
@@ -610,12 +745,77 @@ function measureTile(
     tile.id === "aov" || tile.id === "online" || tile.id === "prep" || tile.id === "rating";
   const current = pairs > 0 ? (average ? now / pairs : now) : average ? shown / shownCount : shown;
   const previous = pairs > 0 ? (average ? then / pairs : then) : null;
-  return {
-    state: "value",
-    current,
-    change: previous != null && previous !== 0 ? pctChange(current, previous) : null,
-    pairs,
+  const change =
+    tile.id === "rating"
+      ? previous != null
+        ? current - previous
+        : null
+      : previous != null && previous !== 0
+        ? pctChange(current, previous)
+        : null;
+  return { state: "value", current, change, pairs };
+}
+
+/** 12-week value is the whole window. The percent is the last 4 weeks against the first 4. */
+function measureBlock(
+  tile: TileDef,
+  readings: readonly DashReading[],
+  platforms: OpsPlatform[],
+  window: ComparedWindow,
+): { state: DashTile["state"]; current: number | null; change: number | null; pairs: number } {
+  if (tile.id === "ads") {
+    const weeks = periodStarts(window).map((day) => ({ day, platforms }));
+    const current = adsOverDays(readings, window, weeks, platforms);
+    const first = adsOverDays(readings, window, weeks.slice(0, 4), platforms);
+    const last = adsOverDays(readings, window, weeks.slice(-4), platforms);
+    if (current.kind === "no_ads")
+      return { state: "no_ads", current: null, change: null, pairs: 0 };
+    if (current.kind === "na") return { state: "na", current: null, change: null, pairs: 0 };
+    if (current.kind !== "value" || current.total == null) {
+      return { state: "empty", current: null, change: null, pairs: 0 };
+    }
+    const change =
+      first.kind === "value" &&
+      last.kind === "value" &&
+      first.total != null &&
+      last.total != null &&
+      first.total !== 0
+        ? pctChange(last.total, first.total)
+        : null;
+    return { state: "value", current: current.total, change, pairs: window.count };
+  }
+  const values = periodStarts(window).map((week) =>
+    onePeriod(tile, readings, window, week, platforms),
+  );
+  const numbers = values.flatMap((item) =>
+    item.kind === "value" && item.total != null ? [item.total] : [],
+  );
+  if (numbers.length === 0) {
+    const pending = values.some((item) => item.kind === "pending" || item.kind === "updating");
+    return { state: pending ? "pending" : "empty", current: null, change: null, pairs: 0 };
+  }
+  const average =
+    tile.id === "aov" || tile.id === "online" || tile.id === "prep" || tile.id === "rating";
+  const fold = (slice: typeof values): number | null => {
+    const present = slice.flatMap((item) =>
+      item.kind === "value" && item.total != null ? [item.total] : [],
+    );
+    if (present.length === 0) return null;
+    const total = present.reduce((sum, value) => sum + value, 0);
+    return average ? total / present.length : total;
   };
+  const current = fold(values);
+  const first = fold(values.slice(0, 4));
+  const last = fold(values.slice(-4));
+  const change =
+    tile.id === "rating"
+      ? first != null && last != null
+        ? last - first
+        : null
+      : first != null && last != null && first !== 0
+        ? pctChange(last, first)
+        : null;
+  return { state: "value", current, change, pairs: window.count };
 }
 
 function measureAds(
@@ -642,6 +842,7 @@ function measureAds(
     platforms,
   );
   if (current.kind === "no_ads") return { state: "no_ads", current: null, change: null, pairs: 0 };
+  if (current.kind === "na") return { state: "na", current: null, change: null, pairs: 0 };
   if (current.kind !== "value" || current.total == null) {
     return {
       state: current.kind === "pending" ? "pending" : "empty",
@@ -684,6 +885,8 @@ function adsOverDays(
   let spend = 0;
   let any = false;
   let pending = false;
+  let unspent = false;
+  let explicitZero = false;
   for (const entry of days) {
     const use = entry.platforms.filter((platform) => platforms.includes(platform));
     for (const platform of use) {
@@ -703,12 +906,21 @@ function adsOverDays(
         continue;
       }
       if (sold.total == null && spent.total == null) continue;
+      if ((spent.total ?? 0) <= 0) {
+        if ((sold.total ?? 0) > 0) unspent = true;
+        else if (sold.kind === "value" && spent.kind === "value") explicitZero = true;
+        continue;
+      }
       any = true;
       sales += sold.total ?? 0;
       spend += spent.total ?? 0;
     }
   }
-  if (!any) return pending ? { kind: "pending", total: null } : { kind: "empty", total: null };
+  if (!any) {
+    if (unspent) return { kind: "na", total: null };
+    if (explicitZero) return { kind: "no_ads", total: null };
+    return pending ? { kind: "pending", total: null } : { kind: "empty", total: null };
+  }
   if (spend === 0 && sales === 0) return { kind: "no_ads", total: null };
   if (spend === 0) return { kind: "na", total: null };
   return { kind: "value", total: sales / spend };
@@ -738,7 +950,7 @@ function salesDays(
     if (now.size === 0) continue;
     const prior = salesKeys(readings, platforms, addDays(day, -window.length), window.grain);
     const shared = [...now.keys()].filter((key) => prior.has(key));
-    if (shared.length === 0 || shared.length !== now.size) continue;
+    if (shared.length === 0) continue;
     days.push({ day, platforms: shared });
   }
   return days;
@@ -752,20 +964,14 @@ function periodStarts(window: ComparedWindow): string[] {
   return dates;
 }
 
-function spanLabel(window: ComparedWindow, pairs: number): string {
+function spanLabel(window: ComparedWindow, _pairs: number): string {
   const count = window.count;
   const noun =
     window.unit === "week" ? (count === 1 ? "week" : "weeks") : count === 1 ? "day" : "days";
-  if (pairs > 0 && pairs !== count) return `${pairs} of ${count} ${noun}`;
   return count === 1 ? `1 ${noun}` : `${count} ${noun}`;
 }
 
-function basisPhrase(window: ComparedWindow, pairs: number): string {
-  if (pairs > 0 && pairs !== window.count) {
-    const noun =
-      window.unit === "week" ? (pairs === 1 ? "week" : "weeks") : pairs === 1 ? "day" : "days";
-    return `${pairs} of ${window.count} ${noun} vs the same ${noun} before`;
-  }
+function basisPhrase(window: ComparedWindow, _pairs: number): string {
   return periodPhrase(window.unit, window.count);
 }
 
@@ -835,33 +1041,6 @@ function weekValue(
   return total.kind === "value" ? total.total : null;
 }
 
-/** Trailing days or weeks where a selected app is still pending. */
-function salesLag(
-  readings: readonly DashReading[],
-  platforms: OpsPlatform[],
-  from: string,
-  to: string,
-  grain: "day" | "week",
-): number {
-  const step = grain === "week" ? 7 : 1;
-  let lag = 0;
-  for (let date = addDays(to, -step); date >= from; date = addDays(date, -step)) {
-    const pending = platforms.some((platform) => {
-      const row = readings.find(
-        (reading) =>
-          reading.grain === grain &&
-          reading.platform === platform &&
-          reading.key === SALES_KEY[platform] &&
-          reading.from === date,
-      );
-      return row?.state === "pending" || row?.state === "updating";
-    });
-    if (!pending) break;
-    lag += 1;
-  }
-  return lag;
-}
-
 function lastCompleteDay(readings: readonly DashReading[], platform: OpsPlatform): string | null {
   const dates = readings
     .filter(
@@ -922,6 +1101,8 @@ function windowKeys(
   if (tile.id === "ads") return adsRatio(readings, grain, from, to, platforms);
   if (tile.id === "sales") return salesTotal(readings, grain, from, to, platforms);
   if (tile.id === "rejected") return rejectedTotal(readings, grain, from, to, platforms);
+  if (tile.id === "rating" && !platforms.includes("zomato"))
+    return { kind: "missing", total: null };
   const key =
     tile.id === "orders"
       ? "delivered_orders"
@@ -1081,26 +1262,58 @@ function heatmapFor(readings: readonly DashReading[], weeks: string[], platforms
   return cells;
 }
 
-function funnelFor(readings: readonly DashReading[], weeks: string[], platforms: OpsPlatform[]) {
+function funnelFor(
+  readings: readonly DashReading[],
+  starts: string[],
+  grain: "day" | "week",
+  platforms: OpsPlatform[],
+) {
   const steps = ["menu", "cart", "order"] as const;
+  const span = grain === "day" ? 1 : 7;
   const series: OwnerDashboardModel["funnel"] = [];
   for (const step of steps) {
     for (const platform of platforms) {
       series.push({
         step,
         platform,
-        points: weeks.map((week) => ({ week, pct: funnelPct(readings, step, platform, week) })),
+        points: starts.map((week) => ({
+          week,
+          pct: funnelPct(readings, step, platform, week, addDays(week, span)),
+        })),
       });
     }
   }
   return series;
 }
 
+/** Days where orders exceed carts, or carts are zero. Those days are not a rate. */
+export function incomparableFunnelDays(readings: readonly DashReading[]): string[] {
+  const dates = new Set<string>();
+  for (const reading of readings) {
+    if (reading.grain !== "day" || reading.key !== "cart_builds" || reading.state !== "ok")
+      continue;
+    const ordersKey = reading.platform === "swiggy" ? "swiggy_funnel_orders" : "placed_orders";
+    const orders = readings.find(
+      (row) =>
+        row.grain === "day" &&
+        row.platform === reading.platform &&
+        row.key === ordersKey &&
+        row.from === reading.from &&
+        row.state === "ok",
+    );
+    const carts = reading.value;
+    const placed = orders?.value ?? null;
+    if (carts == null || carts === 0 || (placed != null && placed > carts)) dates.add(reading.from);
+  }
+  return [...dates].sort();
+}
+
 function funnelPct(
   readings: readonly DashReading[],
   step: "menu" | "cart" | "order",
   platform: OpsPlatform,
-  week: string,
+  from: string,
+  to: string,
 ): number | null {
   const numerator =
     step === "menu"
@@ -1112,11 +1325,58 @@ function funnelPct(
           : "placed_orders";
   const denominator =
     step === "menu" ? "impressions" : step === "cart" ? "menu_opens" : "cart_builds";
-  const top = rowsIn(readings, "week", numerator, week, addDays(week, 7), [platform])[0];
-  const bottom = rowsIn(readings, "week", denominator, week, addDays(week, 7), [platform])[0];
+  const dailyTop = rowsIn(readings, "day", numerator, from, to, [platform]);
+  const dailyBottom = rowsIn(readings, "day", denominator, from, to, [platform]);
+  if (dailyTop.length > 0 || dailyBottom.length > 0) {
+    const days = new Set([...dailyTop, ...dailyBottom].map((row) => row.from));
+    let top = 0;
+    let bottom = 0;
+    let any = false;
+    for (const day of days) {
+      const sold = dailyTop.find((row) => row.from === day && row.state === "ok")?.value;
+      const base = dailyBottom.find((row) => row.from === day && row.state === "ok")?.value;
+      if (sold == null || base == null || base === 0) continue;
+      if (step === "order" && sold > base) continue;
+      top += sold;
+      bottom += base;
+      any = true;
+    }
+    if (!any || bottom === 0) return null;
+    return Math.min(100, Math.max(0, (top / bottom) * 100));
+  }
+  const top = rowsIn(readings, "week", numerator, from, to, [platform])[0];
+  const bottom = rowsIn(readings, "week", denominator, from, to, [platform])[0];
   if (!top || !bottom || top.state !== "ok" || bottom.state !== "ok") return null;
   if (bottom.value == null || bottom.value === 0 || top.value == null) return null;
-  return (top.value / bottom.value) * 100;
+  if (step === "order" && top.value > bottom.value) return null;
+  return Math.min(100, Math.max(0, (top.value / bottom.value) * 100));
+}
+
+function pendingDateIn(
+  readings: readonly DashReading[],
+  platforms: OpsPlatform[],
+  window: ComparedWindow,
+): string | null {
+  const dates = readings
+    .filter(
+      (reading) =>
+        platforms.includes(reading.platform) &&
+        reading.key === SALES_KEY[reading.platform] &&
+        (reading.state === "pending" || reading.state === "updating") &&
+        reading.from >= window.currentFrom &&
+        reading.from < window.currentTo,
+    )
+    .map((reading) => reading.from);
+  dates.sort();
+  return dates.at(-1) ?? null;
+}
+
+function completeWeeks(today: string, count: number): string[] {
+  const end = completeMonday(today, addDays(today, -1));
+  const start = addDays(end, -7 * (count - 1));
+  const weeks: string[] = [];
+  for (let cursor = start; cursor <= end; cursor = addDays(cursor, 7)) weeks.push(cursor);
+  return weeks;
 }
 
 function missingNote(
@@ -1179,7 +1439,7 @@ function daysBetween(from: string, to: string): number {
 }
 
 export interface OwnerPlotMark {
-  type: "lineY" | "linearRegressionY" | "ruleX" | "text" | "cell" | "rect" | "rectY";
+  type: "lineY" | "areaY" | "linearRegressionY" | "ruleX" | "text" | "cell" | "rect" | "rectY";
   data?: unknown[];
   options?: Record<string, unknown>;
 }
@@ -1317,23 +1577,9 @@ export function dashboardPlots(model: OwnerDashboardModel): OwnerPlot[] {
   ].sort();
   const axis = ownerDateAxis(ticks.length > 0 ? ticks : dated);
   if (dated[0] && dated.at(-1)) axis.domain = [dated[0], addDays(dated.at(-1) ?? dated[0], 1)];
-  const salesValues = model.panels.flatMap((panel) =>
-    panel.points.flatMap((point) => (point.sales == null ? [] : [point.sales])),
-  );
-  const plots: OwnerPlot[] = [
-    {
-      id: "sales",
-      width: 640,
-      height: 220,
-      marginLeft: 64,
-      marginRight: 24,
-      x: axis,
-      y: ownerRupeeAxis(salesValues),
-      marks: combinedSalesMarks(model),
-    },
-  ];
+  const plots: OwnerPlot[] = model.panels.map((panel) => salesPlotFor(model, panel, axis));
   const heatWeeks = [...new Set(model.heatmap.map((cell) => cell.week))].sort();
-  const cell = 28;
+  const cell = 30;
   plots.push({
     id: "heatmap",
     width: 44 + Math.max(heatWeeks.length, 1) * cell,
@@ -1356,8 +1602,24 @@ export function dashboardPlots(model: OwnerDashboardModel): OwnerPlot[] {
       {
         type: "cell",
         data: model.heatmap,
-        options: { x: "week", y: "weekday", fill: "orders", inset: 3 },
+        options: { x: "week", y: "weekday", fill: "orders", inset: 2 },
       },
+      ...(model.heatmap.some((item) => item.pending)
+        ? [
+            {
+              type: "cell" as const,
+              data: model.heatmap.filter((item) => item.pending),
+              options: {
+                x: "week",
+                y: "weekday",
+                fill: "transparent",
+                stroke: "var(--border)",
+                strokeDasharray: "3 2",
+                inset: 2,
+              },
+            },
+          ]
+        : []),
     ],
   });
   for (const step of ["menu", "cart", "order"] as const) {
@@ -1367,7 +1629,7 @@ export function dashboardPlots(model: OwnerDashboardModel): OwnerPlot[] {
     const weeks = [...new Set(rows.map((row) => row.week))].sort();
     plots.push({
       id: `funnel-${step}`,
-      width: 280,
+      width: 640,
       height: 80,
       marginLeft: 36,
       x: ownerDateAxis(weeks),
@@ -1394,57 +1656,80 @@ export function dashboardPlots(model: OwnerDashboardModel): OwnerPlot[] {
   return plots;
 }
 
-function combinedSalesMarks(model: OwnerDashboardModel): OwnerPlotMark[] {
-  const marks: OwnerPlotMark[] = [];
-  const values = model.panels.flatMap((panel) =>
-    panel.points.flatMap((point) => (point.sales == null ? [] : [point.sales])),
-  );
-  const domain = ownerRupeeAxis(values).domain as [number, number] | undefined;
+function salesPlotFor(
+  model: OwnerDashboardModel,
+  panel: SalesPanel,
+  axis: Record<string, unknown>,
+): OwnerPlot {
+  const values = panel.points.flatMap((point) => (point.sales == null ? [] : [point.sales]));
+  const y = ownerRupeeAxis(values);
+  const domain = y.domain as [number, number] | undefined;
   const y1 = domain?.[0] ?? 0;
   const y2 = domain?.[1] ?? 1;
   const step = model.answer.unit === "day" ? 1 : 7;
-  const chartDays = model.panels[0]?.points.length ?? 0;
-  const shadeCoversWindow = model.answer.unit === "day" && chartDays > 0 && chartDays <= 7;
-  if (model.shadeWeek && !shadeCoversWindow) {
+  const marks: OwnerPlotMark[] = [];
+  if (model.shadeWeek && model.answer.unit === "week") {
     const shadeEnd = addDays(model.shadeWeek, step);
     marks.push({
       type: "rect",
-      data: [{ x1: addDays(shadeEnd, -7), x2: shadeEnd, y1, y2 }],
+      data: [{ x1: model.shadeWeek, x2: shadeEnd, y1, y2 }],
       options: { x1: "x1", x2: "x2", y1: "y1", y2: "y2", fill: "var(--muted)" },
     });
   }
-  for (const panel of model.panels) {
-    const rows = panel.points.map((point) => ({ at: point.week, y: point.sales }));
+  const rows = panel.points.map((point) => ({ at: point.week, y: point.sales }));
+  const known = rows.filter((row) => row.y != null);
+  const stroke = PLATFORM_STROKE[panel.platform];
+  if (known.length > 0) {
     marks.push({
-      type: "lineY",
-      data: rows,
-      options: { x: "at", y: "y", stroke: PLATFORM_STROKE[panel.platform], strokeWidth: 1.5 },
+      type: "areaY",
+      data: known,
+      options: { x: "at", y: "y", fill: stroke, fillOpacity: 0.12 },
     });
-    const known = rows.filter((row) => row.y != null);
-    const last = known.at(-1);
-    if (last?.y != null) {
-      const name = panel.platform === "zomato" ? "Zomato" : "Swiggy";
+  }
+  marks.push({
+    type: "lineY",
+    data: rows,
+    options: { x: "at", y: "y", stroke, strokeWidth: 1.5 },
+  });
+  if (known.length >= 2) {
+    marks.push({
+      type: "linearRegressionY",
+      data: known,
+      options: { x: "at", y: "y", stroke, strokeDasharray: "4 3" },
+    });
+  }
+  const last = known.at(-1);
+  const first = known[0];
+  if (last?.y != null) {
+    const change =
+      first?.y != null && first.y !== 0 && first !== last ? pctChange(last.y, first.y) : null;
+    const arrow =
+      change == null
+        ? ""
+        : change >= 0
+          ? ` ▲${formatPct1(change)}%`
+          : ` ▼${formatPct1(Math.abs(change))}%`;
+    const unit = model.answer.unit === "week" ? "/wk" : "";
+    marks.push({
+      type: "text",
+      data: [{ at: last.at, y: last.y, label: `${formatCompactRupees(last.y)}${unit}${arrow}` }],
+      options: { x: "at", y: "y", text: "label", dx: -8, dy: -12, textAnchor: "end" },
+    });
+  }
+  if (model.pendingNote === panel.platform && model.answer.unit === "day" && last) {
+    const end = panel.points.at(-1)?.week;
+    if (end && last.at < end) {
+      const label = panel.platform === "swiggy" ? "Swiggy pending" : "Zomato pending";
+      marks.push({
+        type: "rect",
+        data: [{ x1: addDays(last.at, step), x2: addDays(end, step), y1, y2 }],
+        options: { x1: "x1", x2: "x2", y1: "y1", y2: "y2", fill: "var(--muted)" },
+      });
       marks.push({
         type: "text",
-        data: [{ at: last.at, y: last.y, label: `${name} ${formatCompactRupees(last.y)}` }],
-        options: { x: "at", y: "y", text: "label", dx: -8, dy: -12, textAnchor: "end" },
+        data: [{ at: addDays(last.at, step), y: y2, label }],
+        options: { x: "at", y: "y", text: "label", dy: 12, textAnchor: "start" },
       });
-    }
-    if (model.pendingNote === panel.platform && last) {
-      const end = panel.points.at(-1)?.week;
-      if (end && last.at < end) {
-        const label = panel.platform === "swiggy" ? "Swiggy pending" : "Zomato pending";
-        marks.push({
-          type: "rect",
-          data: [{ x1: addDays(last.at, step), x2: addDays(end, step), y1, y2 }],
-          options: { x1: "x1", x2: "x2", y1: "y1", y2: "y2", fill: "var(--muted)" },
-        });
-        marks.push({
-          type: "text",
-          data: [{ at: addDays(last.at, step), y: y2, label }],
-          options: { x: "at", y: "y", text: "label", dy: 12, textAnchor: "start" },
-        });
-      }
     }
   }
   const top = values.length > 0 ? Math.max(...values) : y2;
@@ -1458,7 +1743,16 @@ function combinedSalesMarks(model: OwnerDashboardModel): OwnerPlotMark[] {
       },
     );
   }
-  return marks;
+  return {
+    id: `sales-${panel.platform}`,
+    width: 960,
+    height: 200,
+    marginLeft: 56,
+    marginRight: 16,
+    x: axis,
+    y,
+    marks,
+  };
 }
 
 /** Keep the quietest day above the white end of the purple ramp. */

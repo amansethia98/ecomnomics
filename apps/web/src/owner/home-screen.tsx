@@ -2,6 +2,7 @@ import { useLingui } from "@lingui/react/macro";
 import type { OwnerHomeItem, OwnerHomeModel, OwnerHomeQuestion } from "@rakazo/contracts";
 import {
   formatCivilDay,
+  formatCount,
   formatRupees,
   formatSignedPct,
   formatWeekdayName,
@@ -119,7 +120,11 @@ export function OwnerHomeScreen({
       ) : null}
       {home.kind !== "welcome" ? (
         <section>
-          <h3 className="text-label text-muted-foreground">{t`Yesterday`}</h3>
+          <h3 className="text-label text-muted-foreground">
+            {home.kind === "waiting" && home.sales.asOf
+              ? t`Last complete day · ${formatCivilDay(home.sales.asOf)}`
+              : t`Yesterday`}
+          </h3>
           <div className="mt-3 grid gap-6 sm:grid-cols-3">
             <HeadlineNumber
               label={t`Net sales`}
@@ -127,23 +132,22 @@ export function OwnerHomeScreen({
               change={home.sales.changePct}
               pending={home.sales.pendingPlatform}
               compare={weekday}
-              asOf={home.sales.asOf}
             />
             <HeadlineNumber
               label={t`Delivered orders`}
-              value={home.delivered.count != null ? String(home.delivered.count) : t`Not in yet`}
+              value={
+                home.delivered.count != null ? formatCount(home.delivered.count) : t`Not in yet`
+              }
               change={home.delivered.changePct}
               pending={home.delivered.pendingPlatform}
               compare={weekday}
-              asOf={home.delivered.asOf}
             />
             <div>
               <p className="text-label text-muted-foreground">{t`Last week's payout`}</p>
-              <p className="mt-1 text-heading3 font-medium">
-                {home.payout.paise != null
-                  ? formatRupees(home.payout.paise)
-                  : t`Check runs Thursday`}
+              <p className="mt-1 text-heading1 font-semibold">
+                {home.payout.paise != null ? formatRupees(home.payout.paise) : "—"}
               </p>
+              <p className="text-body-sm text-muted-foreground">{t`Check runs Thursday`}</p>
               {home.payout.toCheck > 0 ? (
                 <p className="owner-change-down mt-1 text-body-sm">
                   {t`${home.payout.toCheck} to check`}
@@ -273,14 +277,12 @@ function HeadlineNumber({
   change,
   pending,
   compare,
-  asOf,
 }: {
   label: string;
   value: string;
   change: number | null;
   pending: "zomato" | "swiggy" | null;
   compare: string | null;
-  asOf: string | null;
 }) {
   const { t } = useLingui();
   const pendingLabel =
@@ -290,19 +292,22 @@ function HeadlineNumber({
         ? t`Swiggy only · Zomato pending`
         : null;
   return (
-    <div>
-      <p className="text-label text-muted-foreground">{label}</p>
-      <p className="mt-1 text-heading3 font-medium">{value}</p>
-      {change != null && compare ? (
-        <ChangeBadge
-          direction={change < 0 ? "down" : "up"}
-          label={`${formatSignedPct(change)} ${t`vs last`} ${compare}`}
-        />
-      ) : null}
-      {pendingLabel ? <p className="text-body-sm text-muted-foreground">{pendingLabel}</p> : null}
-      {asOf ? (
-        <p className="text-body-sm text-muted-foreground">{t`As of ${formatCivilDay(asOf)}`}</p>
-      ) : null}
+    <div className="flex items-baseline justify-between gap-3 sm:block">
+      <div>
+        <p className="text-label text-muted-foreground">{label}</p>
+        {pendingLabel ? (
+          <p className="text-body-sm text-muted-foreground">{`● ${pendingLabel.replace(" · ", " · ● ")}`}</p>
+        ) : null}
+      </div>
+      <div className="text-right sm:text-left">
+        <p className="mt-1 text-heading1 font-semibold">{value}</p>
+        {change != null && compare ? (
+          <ChangeBadge
+            direction={change < 0 ? "down" : "up"}
+            label={`${formatSignedPct(change)} ${t`vs last`} ${compare}`}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }
