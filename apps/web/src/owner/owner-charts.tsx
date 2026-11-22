@@ -162,8 +162,12 @@ export function HeatGrid({ model }: { model: OwnerDashboardModel }) {
     >
       <span />
       {Array.from({ length: 24 }, (_, hour) => (
-        <span key={hour} className="truncate text-center text-label text-muted-foreground">
-          {hour % 6 === 0 ? String(hour) : ""}
+        <span key={hour} className="relative h-4">
+          {hour % 6 === 0 ? (
+            <span className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-label text-muted-foreground">
+              {hour}
+            </span>
+          ) : null}
         </span>
       ))}
       {WEEKDAYS.map((weekday) => (
