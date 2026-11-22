@@ -216,7 +216,9 @@ export function composeStaffThread(input: {
         failed: false,
       }
     : null;
-  const messages = briefMessage ? [briefMessage, ...input.messages] : [...input.messages];
+  const messages = collapseSameDay(
+    briefMessage ? [briefMessage, ...input.messages] : [...input.messages],
+  );
   const first = messages.length === 0;
   return {
     greeting:
@@ -227,6 +229,35 @@ export function composeStaffThread(input: {
     messages,
     quota,
   };
+}
+
+/** One answer per question on a day. A later identical ask is the same reply. */
+function collapseSameDay(messages: readonly StaffMessage[]): StaffMessage[] {
+  const seen = new Set<string>();
+  const kept: StaffMessage[] = [];
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (!message) continue;
+    if (message.role !== "owner") {
+      kept.push(message);
+      continue;
+    }
+    const text = message.blocks
+      .flatMap((block) => (block.kind === "text" ? [block.text] : []))
+      .join("\n")
+      .trim()
+      .toLowerCase();
+    const next = messages[index + 1];
+    const paired = Boolean(next && next.role === "staff" && next.date === message.date);
+    const key = `${message.date}\n${text}`;
+    if (text && !message.failed && seen.has(key)) {
+      if (paired) index += 1;
+      continue;
+    }
+    if (text && !message.failed) seen.add(key);
+    kept.push(message);
+  }
+  return kept;
 }
 
 export function answerStaffQuestion(input: StaffAnswerInput): StaffAnswer {

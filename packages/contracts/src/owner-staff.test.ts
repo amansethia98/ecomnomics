@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { resolveOwnerPlot } from "./owner-dashboard.js";
-import type { MarketingActionRecord, MarketingReading } from "./owner-staff.js";
+import type { MarketingActionRecord, MarketingReading, StaffMessage } from "./owner-staff.js";
 import {
   answerStaffQuestion,
   choiceReply,
@@ -154,6 +154,56 @@ it("formats a chart that was stored before format keys existed", () => {
   expect(yTick?.(500_000)).not.toBe("00,000");
   expect(xTick).toBeTypeOf("function");
   expect(xTick?.(new Date("2026-11-02T00:00:00.000Z"))).toBe("2 Nov");
+});
+
+it("draws a stored chart's week labels as short dates", () => {
+  const resolved = resolveOwnerPlot({
+    x: { label: null },
+    y: { label: null, grid: true },
+    marks: [
+      {
+        type: "lineY" as const,
+        data: [{ week: "2026-10-05", sales: 100 }],
+        options: { x: "week", y: "sales" },
+      },
+    ],
+  });
+  const tick = resolved.x?.tickFormat as ((value: string) => string) | undefined;
+  expect(tick?.("2026-10-05")).toBe("5 Oct");
+});
+
+it("keeps one copy when the same question is asked twice in a day", () => {
+  const owner = (id: string, text: string): StaffMessage => ({
+    id,
+    role: "owner",
+    date: "2026-11-16",
+    blocks: [{ kind: "text", text }],
+    counted: true,
+    failed: false,
+  });
+  const staff = (id: string, text: string): StaffMessage => ({
+    id,
+    role: "staff",
+    date: "2026-11-16",
+    blocks: [{ kind: "text", text }],
+    counted: false,
+    failed: false,
+  });
+  const thread = composeStaffThread({
+    restaurantName: "Kesar Kitchen",
+    hasHistory: true,
+    brief: null,
+    messages: [
+      owner("q1", "Why did sales move?"),
+      staff("a1", "Here is the latest week I can measure."),
+      owner("q2", "Why did sales move?"),
+      staff("a2", "Here is the latest week I can measure."),
+      owner("q3", "How is the payout?"),
+      staff("a3", "Here is the latest week I can measure."),
+    ],
+    askedToday: 2,
+  });
+  expect(thread.messages.map((message) => message.id)).toEqual(["q1", "a1", "q3", "a3"]);
 });
 
 it("offers an action once, and records the owner's choice in words", () => {
