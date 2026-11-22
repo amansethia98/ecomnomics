@@ -71,7 +71,7 @@ it("shows the Thursday check on a payout and not a match", () => {
   expect(host.textContent).toContain("Where your money went");
   expect(host.textContent).toContain("₹800");
   expect(host.textContent).not.toContain("Matches");
-  expect(host.textContent).not.toContain("o-1");
+  expect(host.textContent).toContain("o-1");
   expect(host.textContent).not.toContain("Ad credit");
   expect(formatRupees(-500)).not.toBe(formatRupees(500));
 });
@@ -123,6 +123,8 @@ it("asks for a licence date and reminds inside seven days", () => {
             from: "2026-11-03",
             to: "2026-11-09",
             createdOn: "2026-11-10",
+            createdAt: "2026-11-10T03:30:00.000Z",
+            urgent: 1,
           },
         ],
       }}
@@ -143,6 +145,9 @@ it("asks for a licence date and reminds inside seven days", () => {
   );
   expect(current.textContent).toContain("All documents up to date.");
   expect(due.textContent).toContain("Weekly review");
+  expect(due.textContent).toContain("09:00");
+  expect(due.textContent).toContain("1 urgent");
+  expect(due.querySelector("svg")).not.toBeNull();
   expect(due.querySelector("input[type='file']")).toBeNull();
 });
 
@@ -151,7 +156,13 @@ it("says menu editing is coming soon and names a missing app", () => {
     editing: false,
     missingCount: 1,
     rows: [{ name: "Soup", platforms: ["zomato"], revenuePaise: 5_000, missingApp: true }],
-    swiggy: { score: null, photoPct: 80, descriptionPct: 0, top5RevenuePaise: 12_000 },
+    swiggy: {
+      score: 80,
+      photoPct: 80,
+      descriptionPct: 0,
+      top5RevenuePaise: 12_000,
+      scorePoints: [70, 80],
+    },
   };
   const host = render(<MenuScreen screen={menu} />);
   expect(host.textContent).toContain("Dish-by-dish insights are on the way");
@@ -162,10 +173,13 @@ it("says menu editing is coming soon and names a missing app", () => {
     item.textContent?.includes("Top dishes"),
   );
   expect(top?.querySelector("[class*='h-1']")).toBeNull();
-  expect(host.textContent).toContain("Not in reports");
+  expect(host.textContent).toContain("In reports");
   expect(host.textContent).toContain("80%");
   expect(host.textContent).toContain("0%");
   expect(host.textContent).toContain("Zomato doesn't share menu scores in its reports.");
+  expect(host.textContent).toContain("What we can already see · Swiggy menu, last 12 weeks");
+  expect(host.querySelector(".lg\\:grid-cols-2")).not.toBeNull();
+  expect(host.querySelector("svg")).not.toBeNull();
   expect(host.textContent).not.toContain("Soup");
   expect(host.querySelector("button")).toBeNull();
 });
@@ -181,6 +195,7 @@ it("copies a review reply and does not post it", () => {
         rating: 4.2,
         ratingState: "ok",
         poorRatedOrders: 0,
+        poorRatedPct: null,
         complaints: [{ id: "complaints_missing", label: "Missing items", count: null }],
       },
       {
@@ -188,6 +203,7 @@ it("copies a review reply and does not post it", () => {
         rating: null,
         ratingState: "not_in_report",
         poorRatedOrders: 2,
+        poorRatedPct: 25,
         complaints: [{ id: "complaints_missing", label: "Missing items", count: 1 }],
       },
     ],
@@ -211,6 +227,8 @@ it("copies a review reply and does not post it", () => {
   expect(host.textContent).toContain("Not in Swiggy's reports yet");
   expect(host.textContent).toContain("Reviews and replies are on the way");
   expect(host.textContent).toContain("Poorly rated orders 0");
+  expect(host.textContent).toContain("25%");
+  expect(host.textContent).toContain("Most complaints: Missing items · Swiggy");
   expect(host.textContent).toContain("Not in reports");
   expect(host.textContent).toContain("★ 4.20");
   const bars = host.querySelectorAll("span.bg-destructive");

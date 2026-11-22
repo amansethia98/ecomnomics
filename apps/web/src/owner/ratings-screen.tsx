@@ -9,15 +9,18 @@ export function reportedPoor(app: OwnerRatings["apps"][number]): number | null {
 
 export function TopComplaint({ apps }: { apps: OwnerRatings["apps"] }) {
   const { t } = useLingui();
-  let top: { label: string; count: number } | null = null;
+  let top: { label: string; count: number; platform: "zomato" | "swiggy" } | null = null;
   for (const app of apps) {
     for (const row of app.complaints) {
       if (row.count == null || row.count <= 0) continue;
-      if (!top || row.count > top.count) top = { label: row.label, count: row.count };
+      if (!top || row.count > top.count) {
+        top = { label: row.label, count: row.count, platform: app.platform };
+      }
     }
   }
   if (!top) return null;
-  return <p className="text-body-sm">{t`Most complaints: ${top.label}`}</p>;
+  const appName = top.platform === "swiggy" ? t`Swiggy` : t`Zomato`;
+  return <p className="text-body-sm">{t`Most complaints: ${top.label} · ${appName}`}</p>;
 }
 
 export function RatingsScreen({ screen }: { screen: OwnerRatings }) {
@@ -53,7 +56,9 @@ export function RatingsScreen({ screen }: { screen: OwnerRatings }) {
         <section key={app.platform}>
           <p className="text-body-sm text-muted-foreground">
             {t`Poorly rated orders`}{" "}
-            {reportedPoor(app) == null ? (
+            {app.poorRatedPct != null ? (
+              `${app.poorRatedPct}%`
+            ) : reportedPoor(app) == null ? (
               <>
                 — <span>{t`Not in reports`}</span>
               </>

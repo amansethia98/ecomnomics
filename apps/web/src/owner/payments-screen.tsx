@@ -111,10 +111,29 @@ export function PaymentsScreen({
               <span className="owner-pill bg-muted text-muted-foreground">{t`Check runs Thursday`}</span>
               <span aria-hidden="true">›</span>
             </button>
+            {payout.id === screen.selectedId ? <PayoutOrders screen={screen} /> : null}
           </li>
         ))}
       </ul>
     </div>
+  );
+}
+
+function PayoutOrders({ screen }: { screen: OwnerPayments }) {
+  const { t } = useLingui();
+  if (screen.orders.length === 0)
+    return <p className="pb-3 text-body-sm">{t`No orders in this payout.`}</p>;
+  return (
+    <ul className="pb-3">
+      {screen.orders.map((order) => (
+        <li key={order.orderId} className="flex justify-between text-body-sm text-muted-foreground">
+          <span>
+            {order.orderId} · {order.date}
+          </span>
+          <span>{order.netPayoutPaise == null ? "—" : formatRupees(order.netPayoutPaise)}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
