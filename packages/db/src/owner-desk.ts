@@ -6,9 +6,8 @@ import {
   composeOwnerDocuments,
   composeOwnerMenu,
   composeOwnerPayments,
-  composeOwnerRatings,
   indiaCivilDate,
-  ratingsFromRows,
+  ratingsForWindow,
   utcMidnight,
 } from "@rakazo/contracts";
 import type { PrismaClient } from "./client.js";
@@ -88,9 +87,9 @@ export async function readPaymentsForMember(
             selected.id,
         )
       : undefined;
-    const [orders, adjustments] = source
-      ? await Promise.all([
-          db.payoutOrder.findMany({
+    const [orders, adjustments] = await Promise.all([
+      source
+        ? db.payoutOrder.findMany({
             where: {
               restaurantId,
               spaceId: restaurant.spaceId,
@@ -102,31 +101,47 @@ export async function readPaymentsForMember(
             orderBy: { orderDate: "desc" },
             take: 200,
             select: { platformOrderId: true, orderDate: true, netPayoutPaise: true },
-          }),
-          db.payoutAdjustment.findMany({
+          })
+        : Promise.resolve([]),
+      cycles.length === 0
+        ? Promise.resolve([])
+        : db.payoutAdjustment.findMany({
             where: {
               restaurantId,
               spaceId: restaurant.spaceId,
-              outletId: source.outletId,
-              platform: source.platform,
-              cycleId: source.cycleId,
               supersededAt: null,
+              OR: cycles.map((cycle) => ({
+                outletId: cycle.outletId,
+                platform: cycle.platform,
+                cycleId: cycle.cycleId,
+              })),
             },
-            select: { type: true, amountPaise: true },
+            select: {
+              outletId: true,
+              platform: true,
+              cycleId: true,
+              type: true,
+              amountPaise: true,
+            },
           }),
-        ])
-      : [[], []];
+    ]);
     const orderRows: PaymentOrder[] = orders.map((order) => ({
       cycleId: selected?.id ?? "",
       orderId: order.platformOrderId,
       date: indiaCivilDate(order.orderDate),
       netPayoutPaise: order.netPayoutPaise,
     }));
-    const adjustmentRows: PaymentAdjustment[] = adjustments.map((row) => ({
-      cycleId: selected?.id ?? "",
-      label: row.type,
-      amountPaise: row.amountPaise,
-    }));
+    const adjustmentRows: PaymentAdjustment[] = adjustments.flatMap((row) => {
+      const platform = namedPlatform(row.platform);
+      if (!platform) return [];
+      return [
+        {
+          cycleId: cycleKey(row.outletId, platform, row.cycleId),
+          label: row.type,
+          amountPaise: row.amountPaise,
+        },
+      ];
+    });
     return composeOwnerPayments({
       cycles: mapped,
       orders: orderRows,
@@ -267,34 +282,46 @@ export async function readRatingsForMember(
 ) {
   const restaurant = await memberRestaurant(db, userId, restaurantId);
   return runAsTenant({ spaceId: restaurant.spaceId, userId }, async () => {
-    const since = utcMidnight(addIsoDays(indiaCivilDate(new Date()), -28));
+    const today = indiaCivilDate(new Date());
     const rows = await db.metricValue.findMany({
       where: {
         restaurantId: restaurant.restaurantId,
         spaceId: restaurant.spaceId,
-        key: { in: ["rating", "poor_rated_orders", "rated_orders", ...COMPLAINT_KEYS] },
+        key: {
+          in: [
+            "rating",
+            "poor_rated_orders",
+            "rated_orders",
+            "ops_sales_paise",
+            "swiggy_net_sales_paise",
+            ...COMPLAINT_KEYS,
+          ],
+        },
         state: "ok",
         supersededAt: null,
         rowRole: { in: ["fact", "platform_check"] },
+        periodStart: { lte: utcMidnight(today) },
         ...(outletId ? { outletId } : {}),
       },
       orderBy: { periodStart: "desc" },
       select: { key: true, platform: true, value: true, rowRole: true, periodStart: true },
-      take: 2000,
+      take: 4000,
     });
-    const windowed = rows.flatMap((row) => {
-      if (row.value == null) return [];
-      if (row.key !== "rating" && row.periodStart < since) return [];
-      return [
-        {
-          platform: row.platform,
-          key: row.key,
-          value: Number(row.value),
-          rowRole: row.rowRole,
-        },
-      ];
-    });
-    return composeOwnerRatings(ratingsFromRows(windowed));
+    return ratingsForWindow(
+      rows.flatMap((row) => {
+        if (row.value == null) return [];
+        return [
+          {
+            platform: row.platform,
+            key: row.key,
+            value: Number(row.value),
+            rowRole: row.rowRole,
+            date: indiaCivilDate(row.periodStart),
+          },
+        ];
+      }),
+      today,
+    );
   });
 }
 

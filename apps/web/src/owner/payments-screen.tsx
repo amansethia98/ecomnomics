@@ -1,6 +1,6 @@
 import { useLingui } from "@lingui/react/macro";
 import type { OwnerPayments } from "@rakazo/contracts";
-import { formatExclusiveRange, formatRupees } from "@rakazo/contracts";
+import { formatExclusiveRange, formatRupees, paymentsHeroRows } from "@rakazo/contracts";
 import { useState } from "react";
 import { PlatformDot } from "./marks";
 
@@ -22,10 +22,9 @@ export function PaymentsScreen({
     ...new Map(screen.payouts.map((payout) => [`${payout.from}|${payout.to}`, payout])).values(),
   ];
   const shown = screen.payouts.filter((payout) => `${payout.from}|${payout.to}` === week);
-  const heroRows = (["zomato", "swiggy"] as const).flatMap((platform) => {
-    const latest = screen.payouts.find((payout) => payout.platform === platform);
-    return latest ? [latest] : [];
-  });
+  const [weekFrom, weekTo] = week.split("|");
+  const heroRows =
+    weekFrom && weekTo ? paymentsHeroRows(screen.payouts, weekFrom, weekTo) : screen.payouts;
   const heroPaise = heroRows.reduce((total, payout) => {
     const amount = payoutAmount(payout);
     return amount == null ? total : total + amount;
@@ -38,17 +37,30 @@ export function PaymentsScreen({
             <p className="text-label text-muted-foreground">{t`Latest payouts · Zomato and Swiggy`}</p>
             <h2 className="owner-title">{formatRupees(heroPaise)}</h2>
             <p className="text-body-sm text-muted-foreground">
-              {heroRows
-                .map((payout) => {
-                  const amount = payoutAmount(payout);
-                  const name = payout.platform === "zomato" ? t`Zomato` : t`Swiggy`;
-                  const when = formatExclusiveRange(payout.from, payout.to);
-                  const how = payout.bankBasis === "paid" ? t`paid` : t`expected`;
-                  return amount == null
-                    ? `● ${name} ${when}`
-                    : `● ${name} ${formatRupees(amount)} ${how} ${when}`;
-                })
-                .join(" · ")}
+              {heroRows.map((payout, index) => {
+                const amount = payoutAmount(payout);
+                const name = payout.platform === "zomato" ? t`Zomato` : t`Swiggy`;
+                const when = formatExclusiveRange(payout.from, payout.to);
+                const how = payout.bankBasis === "paid" ? t`paid` : t`expected`;
+                const text =
+                  amount == null
+                    ? `${name} ${when}`
+                    : `${name} ${formatRupees(amount)} ${how} ${when}`;
+                return (
+                  <span key={payout.id}>
+                    {index > 0 ? " · " : ""}
+                    <span
+                      className={
+                        payout.platform === "zomato"
+                          ? "owner-dot owner-dot-zomato"
+                          : "owner-dot owner-dot-swiggy"
+                      }
+                      aria-hidden="true"
+                    />{" "}
+                    {text}
+                  </span>
+                );
+              })}
             </p>
           </div>
           {weeks.length > 0 ? (
@@ -79,7 +91,7 @@ export function PaymentsScreen({
             {(screen.breakdown ?? []).map((row) => (
               <li key={row.id} className="flex justify-between border-t border-border py-2">
                 <span>{row.label}</span>
-                <span>{row.paise == null ? "—" : formatRupees(row.paise)}</span>
+                <span>{rowAmount(row)}</span>
               </li>
             ))}
           </ul>
@@ -94,8 +106,12 @@ export function PaymentsScreen({
               className={`flex w-full items-center gap-3 py-3 text-left ${payout.id === screen.selectedId ? "text-primary" : ""}`}
               aria-pressed={payout.id === screen.selectedId}
               onClick={() => {
+                if (payout.id === screen.selectedId) {
+                  setOrdersOpen((open) => !open);
+                  return;
+                }
+                setOrdersOpen(true);
                 onSelect(payout.id);
-                setOrdersOpen((open) => (payout.id === screen.selectedId ? !open : true));
               }}
             >
               <PlatformDot platform={payout.platform} />
@@ -130,6 +146,13 @@ export function PaymentsScreen({
 
 function payoutAmount(payout: OwnerPayments["payouts"][number]): number | null {
   return payout.bankBasis === "paid" ? payout.paidAmountPaise : payout.netPayoutPaise;
+}
+
+function rowAmount(row: OwnerPayments["breakdown"][number]): string {
+  if (row.paise == null) return "—";
+  const signed =
+    row.label.startsWith("−") || row.label.startsWith("+") || row.label.startsWith("=");
+  return formatRupees(signed ? Math.abs(row.paise) : row.paise);
 }
 
 function PayoutOrders({ screen }: { screen: OwnerPayments }) {

@@ -1,6 +1,6 @@
 import { useLingui } from "@lingui/react/macro";
 import type { OwnerRatings } from "@rakazo/contracts";
-import { formatCivilDay } from "@rakazo/contracts";
+import { formatCivilDay, formatInclusiveRange } from "@rakazo/contracts";
 import { PlatformDot } from "./marks";
 
 export function reportedPoor(app: OwnerRatings["apps"][number]): number | null {
@@ -34,7 +34,24 @@ export function RatingsScreen({ screen }: { screen: OwnerRatings }) {
           {t`Soon you'll read every review here, with a reply drafted for you to approve. Until then, here is what the ratings and complaints already say.`}
         </p>
       </div>
+      {screen.from && screen.to ? (
+        <p className="text-body-sm text-muted-foreground">
+          {formatInclusiveRange(screen.from, screen.to)}
+        </p>
+      ) : null}
       <TopComplaint apps={screen.apps ?? []} />
+      {(screen.totals ?? []).some((row) => row.count > 0) ? (
+        <p className="text-body-sm">
+          {(screen.totals ?? [])
+            .map((row) => {
+              const label =
+                screen.apps.flatMap((app) => app.complaints).find((item) => item.id === row.id)
+                  ?.label ?? row.id;
+              return `${label} ${row.count}`;
+            })
+            .join(" · ")}
+        </p>
+      ) : null}
       {(screen.apps ?? []).map((app) => (
         <section
           key={app.platform}
