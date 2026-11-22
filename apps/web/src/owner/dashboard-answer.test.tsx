@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import type { OwnerDashboardModel } from "@rakazo/contracts";
+import type { OwnerDashboardModel, OwnerView } from "@rakazo/contracts";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 
 vi.mock("@lingui/react/macro", () => ({
@@ -15,7 +16,7 @@ vi.mock("@lingui/react/macro", () => ({
 }));
 
 import type { DashTile } from "@rakazo/contracts";
-import { Answer, FunnelLine } from "./dashboard-screen";
+import { Answer, FunnelLine, OwnerDashboard } from "./dashboard-screen";
 import { NumberCard } from "./number-card";
 
 afterEach(() => {
@@ -89,6 +90,59 @@ function answer(over: Partial<OwnerDashboardModel["answer"]>): OwnerDashboardMod
     onePlatform: false,
   };
 }
+
+it("renders the seven-day funnel headline on the page", async () => {
+  const days = ["2026-11-17", "2026-11-18", "2026-11-19", "2026-11-20"];
+  const opens = [40, 30, 20, 10];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        series: days.map((from, index) => ({
+          from,
+          to: from,
+          provisional: false,
+          values: [
+            { key: "ops_sales_paise", value: 1000, status: "ok", coverageDays: 1 },
+            { key: "impressions", value: 100, status: "ok", coverageDays: 1 },
+            { key: "menu_opens", value: opens[index], status: "ok", coverageDays: 1 },
+            { key: "cart_builds", value: 10, status: "ok", coverageDays: 1 },
+            { key: "placed_orders", value: 4, status: "ok", coverageDays: 1 },
+          ],
+        })),
+      }),
+    })),
+  );
+  const host = document.createElement("div");
+  document.body.append(host);
+  const view: OwnerView = {
+    range: "7d",
+    platform: "zomato",
+    outlet: "all",
+    from: "2026-11-15",
+    to: "2026-11-22",
+  };
+  await act(async () => {
+    createRoot(host).render(
+      <MemoryRouter>
+        <OwnerDashboard restaurantId="r1" today="2026-11-22" view={view} />
+      </MemoryRouter>,
+    );
+  });
+  const line = [...host.querySelectorAll("p")].find((node) =>
+    node.className.includes("text-foreground"),
+  );
+  expect(line?.textContent).toContain("Zomato: fewer people who see you open your menu, ");
+  expect(line?.textContent).toMatch(/down \d+ weeks in a row/);
+  expect(line?.className).not.toContain("text-destructive");
+  const wine = [...(line?.querySelectorAll(".text-destructive") ?? [])].map(
+    (node) => node.textContent ?? "",
+  );
+  expect(wine.some((text) => text.includes("●"))).toBe(true);
+  expect(wine.some((text) => /down \d+ weeks in a row/.test(text))).toBe(true);
+  vi.unstubAllGlobals();
+});
 
 it("keeps the funnel headline dark, with wine only on the dot and the decline", () => {
   const host = document.createElement("div");

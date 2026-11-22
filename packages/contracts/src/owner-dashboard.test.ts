@@ -265,6 +265,28 @@ it("calls a rating rise of a few tenths improving", () => {
   expect(rating?.word).toBe("improving");
 });
 
+it("puts the menu headline on a seven-day range when the rate keeps falling", () => {
+  const days = ["2026-11-17", "2026-11-18", "2026-11-19", "2026-11-20"];
+  const opens = [40, 30, 20, 10];
+  const readings = days.flatMap((date, index) => [
+    day(date, "zomato", "ops_sales_paise", 1000),
+    day(date, "zomato", "impressions", 100),
+    day(date, "zomato", "menu_opens", opens[index] ?? 10),
+    day(date, "zomato", "cart_builds", 10),
+    day(date, "zomato", "placed_orders", 4),
+  ]);
+  const dash = composeOwnerDashboard(
+    input(readings, {
+      platform: "zomato",
+      today: "2026-11-22",
+      from: "2026-11-15",
+      to: "2026-11-22",
+    }),
+  );
+  expect(dash.funnelLine).toContain("Zomato: fewer people who see you open your menu, down ");
+  expect(dash.funnelLine).toContain("weeks in a row");
+});
+
 it("says when the menu step falls three weeks in a row", () => {
   expect(
     funnelHeadline([

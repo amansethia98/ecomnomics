@@ -465,6 +465,29 @@ it("features the last complete day's act now while yesterday is still waiting", 
   expect(home.rows.flatMap((row) => row.ids)).toEqual(["watch"]);
 });
 
+it("names the same weekday last week while yesterday is still out", () => {
+  const home = composeOwnerHome(
+    input({
+      brief: {
+        ...input().brief!,
+        form: "no_data",
+        baselineDate: null,
+        sales: null,
+        delivered: null,
+        statusText: "",
+      },
+      lastComplete: {
+        date: "2026-11-20",
+        salesPaise: 2_348_400,
+        delivered: 33,
+        salesChangePct: -31.6,
+      },
+    }),
+  );
+  expect(home.baselineDate).toBe("2026-11-13");
+  expect(home.sales.changePct).toBeCloseTo(-31.6);
+});
+
 it("uses the last complete day when yesterday is not in yet", () => {
   const home = composeOwnerHome(
     input({
