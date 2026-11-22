@@ -162,6 +162,12 @@ it("hides the range on settings and the outlet list when there is one outlet", (
   expect(host.textContent).toContain("Zomato connected");
   expect(host.textContent).toContain("Swiggy login needs attention");
   expect(host.textContent).toContain("We never ask for a Zomato or Swiggy password.");
+  expect(host.textContent).toContain("Names come from Zomato and Swiggy.");
+  const labels = [...host.querySelectorAll("label")].map((item) => item.textContent ?? "");
+  const restaurant = labels.findIndex((label) => label.includes("Restaurant name"));
+  const city = labels.findIndex((label) => label.startsWith("City"));
+  expect(restaurant).toBeGreaterThanOrEqual(0);
+  expect(city).toBeGreaterThan(restaurant);
   expect(host.textContent).not.toContain("Save changes");
 });
 

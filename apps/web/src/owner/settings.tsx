@@ -44,6 +44,7 @@ export function SettingsProfile({
   const emailId = useId();
   const languageId = useId();
   const restaurantId = useId();
+  const cityId = useId();
   const saved = draftFromProfile(profile);
   const [draft, setDraft] = useState(saved);
   const [seen, setSeen] = useState(profile);
@@ -51,17 +52,19 @@ export function SettingsProfile({
     setSeen(profile);
     setDraft(draftFromProfile(profile));
   }
+  const city = draft.outlets.every((outlet) => outlet.city === draft.outlets[0]?.city)
+    ? (draft.outlets[0]?.city ?? "")
+    : "";
+  const setCity = (next: string) => {
+    setDraft({
+      ...draft,
+      outlets: draft.outlets.map((outlet) => ({ ...outlet, city: next })),
+    });
+  };
   const dirty = !sameDraft(draft, saved);
   useEffect(() => {
     onDirty?.(dirty);
   }, [dirty, onDirty]);
-  const setOutlet = (id: string, patch: Partial<{ name: string; city: string }>) => {
-    setDraft({
-      ...draft,
-      outlets: draft.outlets.map((outlet) => (outlet.id === id ? { ...outlet, ...patch } : outlet)),
-    });
-  };
-
   return (
     <form
       className="mx-auto flex max-w-3xl flex-col gap-8"
@@ -119,6 +122,15 @@ export function SettingsProfile({
             onChange={(event) => setDraft({ ...draft, restaurantName: event.target.value })}
           />
         </label>
+        <label className="flex max-w-md flex-col gap-1.5 text-body-sm" htmlFor={cityId}>
+          {t`City`}
+          <Input
+            id={cityId}
+            value={city}
+            disabled={saving}
+            onChange={(event) => setCity(event.target.value)}
+          />
+        </label>
       </section>
 
       <section className="flex flex-col gap-2">
@@ -130,32 +142,10 @@ export function SettingsProfile({
             const row = draft.outlets.find((item) => item.id === outlet.id);
             return (
               <li key={outlet.id} className="flex flex-col gap-3 py-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label
-                    className="flex flex-col gap-1.5 text-body-sm"
-                    htmlFor={`${outlet.id}-name`}
-                  >
-                    {t`Outlet`}
-                    <Input
-                      id={`${outlet.id}-name`}
-                      value={row?.name ?? outlet.name}
-                      disabled={saving}
-                      onChange={(event) => setOutlet(outlet.id, { name: event.target.value })}
-                    />
-                  </label>
-                  <label
-                    className="flex flex-col gap-1.5 text-body-sm"
-                    htmlFor={`${outlet.id}-city`}
-                  >
-                    {t`City`}
-                    <Input
-                      id={`${outlet.id}-city`}
-                      value={row?.city ?? outlet.city}
-                      disabled={saving}
-                      onChange={(event) => setOutlet(outlet.id, { city: event.target.value })}
-                    />
-                  </label>
-                </div>
+                <p className="font-medium">{row?.name ?? outlet.name}</p>
+                <p className="text-body-sm text-muted-foreground">
+                  {t`Names come from Zomato and Swiggy.`}
+                </p>
                 <div className="flex flex-wrap gap-2">
                   {outlet.connections.map((connection) => (
                     <ConnectionMark
