@@ -944,7 +944,20 @@ describe("brief edge cases", () => {
   });
 
   it("BS-06 an empty holiday list does not soften a drop", () => {
-    expect(DEFAULT_OPS_RULES_CONFIG.holidayDates).toEqual([]);
+    expect(DEFAULT_OPS_RULES_CONFIG.holidayDates).toEqual([
+      "2026-09-14",
+      "2026-10-11",
+      "2026-10-12",
+      "2026-10-13",
+      "2026-10-14",
+      "2026-10-15",
+      "2026-10-16",
+      "2026-10-17",
+      "2026-10-18",
+      "2026-10-19",
+      "2026-10-20",
+      "2026-11-08",
+    ]);
     const result = pipeline({
       id: "BS-06",
       date: "2026-11-08",
@@ -953,6 +966,7 @@ describe("brief edge cases", () => {
         calm(BOTH, "zomato", "2026-11-08", 200_000),
         calm(BOTH, "zomato", "2026-11-01", 2_000_000),
       ],
+      config: resolveOpsRulesConfig({ holidayDates: [] }),
     });
     expect(result.text).not.toContain("festival week");
     expect(

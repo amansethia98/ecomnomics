@@ -12,6 +12,7 @@ import {
   DEFAULT_OPS_RULES_CONFIG,
   dashboardPlots,
   dashReadingState,
+  formatCivilDay,
   formatCompactRupees,
   formatPct1,
   resolveOwnerPlot,
@@ -136,7 +137,7 @@ export function OwnerDashboard({
       <Answer model={model} />
       <section className="owner-panel flex flex-col gap-2 p-3">
         {plots
-          .filter((plot) => plot.id === "sales")
+          .filter((plot) => plot.id.startsWith("sales"))
           .map((plot) => (
             <PlotFigure key={plot.id} plot={plot} />
           ))}
@@ -161,10 +162,10 @@ export function OwnerDashboard({
       </section>
       <section className="grid gap-6 lg:grid-cols-2">
         <div>
-          <h2 className="text-label text-muted-foreground">{t`When you sell`}</h2>
+          <h2 className="text-label text-muted-foreground">{t`When you sell · last 12 weeks`}</h2>
           {model.heatmapLine ? <p className="mt-1 font-medium">{model.heatmapLine}</p> : null}
           <PlotFigure plot={plots.find((plot) => plot.id === "heatmap") ?? plots[0]!} />
-          <p className="text-body-sm text-muted-foreground">{t`Fewer · More orders`}</p>
+          <p className="text-body-sm text-muted-foreground">{t`Fewer ▭ More orders · both apps`}</p>
         </div>
         <div>
           <h2 className="text-label text-muted-foreground">{t`How customers find you`}</h2>
@@ -173,6 +174,9 @@ export function OwnerDashboard({
             <div key={step}>
               <p className="text-body-sm">
                 <StepLabel step={step} />
+                <span className="ml-2 text-muted-foreground">
+                  <StepHint step={step} />
+                </span>
               </p>
               <PlotFigure plot={plots.find((plot) => plot.id === `funnel-${step}`) ?? plots[0]!} />
             </div>
@@ -185,7 +189,12 @@ export function OwnerDashboard({
 
 export function Answer({ model }: { model: OwnerDashboardModel }) {
   const { t } = useLingui();
-  const pct = model.answer.pct == null ? null : `${formatPct1(Math.abs(model.answer.pct))}%`;
+  const pct =
+    model.answer.pct == null
+      ? null
+      : model.periodPhrase === "in 12 weeks"
+        ? `${Math.round(Math.abs(model.answer.pct))}%`
+        : `${formatPct1(Math.abs(model.answer.pct))}%`;
   const basis = model.periodPhrase;
   const hasSales = model.tiles.find((tile) => tile.id === "sales")?.state === "value";
   const lead =
@@ -216,8 +225,8 @@ export function Answer({ model }: { model: OwnerDashboardModel }) {
         ? t`The last day dipped ${dipPct} vs ${model.answer.dipped?.against ?? "the day before"} after a festival week`
         : t`The last day dipped ${dipPct} vs ${model.answer.dipped?.against ?? "the day before"}`
       : model.answer.festival
-        ? t`Last week dipped ${dipPct} after a festival week`
-        : t`Last week dipped ${dipPct}`
+        ? t`Last week (${model.answer.dipped?.against ?? ""}) dipped ${dipPct} after a festival week`
+        : t`Last week (${model.answer.dipped?.against ?? ""}) dipped ${dipPct}`
     : null;
   const pending =
     model.answer.pendingPlatform === "swiggy"
@@ -237,11 +246,12 @@ export function Answer({ model }: { model: OwnerDashboardModel }) {
 
 function Notes({ model }: { model: OwnerDashboardModel }) {
   const { t } = useLingui();
+  const pendingWhen = model.pendingDate ? formatCivilDay(model.pendingDate) : null;
   const pending =
     model.pendingNote === "swiggy"
-      ? t`Swiggy is pending, so those days are left out of both sides`
+      ? t`Swiggy ${pendingWhen ?? ""} pending, left out of both weeks`
       : model.pendingNote === "zomato"
-        ? t`Zomato is pending, so those days are left out of both sides`
+        ? t`Zomato ${pendingWhen ?? ""} pending, left out of both weeks`
         : null;
   const missing = model.missingNote ? t`A day is missing and left out of the total` : null;
   const unit = model.answer.unit === "day" ? t`days` : t`weeks`;
@@ -273,6 +283,13 @@ function StepLabel({ step }: { step: "menu" | "cart" | "order" }) {
   if (step === "menu") return t`Opened your menu`;
   if (step === "cart") return t`Added to cart`;
   return t`Placed the order`;
+}
+
+function StepHint({ step }: { step: "menu" | "cart" | "order" }) {
+  const { t } = useLingui();
+  if (step === "menu") return t`of people who saw you`;
+  if (step === "cart") return t`of menu opens`;
+  return t`of carts`;
 }
 
 function sparkPlot(tile: OwnerDashboardModel["tiles"][number]): OwnerPlot {

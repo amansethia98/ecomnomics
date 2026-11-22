@@ -69,7 +69,15 @@ export interface OwnerHomeInput {
   /** Same-weekday sales, oldest first, last is the brief day. */
   weekdayHistory: readonly number[] | null;
   /** Last complete day when yesterday is not in yet. */
-  lastComplete: { date: string; salesPaise: number | null; delivered: number | null } | null;
+  lastComplete: {
+    date: string;
+    salesPaise: number | null;
+    delivered: number | null;
+    salesChangePct?: number | null;
+    ordersChangePct?: number | null;
+    /** Set when that day is one app. The other app is still pending. */
+    onlyPlatform?: "zomato" | "swiggy" | null;
+  } | null;
   payoutPaise: number | null;
   payoutToCheck: number;
   /** Each app's own fetch clock (`05:42`), when that app's file is in. */
@@ -169,6 +177,17 @@ export function nextThursday(today: string): string {
   return addDays(today, ahead);
 }
 
+/** Bank-paid amount, or the file's net after adjustments when the bank figure is absent. */
+export function settledPayoutPaise(input: {
+  paidAmountPaise: number | null;
+  netPayoutPaise: number | null;
+  adjustmentPaise: number;
+}): number | null {
+  if (input.paidAmountPaise != null) return input.paidAmountPaise;
+  if (input.netPayoutPaise == null) return null;
+  return input.netPayoutPaise - input.adjustmentPaise;
+}
+
 export function composeOwnerHome(input: OwnerHomeInput): OwnerHomeModel {
   const morning = istMorning(input.today);
   const waiting = input.brief?.form === "no_data";
@@ -260,8 +279,13 @@ function salesNumber(
     return {
       paise: last?.salesPaise ?? null,
       count: null,
-      changePct: null,
-      pendingPlatform: null,
+      changePct: last?.salesChangePct ?? null,
+      pendingPlatform:
+        last?.onlyPlatform === "zomato"
+          ? "swiggy"
+          : last?.onlyPlatform === "swiggy"
+            ? "zomato"
+            : null,
       asOf: last?.date ?? null,
     };
   }
@@ -296,8 +320,13 @@ function deliveredNumber(
     return {
       paise: null,
       count: last?.delivered ?? null,
-      changePct: null,
-      pendingPlatform: null,
+      changePct: last?.ordersChangePct ?? null,
+      pendingPlatform:
+        last?.onlyPlatform === "zomato"
+          ? "swiggy"
+          : last?.onlyPlatform === "swiggy"
+            ? "zomato"
+            : null,
       asOf: last?.date ?? null,
     };
   }

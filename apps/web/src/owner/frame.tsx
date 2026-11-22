@@ -89,7 +89,7 @@ export function OwnerFrame({
   const outlets = profile.outlets.filter((outlet) => outlet.active);
   const showRange = screen === "dashboard";
   const showPlatform = showRange && platforms.length > 1;
-  const showOutlets = outlets.length > 0 && screen !== "settings";
+  const showOutlets = outlets.length > 1 && screen !== "settings";
   const base = `/restaurants/${restaurantId}`;
 
   const go = (next: OwnerView) => {
@@ -188,7 +188,26 @@ export function OwnerFrame({
                       }
                       onClick={() => go({ ...view, platform })}
                     >
-                      {platform === "both" ? t`Both` : <PlatformDot platform={platform} />}
+                      {platform === "both" ? (
+                        t`Both`
+                      ) : (
+                        <>
+                          <span className="md:hidden">
+                            <span
+                              className={
+                                platform === "zomato"
+                                  ? "owner-dot owner-dot-zomato"
+                                  : "owner-dot owner-dot-swiggy"
+                              }
+                              aria-hidden="true"
+                            />
+                            {platform === "zomato" ? " Z" : " S"}
+                          </span>
+                          <span className="hidden md:inline">
+                            <PlatformDot platform={platform} />
+                          </span>
+                        </>
+                      )}
                     </Button>
                   ))}
                 </div>
