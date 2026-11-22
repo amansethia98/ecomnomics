@@ -125,6 +125,22 @@ describe("owner view", () => {
     expect(view.range).toBe("12w");
     expect(view.from).toBe("2026-08-24");
   });
+
+  it("falls back to 12 weeks when a custom range is not in order", () => {
+    const view = parseOwnerView(
+      new URLSearchParams("range=custom&from=2026-11-20&to=2026-11-01"),
+      today,
+    );
+    expect(view.range).toBe("12w");
+  });
+
+  it("keeps a 14-day custom range instead of the 12-week preset", () => {
+    const view = parseOwnerView(
+      new URLSearchParams("range=custom&from=2026-11-01&to=2026-11-15"),
+      today,
+    );
+    expect(view).toMatchObject({ range: "custom", from: "2026-11-01", to: "2026-11-15" });
+  });
 });
 
 describe("owner profile", () => {

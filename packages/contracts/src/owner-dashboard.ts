@@ -149,7 +149,6 @@ export function composeOwnerDashboard(input: OwnerDashboardInput): OwnerDashboar
   const bounded = { ...input, to: clampEnd(input.to, input.today) };
   const window = comparisonWindow(bounded, platforms);
   const chart = { grain: window.grain, starts: periodStarts(window) };
-  const trendWeeks = completeWeeks(bounded.today, 12);
   const panels = platforms.map((platform) =>
     salesPanel(bounded.readings, platform, chart.starts, chart.grain),
   );
@@ -163,7 +162,7 @@ export function composeOwnerDashboard(input: OwnerDashboardInput): OwnerDashboar
   const young = bounded.historyDays < 7;
   const comparisonsStart = young && earliest ? addDays(earliest, 7) : null;
   const tiles = TILES.map((tile) =>
-    tileFor(tile, bounded, platforms, trendWeeks, young, windowHasHoliday(bounded), window),
+    tileFor(tile, bounded, platforms, chart.starts, young, windowHasHoliday(bounded), window),
   );
   const answer = answerFor(panels, bounded, platforms, chart.grain);
   const direction =
@@ -174,7 +173,10 @@ export function composeOwnerDashboard(input: OwnerDashboardInput): OwnerDashboar
         : aligned.change > 0
           ? "up"
           : "down";
-  const heatmap = heatmapFor(bounded.readings, trendWeeks, platforms);
+  const heatmapWeeks = (window.unit === "week" ? chart.starts : weekBuckets(chart.starts)).filter(
+    (week) => addDays(week, 7) <= bounded.today,
+  );
+  const heatmap = heatmapFor(bounded.readings, heatmapWeeks, platforms);
   const funnel = funnelFor(bounded.readings, chart.starts, chart.grain, platforms);
   const funnelWeeks = funnelFor(
     bounded.readings,
@@ -286,7 +288,7 @@ function rangeCap(to: string, today: string): string {
  */
 function comparisonWindow(input: OwnerDashboardInput, platforms: OpsPlatform[]): ComparedWindow {
   const span = Math.max(1, daysBetween(input.from, input.to));
-  const unit = span <= 14 ? "day" : "week";
+  const unit = span < 21 ? "day" : "week";
   if (unit === "day") {
     const cap = rangeCap(input.to, input.today);
     const end = lastSalesDay(input.readings, platforms, cap) ?? cap;
@@ -755,7 +757,7 @@ function tileFor(
   if (tile.id === "rating" && !platforms.includes("zomato")) {
     return emptyTile(tile, "not_in_report");
   }
-  const spark = weeks.map((week) => weekValue(tile, input.readings, week, platforms));
+  const spark = weeks.map((week) => weekValue(tile, input.readings, week, platforms, window.grain));
   const days = salesDays(input.readings, platforms, window);
   const measured =
     window.unit === "week" && window.count >= 12
@@ -1138,8 +1140,10 @@ function weekValue(
   readings: readonly DashReading[],
   week: string,
   platforms: OpsPlatform[],
+  grain: "day" | "week" = "week",
 ): number | null {
-  const total = windowKeys(tile, readings, "week", week, addDays(week, 7), platforms);
+  const span = grain === "week" ? 7 : 1;
+  const total = windowKeys(tile, readings, grain, week, addDays(week, span), platforms);
   return total.kind === "value" ? total.total : null;
 }
 
@@ -1471,14 +1475,6 @@ function pendingDateIn(
     .map((reading) => reading.from);
   dates.sort();
   return dates.at(-1) ?? null;
-}
-
-function completeWeeks(today: string, count: number): string[] {
-  const end = completeMonday(today, addDays(today, -1));
-  const start = addDays(end, -7 * (count - 1));
-  const weeks: string[] = [];
-  for (let cursor = start; cursor <= end; cursor = addDays(cursor, 7)) weeks.push(cursor);
-  return weeks;
 }
 
 function missingNote(

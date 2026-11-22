@@ -768,6 +768,33 @@ it("resolves a stored rupee axis without keeping a function in the spec", () => 
   expect(tick(-2_700_000)).toBe("−₹27k");
 });
 
+it("keeps a custom 14 days as days, with one point per day", () => {
+  const readings: DashReading[] = [];
+  for (let offset = 0; offset < 14; offset += 1) {
+    const date = addDays("2026-11-01", offset);
+    readings.push(day(date, "zomato", "ops_sales_paise", 1_000));
+    readings.push(day(date, "swiggy", "swiggy_net_sales_paise", 500));
+    readings.push(day(date, "zomato", "delivered_orders", 4));
+    readings.push(day(date, "zomato", "impressions", 100));
+    readings.push(day(date, "zomato", "menu_opens", 40 - offset));
+  }
+  const dash = composeOwnerDashboard(
+    input(readings, {
+      today: "2026-11-22",
+      range: "custom",
+      from: "2026-11-01",
+      to: "2026-11-15",
+      platform: "zomato",
+    }),
+  );
+  expect(dash.periodPhrase).toBe("last 14 days vs the same 14 days before");
+  expect(dash.periodPhrase).not.toContain("2 weeks");
+  expect(dash.panels[0]?.points).toHaveLength(14);
+  expect(dash.tiles.find((tile) => tile.id === "sales")?.spark).toHaveLength(14);
+  expect(dash.funnel.find((series) => series.step === "menu")?.points).toHaveLength(14);
+  expect(new Set(dash.heatmap.map((cell) => cell.week)).size).toBeLessThanOrEqual(3);
+});
+
 function weekStart(from: string, key: string, value: number): DashReading {
   return week(from, "zomato", key, value);
 }

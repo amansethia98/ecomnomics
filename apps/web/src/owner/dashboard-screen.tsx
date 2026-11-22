@@ -3,23 +3,23 @@ import type {
   DashReading,
   OwnerDashboardModel,
   OwnerMetricsResponse,
-  OwnerPlot,
   OwnerView,
 } from "@rakazo/contracts";
 import {
   addIsoDays,
   composeOwnerDashboard,
   DEFAULT_OPS_RULES_CONFIG,
-  dashboardPlots,
   dashReadingState,
   formatCivilDay,
-  formatCompactRupees,
   formatPct1,
-  resolveOwnerPlot,
 } from "@rakazo/contracts";
-import { useEffect, useRef, useState } from "react";
+import { Skeleton } from "@rakazo/ui-web";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { NumberCard } from "./number-card";
+import { FunnelChart, HeatGrid, SalesChart, SparkLine } from "./owner-charts";
+
+const readingsCache = new Map<string, DashReading[]>();
 
 const KEYS = [
   "ops_sales_paise",
@@ -58,7 +58,34 @@ export function OwnerDashboard({
   const [failed, setFailed] = useState(false);
   const tile = params.get("tile");
 
+  const show = (readings: DashReading[]) => {
+    const days = new Set(
+      readings
+        .filter((reading) => reading.grain === "day" && reading.state === "ok")
+        .map((reading) => reading.from),
+    );
+    setModel(
+      composeOwnerDashboard({
+        today,
+        range: view.range,
+        from: view.from,
+        to: view.to,
+        platform: view.platform,
+        holidays: DEFAULT_OPS_RULES_CONFIG.holidayDates,
+        readings,
+        historyDays: days.size,
+      }),
+    );
+    setFailed(false);
+  };
+
   useEffect(() => {
+    const cacheKey = `${restaurantId}|${view.outlet}|${view.platform}|${today}`;
+    const cached = readingsCache.get(cacheKey);
+    if (cached) {
+      show(cached);
+      return;
+    }
     let live = true;
     const platforms =
       view.platform === "both" ? (["zomato", "swiggy"] as const) : ([view.platform] as const);
@@ -76,24 +103,8 @@ export function OwnerDashboard({
       .then((groups) => {
         if (!live) return;
         const readings = groups.flat();
-        const days = new Set(
-          readings
-            .filter((reading) => reading.grain === "day" && reading.state === "ok")
-            .map((reading) => reading.from),
-        );
-        setModel(
-          composeOwnerDashboard({
-            today,
-            range: view.range,
-            from: view.from,
-            to: view.to,
-            platform: view.platform,
-            holidays: DEFAULT_OPS_RULES_CONFIG.holidayDates,
-            readings,
-            historyDays: days.size,
-          }),
-        );
-        setFailed(false);
+        readingsCache.set(cacheKey, readings);
+        show(readings);
       })
       .catch(() => {
         if (live) setFailed(true);
@@ -104,7 +115,7 @@ export function OwnerDashboard({
   }, [restaurantId, today, view.from, view.to, view.outlet, view.platform, view.range]);
 
   if (failed) return <p>{t`Couldn't open this restaurant.`}</p>;
-  if (!model) return <p className="text-muted-foreground">{t`Loading`}</p>;
+  if (!model) return <DashboardSkeleton />;
   const open = model.tiles.find((item) => item.id === tile) ?? null;
   if (open) {
     return (
@@ -122,11 +133,10 @@ export function OwnerDashboard({
           {t`Dashboard`}
         </button>
         <NumberCard tile={open} onOpen={() => undefined} />
-        <PlotFigure plot={sparkPlot(open)} />
+        <SparkLine values={open.spark} />
       </div>
     );
   }
-  const plots = dashboardPlots(model);
   const openTile = (id: string) =>
     setParams((current) => {
       current.set("tile", id);
@@ -136,11 +146,7 @@ export function OwnerDashboard({
     <div className="mx-auto flex max-w-5xl flex-col gap-8">
       <Answer model={model} />
       <section className="owner-panel flex flex-col gap-2 p-3">
-        {plots
-          .filter((plot) => plot.id.startsWith("sales"))
-          .map((plot) => (
-            <PlotFigure key={plot.id} plot={plot} />
-          ))}
+        <SalesChart model={model} />
         {model.pins.length > 0 ? (
           <ol className="flex flex-nowrap gap-3 overflow-x-auto text-body-sm whitespace-nowrap text-muted-foreground">
             {model.pins.map((pin) => (
@@ -162,9 +168,9 @@ export function OwnerDashboard({
       </section>
       <section className="grid gap-6 lg:grid-cols-2">
         <div>
-          <h2 className="text-label text-muted-foreground">{t`When you sell · last 12 weeks`}</h2>
+          <h2 className="text-label text-muted-foreground">{t`When you sell`}</h2>
           {model.heatmapLine ? <p className="mt-1 font-medium">{model.heatmapLine}</p> : null}
-          <PlotFigure plot={plots.find((plot) => plot.id === "heatmap") ?? plots[0]!} />
+          <HeatGrid model={model} />
           <p className="text-body-sm text-muted-foreground">{t`Fewer ▭ More orders · both apps`}</p>
         </div>
         <div>
@@ -178,7 +184,7 @@ export function OwnerDashboard({
                   <StepHint step={step} />
                 </span>
               </p>
-              <PlotFigure plot={plots.find((plot) => plot.id === `funnel-${step}`) ?? plots[0]!} />
+              <FunnelChart model={model} step={step} />
             </div>
           ))}
         </div>
@@ -290,37 +296,6 @@ function StepHint({ step }: { step: "menu" | "cart" | "order" }) {
   return t`of carts`;
 }
 
-function sparkPlot(tile: OwnerDashboardModel["tiles"][number]): OwnerPlot {
-  const data = tile.spark.map((sales, week) => ({ week, sales }));
-  return {
-    id: tile.id,
-    width: 640,
-    height: 180,
-    marginLeft: tile.format === "paise" ? 64 : 40,
-    y:
-      tile.format === "paise"
-        ? { label: null, tickFormat: (value: number) => formatCompactRupees(Number(value)) }
-        : { label: null },
-    marks: [
-      { type: "lineY", data, options: { x: "week", y: "sales", stroke: "var(--primary)" } },
-      ...(data.filter((point) => point.sales != null).length >= 2
-        ? [
-            {
-              type: "linearRegressionY" as const,
-              data: data.filter((point) => point.sales != null),
-              options: {
-                x: "week",
-                y: "sales",
-                stroke: "var(--primary)",
-                strokeDasharray: "4 3",
-              },
-            },
-          ]
-        : []),
-    ],
-  };
-}
-
 export function FunnelLine({ text }: { text: string }) {
   const match = /^(.*?)(down \d+ weeks in a row)$/.exec(text);
   return (
@@ -340,77 +315,13 @@ export function FunnelLine({ text }: { text: string }) {
   );
 }
 
-function PlotFigure({ plot }: { plot: OwnerPlot }) {
-  const host = useRef<HTMLDivElement>(null);
-  const [failed, setFailed] = useState(false);
-  const key = JSON.stringify(plot);
-  useEffect(() => {
-    const node = host.current;
-    if (!node) return;
-    let live = true;
-    void import("@rakazo/core/plot").then(({ renderPlotSpecToSvg }) => {
-      if (!live || !host.current) return;
-      host.current.replaceChildren();
-      try {
-        const markup = renderPlotSpecToSvg(resolveOwnerPlot(plot), undefined, document);
-        const svg = new DOMParser().parseFromString(markup, "image/svg+xml").documentElement;
-        if (svg.nodeName.toLowerCase() !== "svg") {
-          console.error("owner plot did not return an svg", plot.id);
-          setFailed(true);
-          return;
-        }
-        svg.setAttribute("font-size", "12");
-        const drawn = Number(svg.getAttribute("width") ?? plot.width ?? 0);
-        if (drawn > 400) svg.style.minWidth = `${drawn}px`;
-        host.current.append(svg);
-        setFailed(false);
-      } catch (error) {
-        console.error(error);
-        host.current.replaceChildren();
-        setFailed(true);
-      }
-    });
-    return () => {
-      live = false;
-    };
-  }, [key, plot]);
+function DashboardSkeleton() {
   return (
-    <div>
-      <div
-        ref={host}
-        className={(plot.width ?? 960) <= 400 ? "owner-plot owner-plot-fit" : "owner-plot"}
-      />
-      {failed ? <PlotFallback plot={plot} /> : null}
+    <div className="flex flex-col gap-4">
+      <Skeleton className="h-8 w-2/3" />
+      <Skeleton className="h-56 w-full" />
+      <Skeleton className="h-24 w-full" />
     </div>
-  );
-}
-
-function PlotFallback({ plot }: { plot: OwnerPlot }) {
-  const { t } = useLingui();
-  const mark = plot.marks.find((item) => {
-    const x = item.options?.x;
-    const y = item.options?.y;
-    return typeof x === "string" && typeof y === "string" && (item.data?.length ?? 0) > 0;
-  });
-  const rows = mark?.data?.filter(
-    (row): row is Record<string, unknown> => !!row && typeof row === "object",
-  );
-  const x = typeof mark?.options?.x === "string" ? mark.options.x : null;
-  const y = typeof mark?.options?.y === "string" ? mark.options.y : null;
-  if (!rows || rows.length === 0 || !x || !y) {
-    return <p className="text-body-sm text-muted-foreground">{t`Not in yet`}</p>;
-  }
-  return (
-    <table className="text-body-sm text-muted-foreground">
-      <tbody>
-        {rows.map((row) => (
-          <tr key={String(row[x])}>
-            <td className="pr-4">{String(row[x])}</td>
-            <td>{String(row[y])}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }
 
