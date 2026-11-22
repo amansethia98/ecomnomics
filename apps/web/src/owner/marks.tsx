@@ -43,15 +43,25 @@ export function PlatformDot({ platform }: { platform: "zomato" | "swiggy" }) {
   );
 }
 
-export function ChangeBadge({ direction, label }: { direction: "up" | "down"; label: string }) {
+export function ChangeBadge({
+  direction,
+  label,
+  good,
+}: {
+  direction: "up" | "down";
+  label: string;
+  /** When set, colour follows whether the move is good, not whether it went up. */
+  good?: boolean | null;
+}) {
   const { t } = useLingui();
   const down = direction === "down";
+  const positive = good == null ? !down : good;
   return (
     <span
       className={
-        down
-          ? "owner-change-down inline-flex items-center gap-0.5 text-body-sm"
-          : "owner-change-up inline-flex items-center gap-0.5 text-body-sm"
+        positive
+          ? "owner-change-up inline-flex items-center gap-0.5 text-body-sm"
+          : "owner-change-down inline-flex items-center gap-0.5 text-body-sm"
       }
     >
       {down ? (

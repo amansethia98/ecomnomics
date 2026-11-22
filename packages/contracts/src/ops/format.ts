@@ -72,10 +72,62 @@ export function formatWeekdayShort(iso: string): string {
   return WEEKDAYS[isoWeekday(iso)] ?? "day";
 }
 
+/** `vs Fri 13` — the same weekday a week earlier. */
+export function formatVersusDay(iso: string): string {
+  return `vs ${formatWeekdayShort(iso)} ${Number(iso.slice(8, 10))}`;
+}
+
+/** ₹27k, ₹1.2L. `paise` is the stored unit. */
+export function formatCompactRupees(paise: number): string {
+  const rupees = paise / 100;
+  const abs = Math.abs(rupees);
+  const sign = rupees < 0 ? "−" : "";
+  const body =
+    abs >= 1_00_00_000
+      ? `${trimCompact(abs / 1_00_00_000)}Cr`
+      : abs >= 1_00_000
+        ? `${trimCompact(abs / 1_00_000)}L`
+        : abs >= 1_000
+          ? `${trimCompact(abs / 1_000)}k`
+          : String(Math.round(abs));
+  return `${sign}₹${body}`;
+}
+
+function trimCompact(value: number): string {
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+/** `14 Nov`, for a chart tick. */
+export function formatAxisDay(value: Date): string {
+  return `${value.getUTCDate()} ${MONTHS[value.getUTCMonth()] ?? ""}`;
+}
+
 /** ₹ with Indian grouping and no paise. */
 export function formatRupees(paise: number): string {
   const rupees = Math.round(paise / 100);
   return `₹${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(rupees)}`;
+}
+
+/** A count with Indian grouping: 1298 → 1,298. */
+export function formatCount(value: number): string {
+  return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(value);
+}
+
+/** Inclusive dates. Same month collapses to `9–15 Nov`. */
+export function formatInclusiveRange(from: string, to: string): string {
+  const start = new Date(`${from}T00:00:00Z`);
+  const end = new Date(`${to}T00:00:00Z`);
+  const sameMonth =
+    start.getUTCFullYear() === end.getUTCFullYear() && start.getUTCMonth() === end.getUTCMonth();
+  if (sameMonth)
+    return `${start.getUTCDate()}–${end.getUTCDate()} ${MONTHS[end.getUTCMonth()] ?? ""}`;
+  return `${formatAxisDay(start)} – ${formatAxisDay(end)}`;
+}
+
+/** `to` is the first day after the range, so a cycle ending Monday 16 covers through Sunday 15. */
+export function formatExclusiveRange(from: string, to: string): string {
+  return formatInclusiveRange(from, addDays(to, -1));
 }
 
 /** One decimal place, no sign. */

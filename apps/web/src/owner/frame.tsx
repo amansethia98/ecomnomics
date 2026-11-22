@@ -47,6 +47,7 @@ export function isOwnerScreen(value: string | undefined): value is OwnerScreenId
 function linkedPlatforms(profile: OwnerProfile): Array<"zomato" | "swiggy"> {
   const linked = new Set<"zomato" | "swiggy">();
   for (const outlet of profile.outlets) {
+    if (!outlet.active) continue;
     for (const connection of outlet.connections) {
       if (connection.status !== "not_connected") linked.add(connection.platform);
     }
@@ -86,9 +87,10 @@ export function OwnerFrame({
     ratings: t`Ratings & reviews`,
   };
   const platforms = linkedPlatforms(profile);
-  const showPlatform = platforms.length > 1;
-  const showOutlets = profile.outlets.length > 1;
-  const showRange = screen !== "settings";
+  const outlets = profile.outlets.filter((outlet) => outlet.active);
+  const showRange = screen === "dashboard";
+  const showPlatform = showRange && platforms.length > 1;
+  const showOutlets = outlets.length > 1 && screen !== "settings";
   const base = `/restaurants/${restaurantId}`;
 
   const navigate = useNavigate();
@@ -104,7 +106,12 @@ export function OwnerFrame({
       data-theme="light"
     >
       <aside className="hidden w-56 shrink-0 flex-col gap-1 border-r border-border bg-background p-3 md:flex">
-        <p className="px-2 py-3 text-body-lg font-medium">{t`Ecomnomics`}</p>
+        <p className="flex items-center gap-2 px-2 py-3 text-body-lg font-medium">
+          <span className="owner-mark" aria-hidden="true">
+            E
+          </span>
+          {t`Ecomnomics`}
+        </p>
         {OWNER_SCREENS.map((item) => (
           <NavItem
             key={item.id}
@@ -118,32 +125,35 @@ export function OwnerFrame({
         <p className="mt-auto px-2 pt-6 text-body-sm text-muted-foreground">
           {profile.restaurant.name}
           <br />
-          {profile.outlets.length === 1
-            ? profile.outlets[0]?.city
-            : t`${profile.outlets.length} outlets`}
+          {outlets.length === 1 ? outlets[0]?.city : t`${outlets.length} outlets`}
         </p>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 md:px-8">
-          <h1 className="text-heading3 font-medium">{labels[screen]}</h1>
+        <header className="flex max-w-full flex-wrap items-center gap-3 px-4 py-4 md:px-8">
+          <h1 className="mr-auto text-body font-medium">{labels[screen]}</h1>
+          {showOutlets ? (
+            <select
+              aria-label={t`Outlet`}
+              className="h-8 shrink-0 rounded-lg border border-border bg-background px-2 text-body-sm"
+              value={view.outlet}
+              onChange={(event) => go({ ...view, outlet: event.target.value })}
+            >
+              <option value="all">{t`All outlets (${outlets.length})`}</option>
+              {outlets.map((outlet) => (
+                <option key={outlet.id} value={outlet.id}>
+                  {outlet.name}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          {screen === "home" ? (
+            <span className="shrink-0 text-body-sm text-muted-foreground">
+              {formatCivilDay(addIsoDays(today, -1))}
+            </span>
+          ) : null}
           {showRange ? (
-            <div className="flex flex-wrap items-center gap-2">
-              {showOutlets ? (
-                <select
-                  aria-label={t`Outlet`}
-                  className="h-8 rounded-lg border border-border bg-background px-2 text-body-sm"
-                  value={view.outlet}
-                  onChange={(event) => go({ ...view, outlet: event.target.value })}
-                >
-                  <option value="all">{t`All outlets`}</option>
-                  {profile.outlets.map((outlet) => (
-                    <option key={outlet.id} value={outlet.id}>
-                      {outlet.name}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
-              <div className="flex rounded-lg bg-background p-0.5">
+            <div className="flex w-full min-w-0 gap-2 overflow-x-auto md:w-auto">
+              <div className="flex shrink-0 rounded-lg bg-background p-0.5">
                 {(["7d", "4w", "12w"] as const).map((range) => (
                   <Button
                     key={range}
@@ -160,7 +170,7 @@ export function OwnerFrame({
                 <CustomRange view={view} today={today} onView={go} />
               </div>
               {showPlatform ? (
-                <div className="flex rounded-lg bg-background p-0.5">
+                <div className="flex shrink-0 rounded-lg bg-background p-0.5">
                   {(["both", "zomato", "swiggy"] as const).map((platform) => (
                     <Button
                       key={platform}
@@ -173,7 +183,26 @@ export function OwnerFrame({
                       }
                       onClick={() => go({ ...view, platform })}
                     >
-                      {platform === "both" ? t`Both` : <PlatformDot platform={platform} />}
+                      {platform === "both" ? (
+                        t`Both`
+                      ) : (
+                        <>
+                          <span className="md:hidden">
+                            <span
+                              className={
+                                platform === "zomato"
+                                  ? "owner-dot owner-dot-zomato"
+                                  : "owner-dot owner-dot-swiggy"
+                              }
+                              aria-hidden="true"
+                            />
+                            {platform === "zomato" ? " Z" : " S"}
+                          </span>
+                          <span className="hidden md:inline">
+                            <PlatformDot platform={platform} />
+                          </span>
+                        </>
+                      )}
                     </Button>
                   ))}
                 </div>
@@ -181,7 +210,7 @@ export function OwnerFrame({
             </div>
           ) : null}
         </header>
-        <main className="relative z-0 min-w-0 flex-1 overflow-x-clip px-4 pb-24 md:px-8 md:pb-10">
+        <main className="owner-page relative z-0 min-w-0 flex-1 overflow-x-clip px-4 pb-28 md:px-8 md:pb-10">
           {children}
         </main>
       </div>

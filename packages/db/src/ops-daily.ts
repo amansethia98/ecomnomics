@@ -19,22 +19,28 @@ import type {
 } from "@rakazo/contracts";
 import {
   addIsoDays,
+  alertImpactPaise,
   appLabel,
   applyDailyAlerts,
   applyStoredMetric,
   civilRangeBounds,
   composeDailyBrief,
+  composeOwnerHome,
   DEFAULT_OPS_RULES_CONFIG,
   dailyFix,
   dismissAlert,
   displayFindings,
   evaluateDaily,
+  formatIstClock,
   indiaCivilDate,
+  istMorning,
   nextReportDelivery,
   noteFailedFetch,
+  pctChange,
   resolvedLine,
   resolveOpsRulesConfig,
   rollupDailyApps,
+  settledPayoutPaise,
   snoozeAlert,
   utcMidnight,
   viewFromDaily,
@@ -323,6 +329,7 @@ export async function recordOutletDay(
   db: PrismaClient,
   scope: RestaurantScope,
   input: OutletDayRequest,
+  recordedBy: "agent" | "owner" = "agent",
 ): Promise<{ outletId: string; date: string; status: "closed" | "not_sure" }> {
   const saved = await runAsTenant(scope, async () => {
     const outlet = await db.outlet.findFirst({
@@ -363,7 +370,10 @@ export async function recordOutletDay(
   });
   await recordAuditEvent({
     action: "ops.outlet_day",
-    actor: { type: "system", label: "restaurant-agent" },
+    actor:
+      recordedBy === "owner"
+        ? { type: "user", id: scope.userId }
+        : { type: "system", label: "restaurant-agent" },
     spaceId: scope.spaceId,
     target: { type: "outlet", id: input.outletId },
     metadata: { date: input.date, status: input.status, source: input.source },
@@ -490,6 +500,315 @@ export async function readOpsReportForMember(
   return runAsTenant({ spaceId: restaurant.spaceId, userId }, () =>
     readOpsReport(db, { restaurantId, spaceId: restaurant.spaceId }, reportId),
   );
+}
+
+export async function recordOutletDayForMember(
+  db: PrismaClient,
+  userId: string,
+  restaurantId: string,
+  input: Omit<OutletDayRequest, "source">,
+) {
+  const restaurant = await memberRestaurant(db, userId, restaurantId);
+  return recordOutletDay(
+    db,
+    { restaurantId, spaceId: restaurant.spaceId, userId },
+    { ...input, source: "owner" },
+    "owner",
+  );
+}
+
+export async function readOwnerHomeForMember(
+  db: PrismaClient,
+  userId: string,
+  restaurantId: string,
+  outletId?: string,
+) {
+  const restaurant = await memberRestaurant(db, userId, restaurantId);
+  return runAsTenant({ spaceId: restaurant.spaceId, userId }, async () => {
+    const today = indiaCivilDate(new Date());
+    const yesterday = addIsoDays(today, -1);
+    const loaded = await loadDaily(
+      db,
+      { restaurantId, spaceId: restaurant.spaceId, userId },
+      yesterday,
+    );
+    if (outletId && !loaded.outlets.some((outlet) => outlet.id === outletId)) {
+      const outlet = await db.outlet.findFirst({
+        where: { id: outletId, restaurantId, spaceId: restaurant.spaceId },
+        select: { active: true },
+      });
+      if (!outlet) {
+        throw new RestaurantAgentError(
+          "unknown_outlet",
+          422,
+          "Outlet is not part of this restaurant.",
+        );
+      }
+      if (!outlet.active) {
+        return composeOwnerHome({
+          today,
+          now: new Date().toISOString(),
+          restaurantName: loaded.name,
+          connected: [],
+          hasHistory: false,
+          brief: null,
+          alerts: [],
+          questions: [],
+          weekdayHistory: null,
+          lastComplete: null,
+          payoutPaise: null,
+          payoutToCheck: 0,
+        });
+      }
+    }
+    const outlets = outletId
+      ? loaded.outlets.filter((outlet) => outlet.id === outletId)
+      : loaded.outlets;
+    const days = outletId ? loaded.days.filter((day) => day.outletId === outletId) : loaded.days;
+    const evaluation = evaluateDaily({
+      date: yesterday,
+      outlets,
+      days,
+      outletDays: loaded.outletDays,
+    });
+    const rows = await db.opsAlert.findMany({
+      where: { restaurantId, spaceId: restaurant.spaceId, ...(outletId ? { outletId } : {}) },
+    });
+    const states = rows.map(toAlertState);
+    const view = viewFromDaily({
+      restaurantName: loaded.name,
+      evaluation,
+      alerts: states,
+      dataAsOf: loaded.dataAsOf ? formatIstClock(loaded.dataAsOf) : null,
+      capturedOn: loaded.dataAsOf ? indiaCivilDate(loaded.dataAsOf) : null,
+    });
+    const names = new Map(loaded.outlets.map((outlet) => [outlet.id, outlet.name]));
+    const fresh = loaded.dataAsOf != null && loaded.dataAsOf.toISOString() >= istMorning(today);
+    const shown = states.filter((alert) => visible(alert, today));
+    const connected = [...new Set(outlets.flatMap((outlet) => outlet.platforms))];
+    const hasHistory = days.some((day) => day.stored);
+    const payout = await payoutTile(
+      db,
+      { restaurantId, spaceId: restaurant.spaceId },
+      today,
+      outletId,
+    );
+    return composeOwnerHome({
+      today,
+      now: new Date().toISOString(),
+      restaurantName: loaded.name,
+      connected,
+      hasHistory,
+      brief: hasHistory
+        ? {
+            date: view.date,
+            baselineDate: view.baselineDate,
+            statusText: view.statusText ?? null,
+            corrections: view.corrections ?? [],
+            form: view.form,
+            sales: view.sales,
+            delivered: view.delivered,
+            deliveredBaseline: null,
+            notes: view.notes,
+            exclusion: view.exclusion ?? null,
+            dataAsOf: view.dataAsOf,
+            connect: view.connect ?? false,
+          }
+        : null,
+      alerts: shown.map((alert) => ({
+        id: alert.id,
+        severity: alert.severity,
+        ruleCode: alert.ruleCode,
+        family: alert.family,
+        outletId: alert.outletId,
+        outletName: alert.outletId ? (names.get(alert.outletId) ?? null) : null,
+        platform: alert.platform,
+        text: alert.text,
+        fix: alert.fix,
+        consecutiveDays: alert.consecutiveDays,
+        impactPaise: alertImpactPaise(alert),
+        outletSalesPaise: 0,
+        date: alert.lastSeenDate,
+        notifiedAt:
+          fresh && alert.lastNotifiedAt === today ? (loaded.dataAsOf?.toISOString() ?? null) : null,
+      })),
+      questions: evaluation.ownerQuestions.map((question) => ({
+        outletId: question.outletId,
+        outletName: names.get(question.outletId) ?? "Outlet",
+        platform: question.platform,
+        date: question.date,
+      })),
+      weekdayHistory: sameWeekdaySales(days, yesterday),
+      lastComplete: view.form === "no_data" ? lastCompleteDay(days, yesterday) : null,
+      payoutPaise: payout.paise,
+      payoutToCheck: states.filter((alert) => alert.cadence === "payout" && visible(alert, today))
+        .length,
+      fetched: {
+        zomato: loaded.fetchedAt.zomato ? formatIstClock(loaded.fetchedAt.zomato) : null,
+        swiggy: loaded.fetchedAt.swiggy ? formatIstClock(loaded.fetchedAt.swiggy) : null,
+      },
+    });
+  });
+}
+
+async function payoutTile(
+  db: PrismaClient,
+  scope: Pick<RestaurantScope, "restaurantId" | "spaceId">,
+  _today: string,
+  outletId?: string,
+): Promise<{ paise: number | null }> {
+  try {
+    const cycles = await db.payoutCycle.findMany({
+      where: {
+        restaurantId: scope.restaurantId,
+        spaceId: scope.spaceId,
+        supersededAt: null,
+        ...(outletId ? { outletId } : {}),
+      },
+      orderBy: { cycleEnd: "desc" },
+    });
+    const latest = new Map<string, (typeof cycles)[number]>();
+    for (const cycle of cycles) {
+      const key = `${cycle.outletId}:${cycle.platform}`;
+      if (!latest.has(key)) latest.set(key, cycle);
+    }
+    const chosen = [...latest.values()];
+    if (chosen.length === 0) return { paise: null };
+    const adjustments = await db.payoutAdjustment.findMany({
+      where: {
+        restaurantId: scope.restaurantId,
+        spaceId: scope.spaceId,
+        supersededAt: null,
+        cycleId: { in: [...new Set(chosen.map((cycle) => cycle.cycleId))] },
+      },
+      select: { cycleId: true, outletId: true, platform: true, amountPaise: true },
+    });
+    let total = 0;
+    let any = false;
+    for (const cycle of chosen) {
+      const adjustmentPaise = adjustments
+        .filter(
+          (row) =>
+            row.cycleId === cycle.cycleId &&
+            row.outletId === cycle.outletId &&
+            row.platform === cycle.platform,
+        )
+        .reduce((sum, row) => sum + row.amountPaise, 0);
+      const settled = settledPayoutPaise({
+        paidAmountPaise: cycle.paidAmountPaise,
+        netPayoutPaise: cycle.netPayoutPaise,
+        adjustmentPaise,
+      });
+      if (settled == null) continue;
+      any = true;
+      total += settled;
+    }
+    return { paise: any ? total : null };
+  } catch {
+    return { paise: null };
+  }
+}
+
+function sameWeekdaySales(days: OpsAppDay[], date: string): number[] | null {
+  const target = new Date(`${date}T00:00:00Z`).getUTCDay();
+  const byDate = new Map<string, number>();
+  for (const day of days) {
+    if (!day.stored || new Date(`${day.date}T00:00:00Z`).getUTCDay() !== target) continue;
+    const sales = salesPaise(day);
+    if (sales == null) continue;
+    byDate.set(day.date, (byDate.get(day.date) ?? 0) + sales);
+  }
+  const values = [...byDate.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, value]) => value);
+  return values.length > 0 ? values : null;
+}
+
+function lastCompleteDay(
+  days: OpsAppDay[],
+  before: string,
+): {
+  date: string;
+  salesPaise: number | null;
+  delivered: number | null;
+  salesChangePct: number | null;
+  ordersChangePct: number | null;
+  onlyPlatform: "zomato" | "swiggy" | null;
+  apps: Array<{
+    platform: "zomato" | "swiggy";
+    salesPaise: number | null;
+    salesChangePct: number | null;
+    delivered: number | null;
+    ordersChangePct: number | null;
+  }>;
+} | null {
+  const byDate = new Map<string, Map<string, { sales: number | null; delivered: number | null }>>();
+  for (const day of days) {
+    if (!day.stored || day.date >= before) continue;
+    const sales = salesPaise(day);
+    const delivered =
+      day.metrics.delivered_orders?.state === "ok" ? day.metrics.delivered_orders.value : null;
+    if (sales == null && delivered == null) continue;
+    const apps = byDate.get(day.date) ?? new Map();
+    apps.set(day.platform, { sales, delivered });
+    byDate.set(day.date, apps);
+  }
+  const latest = [...byDate.keys()].sort().at(-1);
+  if (!latest) return null;
+  const apps = byDate.get(latest);
+  const names = [...(apps?.keys() ?? [])];
+  const onlyPlatform =
+    names.length === 1 && (names[0] === "zomato" || names[0] === "swiggy") ? names[0] : null;
+  const use = onlyPlatform ? [onlyPlatform] : names;
+  const sum = (date: string, field: "sales" | "delivered"): number | null => {
+    const row = byDate.get(date);
+    if (!row) return null;
+    let total = 0;
+    let any = false;
+    for (const platform of use) {
+      const value = row.get(platform)?.[field];
+      if (value == null) continue;
+      any = true;
+      total += value;
+    }
+    return any ? total : null;
+  };
+  const sales = sum(latest, "sales");
+  const delivered = sum(latest, "delivered");
+  const prior = addIsoDays(latest, -7);
+  const priorSales = sum(prior, "sales");
+  const priorOrders = sum(prior, "delivered");
+  const priorApps = byDate.get(prior);
+  const appRows = (["zomato", "swiggy"] as const).flatMap((platform) => {
+    const current = apps?.get(platform);
+    if (!current || (current.sales == null && current.delivered == null)) return [];
+    const earlier = priorApps?.get(platform);
+    return [
+      {
+        platform,
+        salesPaise: current.sales,
+        salesChangePct:
+          current.sales != null && earlier?.sales != null
+            ? pctChange(current.sales, earlier.sales)
+            : null,
+        delivered: current.delivered,
+        ordersChangePct:
+          current.delivered != null && earlier?.delivered != null
+            ? pctChange(current.delivered, earlier.delivered)
+            : null,
+      },
+    ];
+  });
+  return {
+    date: latest,
+    salesPaise: sales,
+    delivered,
+    salesChangePct: sales != null && priorSales != null ? pctChange(sales, priorSales) : null,
+    ordersChangePct:
+      delivered != null && priorOrders != null ? pctChange(delivered, priorOrders) : null,
+    onlyPlatform,
+    apps: appRows,
+  };
 }
 
 export async function listOpsAlertsForMember(
@@ -692,6 +1011,12 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
   ]);
   const days = new Map<string, OpsAppDay>();
   let dataAsOf: Date | null = null;
+  const fetchedAt: Record<"zomato" | "swiggy", Date | null> = { zomato: null, swiggy: null };
+  const noteFetch = (platform: string, at: Date) => {
+    if (platform !== "zomato" && platform !== "swiggy") return;
+    const current = fetchedAt[platform];
+    if (!current || at > current) fetchedAt[platform] = at;
+  };
   const slot = (outletId: string, platform: string, iso: string) => {
     const key = `${outletId}|${platform}|${iso}`;
     let found = days.get(key);
@@ -730,6 +1055,7 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
       valueBoolean: row.valueBoolean,
     });
     if (iso === date && (!dataAsOf || row.capturedAt > dataAsOf)) dataAsOf = row.capturedAt;
+    if (iso === date) noteFetch(row.platform, row.capturedAt);
   }
   const live = new Set([date, addIsoDays(date, -1)]);
   for (const fetch of fetches) {
@@ -749,6 +1075,7 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
         current.gap = false;
         current.ingest = null;
         if (iso === date && (!dataAsOf || fetch.capturedAt > dataAsOf)) dataAsOf = fetch.capturedAt;
+        if (iso === date) noteFetch(fetch.platform, fetch.capturedAt);
       } else if (FAILURES.has(fetch.status)) {
         noteFailedFetch(current, fetch.status as OpsIngestCode);
       }
@@ -774,6 +1101,7 @@ async function loadDaily(db: PrismaClient, scope: RestaurantScope, date: string)
   return {
     name: restaurant.name,
     dataAsOf,
+    fetchedAt,
     outletDays,
     outlets: outlets.map((outlet) => ({
       id: outlet.id,
