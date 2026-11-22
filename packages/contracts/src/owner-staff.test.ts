@@ -243,6 +243,59 @@ it("turns a stored brief into an urgent count and the first act-now line", () =>
   expect(text.some((line) => line.startsWith("Most urgent: Packing was late."))).toBe(true);
 });
 
+it("uses the brief's act-now count and drops the raw fix lines", () => {
+  const thread = composeStaffThread({
+    restaurantName: "Kesar Kitchen",
+    hasHistory: true,
+    brief: {
+      date: "2026-11-16",
+      text: [
+        "1 urgent",
+        "Mon 16 Nov vs Mon 9 Nov · Act now (3) · Watch (3)",
+        "Net sales ₹2,000 (−5.0%)",
+        "Swiggy pending",
+        "🔴 Packing was late. Fix: pack the top dish first.",
+        "🔴 The rider waited. Fix: start the next order sooner.",
+        "🔴 A refund is open. Fix: reply to the customer.",
+      ].join("\n"),
+    },
+    messages: [],
+    askedToday: 0,
+  });
+  const blocks = thread.messages[0]?.blocks ?? [];
+  const metric = blocks.find((block) => block.kind === "metric");
+  expect(metric?.kind === "metric" ? metric.label : null).toBe("3 urgent");
+  expect(metric?.kind === "metric" ? metric.watch : null).toBe(3);
+  const text = blocks.flatMap((block) => (block.kind === "text" ? [block.text] : []));
+  expect(text.join(" ")).not.toContain("Fix:");
+  expect(text.join(" ")).not.toContain("Act now (3)");
+  expect(text.join(" ")).not.toContain("1 urgent");
+  expect(text.filter((line) => line.startsWith("Most urgent:"))).toEqual([
+    "Most urgent: Packing was late.",
+  ]);
+  expect(blocks.filter((block) => block.kind === "text" && block.chip)).toHaveLength(2);
+});
+
+it("keeps one copy of an identical older answer", () => {
+  const older = {
+    id: "a",
+    role: "staff" as const,
+    date: "2026-11-16",
+    counted: true,
+    failed: false,
+    blocks: [{ kind: "text" as const, text: "Sat 16 Nov vs Sat 9 Nov · down 54.5%" }],
+  };
+  const thread = composeStaffThread({
+    restaurantName: "Kesar Kitchen",
+    hasHistory: true,
+    brief: null,
+    messages: [older, { ...older, id: "b" }],
+    askedToday: 0,
+  });
+  expect(thread.messages).toHaveLength(1);
+  expect(thread.messages[0]?.older).toBe(true);
+});
+
 it("labels a week answer that is not Monday to Sunday", () => {
   expect(olderWeekLabel("Sat 16 Nov vs Sat 9 Nov")).toBe(true);
   expect(olderWeekLabel("16–21 Nov vs 9–14 Nov")).toBe(true);
