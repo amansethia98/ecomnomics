@@ -148,11 +148,14 @@ export function AdminPanelScreen({
               />
               <Stat label={t`Briefs sent`} value="—" />
               <Stat
-                label={t`Swiggy pending`}
-                value={String(
-                  panel.pendingSwiggy ??
-                    panel.connections.filter((row) => row.swiggy === "not_connected").length,
-                )}
+                label={panel.pendingNote ? t`Pending` : t`Swiggy pending`}
+                value={
+                  panel.pendingNote ??
+                  String(
+                    panel.pendingSwiggy ??
+                      panel.connections.filter((row) => row.swiggy === "not_connected").length,
+                  )
+                }
               />
               <Stat
                 label={t`Cost this month`}
@@ -330,7 +333,7 @@ export function AdminPanelScreen({
                   <tr key={run.restaurant} className="border-t border-border">
                     <td className="py-3">{run.restaurant}</td>
                     <td className="py-3">
-                      <span className="owner-pill">{stateLabel[run.state]}</span>
+                      <span className={statePill(run.state)}>{stateLabel[run.state]}</span>
                     </td>
                     <td className="py-3">{run.tries ?? "—"}</td>
                     <td className="py-3">{run.rows ?? "—"}</td>
@@ -446,6 +449,12 @@ export function AdminPanelScreen({
       </main>
     </div>
   );
+}
+
+function statePill(state: AdminPanel["runs"][number]["state"]): string {
+  if (state === "done") return "owner-pill owner-pill-good";
+  if (state === "failed") return "owner-pill owner-pill-act";
+  return "owner-pill owner-pill-watch";
 }
 
 function Bars({ items }: { items: Array<{ key: string; value: number; title: string }> }) {

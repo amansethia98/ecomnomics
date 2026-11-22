@@ -1,7 +1,7 @@
 /** Read-only platform admin. Nothing here is a login, a token, or a secret. */
 
 import { addIsoDays, indiaCivilDate } from "./metric-dates.js";
-import { formatCivilDay } from "./ops/format.js";
+import { formatCivilDay, formatWeekdayShort } from "./ops/format.js";
 import type { DashReading } from "./owner-dashboard.js";
 import { incomparableFunnelDays } from "./owner-dashboard.js";
 
@@ -111,6 +111,8 @@ export interface AdminPanel {
   /** Days in the last week with no stored file for that app. */
   pendingSwiggy?: number;
   pendingZomato?: number;
+  /** Set when yesterday has no stored file on either app. */
+  pendingNote?: string | null;
   costsPaise: number | null;
   rules: string;
   /** Days a rate cannot be computed, plus payout rows a parser could not read. */
@@ -203,6 +205,7 @@ export function composeAdminPanel(input: {
       downloads: { ok: 0, total: 0 },
       pendingSwiggy: 0,
       pendingZomato: 0,
+      pendingNote: null,
       costsPaise: null,
       rules: rulesLine(input.openFindings),
       quality: [],
@@ -241,8 +244,8 @@ export function composeAdminPanel(input: {
     runs: rows.map((row) => ({
       restaurant: row.restaurant.name,
       state: runState(row.latest, paused(row.restaurant)),
-      tries: attemptTotal(row.restaurant.fetches ?? []),
-      rows: storedTotal(row.restaurant.fetches ?? []),
+      tries: attemptTotal(nightFetches(row.restaurant.fetches ?? [])),
+      rows: storedTotal(nightFetches(row.restaurant.fetches ?? [])),
       minutes: runMinutes(row.latest),
       costPaise: runCost(row.restaurant.runs),
     })),
@@ -275,6 +278,7 @@ export function composeAdminPanel(input: {
     downloads: downloadTally(fetches),
     pendingSwiggy: pendingApps(fetches, input.today ?? indiaCivilDate(new Date())).swiggy,
     pendingZomato: pendingApps(fetches, input.today ?? indiaCivilDate(new Date())).zomato,
+    pendingNote: pendingSentence(fetches, input.today ?? indiaCivilDate(new Date())),
     costsPaise: costs.length === 0 ? null : costs.reduce((sum, value) => sum + value, 0),
     rules: rulesLine(input.openFindings),
     quality: [...(input.quality ?? [])],
@@ -336,6 +340,14 @@ export function downloadTally(fetches: readonly AdminFetch[]): { ok: number; tot
   };
 }
 
+/** Yesterday is missing on both apps, named as "Sat 21 is pending on both apps". */
+export function pendingSentence(fetches: readonly AdminFetch[], today: string): string | null {
+  const pending = pendingApps(fetches, today);
+  if (pending.zomato === 0 || pending.swiggy === 0) return null;
+  const day = addIsoDays(today, -1);
+  return `${formatWeekdayShort(day)} ${Number(day.slice(8, 10))} is pending on both apps`;
+}
+
 /** Yesterday, when that civil day has no stored file for the app. */
 export function pendingApps(
   fetches: readonly AdminFetch[],
@@ -368,6 +380,15 @@ function messageRows(restaurants: readonly AdminRestaurantInput[]): string[] {
     }),
   );
   return [...new Set(lines)];
+}
+
+function nightFetches(fetches: readonly AdminFetch[]): readonly AdminFetch[] {
+  const nightly = fetches.filter((row) => row.runId?.startsWith("nightly-"));
+  const latest = nightly
+    .map((row) => row.runId)
+    .sort()
+    .at(-1);
+  return latest ? fetches.filter((row) => row.runId === latest) : fetches;
 }
 
 function attemptTotal(fetches: readonly AdminFetch[]): number | null {
@@ -444,7 +465,7 @@ export function adminNights(
     .map(([day, row]) => ({ day, runs: row.runs, costPaise: row.costPaise }));
 }
 
-/** Days a run recorded a cost. Days with no cost are absent. */
+/** Seven days ending on the newest cost, including days that recorded nothing. */
 export function adminDailyCosts(
   runs: readonly AdminRun[],
 ): Array<{ day: string; costPaise: number }> {
@@ -454,10 +475,13 @@ export function adminDailyCosts(
     const day = indiaCivilDate(new Date(run.startedAt));
     byDay.set(day, (byDay.get(day) ?? 0) + run.costPaise);
   }
-  return [...byDay.entries()]
-    .sort((left, right) => left[0].localeCompare(right[0]))
-    .slice(-14)
-    .map(([day, costPaise]) => ({ day, costPaise }));
+  const end = [...byDay.keys()].sort().at(-1);
+  if (!end) return [];
+  const days: Array<{ day: string; costPaise: number }> = [];
+  for (let cursor = addIsoDays(end, -6); cursor <= end; cursor = addIsoDays(cursor, 1)) {
+    days.push({ day: cursor, costPaise: byDay.get(cursor) ?? 0 });
+  }
+  return days;
 }
 
 function rulesLine(openFindings: number): string {

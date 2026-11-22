@@ -130,6 +130,45 @@ it("keeps each admin section on its own view and filters the restaurant table", 
   expect(host.textContent).toContain("Zomato connected");
   expect(host.textContent).toContain("Swiggy not connected");
   expect(host.textContent).not.toMatch(/\btoken\b|\bsecret\b/i);
+  const runs = [...host.querySelectorAll("button")].find(
+    (item) => item.textContent === "Nightly runs",
+  );
+  act(() => {
+    runs?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  expect(host.querySelector(".owner-pill-good")?.textContent).toBe("Done");
+});
+
+it("names the missing day on both apps and draws one cost bar per day", () => {
+  const host = render(
+    <AdminPanelScreen
+      panel={{
+        ...panel,
+        pendingNote: "Sat 21 is pending on both apps",
+        dailyCosts: [
+          { day: "2026-11-15", costPaise: 0 },
+          { day: "2026-11-16", costPaise: 100 },
+          { day: "2026-11-17", costPaise: 0 },
+          { day: "2026-11-18", costPaise: 250 },
+          { day: "2026-11-19", costPaise: 0 },
+          { day: "2026-11-20", costPaise: 0 },
+          { day: "2026-11-21", costPaise: 80 },
+        ],
+      }}
+      onView={vi.fn()}
+    />,
+  );
+  expect(host.textContent).toContain("Sat 21 is pending on both apps");
+  const costs = [...host.querySelectorAll("button")].find(
+    (item) => item.textContent === "Costs & usage",
+  );
+  act(() => {
+    costs?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  const bars = [...host.querySelectorAll("ul.flex li")];
+  expect(bars).toHaveLength(7);
+  const heights = bars.map((bar) => (bar.firstElementChild as HTMLElement).style.height);
+  expect(new Set(heights).size).toBeGreaterThan(1);
 });
 
 it("styles a denied admin as a closed panel", () => {
