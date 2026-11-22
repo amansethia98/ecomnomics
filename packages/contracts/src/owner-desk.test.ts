@@ -113,6 +113,40 @@ describe("owner payments", () => {
     expect(Math.abs(reached - 11_600)).toBeLessThanOrEqual(100);
   });
 
+  it("uses the stored ads rows when the breakup total leaves one out", () => {
+    const summary = 2_329_800;
+    const extra = 52_800;
+    const screen = composeOwnerPayments({
+      cycles: [
+        cycle("c", "2026-11-15", {
+          from: "2026-11-08",
+          paidAmountPaise: 1_000_000,
+          grossSalesPaise: 2_000_000,
+          adsPaise: summary,
+        }),
+      ],
+      orders: [],
+      adjustments: [
+        { cycleId: "c", label: "ADS", amountPaise: summary },
+        { cycleId: "c", label: "ADS", amountPaise: extra },
+      ],
+      selectedId: null,
+    });
+    expect(screen.breakdown.find((row) => row.id === "ads")?.paise).toBe(summary + extra);
+    expect(formatRupees(summary + extra)).toBe("₹23,826");
+    expect(formatRupees(summary)).toBe("₹23,298");
+    const signed = (id: string) => screen.breakdown.find((row) => row.id === id)?.paise ?? 0;
+    expect(
+      signed("sales") -
+        signed("discounts") -
+        signed("commission") -
+        signed("ads") -
+        signed("tax") -
+        signed("complaints") +
+        signed("other"),
+    ).toBe(1_000_000);
+  });
+
   it("counts ads once and leaves other as the remainder", () => {
     const screen = composeOwnerPayments({
       cycles: [

@@ -565,13 +565,30 @@ function bankBasis(cycle: PaymentCycle): "paid" | "net" | "missing" {
   return "missing";
 }
 
+/** Ads rows on the detail sheet, including a GST-on-ads line. The breakup cell can omit one. */
+function storedAdsPaise(adjustments: readonly PaymentAdjustment[]): number | null {
+  const rows = adjustments.filter((row) =>
+    /\b(ads?|advertis\w*|cpc|sponsored|hyperboost|marketing)\b|top picks|co-branded/i.test(
+      row.label,
+    ),
+  );
+  if (rows.length === 0) return null;
+  return rows.reduce((total, row) => total + row.amountPaise, 0);
+}
+
 function paymentBreakdown(
   cycle: PaymentCycle,
   adjustments: readonly PaymentAdjustment[],
 ): OwnerPayments["breakdown"] {
   const basis = bankBasis(cycle);
   const adjustmentPaise = adjustments.reduce((total, row) => total + row.amountPaise, 0);
-  const ads = cycle.adsPaise ?? (adjustmentPaise !== 0 ? adjustmentPaise : null);
+  const fromRows = storedAdsPaise(adjustments);
+  const ads =
+    fromRows == null
+      ? (cycle.adsPaise ?? (adjustmentPaise !== 0 ? adjustmentPaise : null))
+      : cycle.adsPaise == null
+        ? fromRows
+        : Math.max(cycle.adsPaise, fromRows);
   const settled = settledPayoutPaise({
     paidAmountPaise: cycle.paidAmountPaise,
     netPayoutPaise: cycle.netPayoutPaise,
