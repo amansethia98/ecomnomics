@@ -169,7 +169,12 @@ export function OwnerDashboard({
         </div>
         <div>
           <h2 className="text-label text-muted-foreground">{t`How customers find you`}</h2>
-          {model.funnelLine ? <p className="mt-1 font-medium">{model.funnelLine}</p> : null}
+          {model.funnelLine ? (
+            <p className="mt-1 font-medium text-destructive">
+              <span aria-hidden="true">● </span>
+              {model.funnelLine}
+            </p>
+          ) : null}
           {(["menu", "cart", "order"] as const).map((step) => (
             <div key={step}>
               <p className="text-body-sm">

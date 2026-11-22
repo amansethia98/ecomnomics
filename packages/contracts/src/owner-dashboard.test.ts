@@ -5,6 +5,7 @@ import {
   composeOwnerDashboard,
   dashboardPlots,
   dashReadingState,
+  funnelHeadline,
   incomparableFunnelDays,
   lastCompleteWeekChange,
   ownerRupeeAxis,
@@ -160,6 +161,26 @@ it("numbers festival, discount, and offline weeks", () => {
   expect(dash.pins.map((pin) => pin.kind)).toEqual(["festival", "discount", "offline"]);
   expect(dash.pins.map((pin) => pin.n)).toEqual([1, 2, 3]);
   expect(dash.tiles.find((tile) => tile.id === "sales")?.festival).toBe(true);
+  const marked = dashboardPlots(dash).flatMap((plot) =>
+    plot.marks.flatMap((mark) =>
+      mark.type === "text"
+        ? (mark.data as Array<{ n?: string }>).flatMap((row) => (row.n ? [row.n] : []))
+        : [],
+    ),
+  );
+  expect(marked).toEqual(expect.arrayContaining(["1", "2", "3"]));
+});
+
+it("says when the menu step falls three weeks in a row", () => {
+  expect(
+    funnelHeadline([
+      {
+        step: "menu",
+        platform: "zomato",
+        points: [{ pct: 30 }, { pct: 20 }, { pct: 10 }],
+      },
+    ]),
+  ).toBe("Zomato: fewer people who see you open your menu, down 3 weeks in a row");
 });
 
 it("leaves a pending day out of both sides and says so", () => {
