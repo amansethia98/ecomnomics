@@ -10,6 +10,7 @@ import {
   PAYOUT_CHECK,
   parseDisplayDate,
   paymentsHeroRows,
+  paymentWeeks,
   ratingsForWindow,
   ratingsFromRows,
 } from "./owner-desk.js";
@@ -197,16 +198,62 @@ describe("owner payments", () => {
       selectedId: "s",
     });
     expect(screen.payouts.find((payout) => payout.id === "z")?.netPayoutPaise).toBe(8_091_334);
-    const later = paymentsHeroRows(screen.payouts, "2026-11-15", "2026-11-22");
-    const earlier = paymentsHeroRows(screen.payouts, "2026-11-08", "2026-11-15");
+    const today = "2026-11-22";
+    const labels = paymentWeeks(today, "2026-11-01").map((week) =>
+      formatExclusiveRange(week.from, week.to),
+    );
+    expect(labels.slice(0, 2)).toEqual(["15–21 Nov", "8–14 Nov"]);
+    const later = paymentsHeroRows(screen.payouts, "2026-11-15", today);
     const due = (rows: typeof later) =>
       rows.reduce((total, payout) => {
         const amount = payout.bankBasis === "paid" ? payout.paidAmountPaise : payout.netPayoutPaise;
         return total + (amount ?? 0);
       }, 0);
     expect(formatRupees(due(later))).toBe("₹1,61,587");
-    expect(formatRupees(due(earlier))).toBe("₹1,61,587");
     expect(formatRupees(10_361_477 + 8_067_351)).toBe("₹1,84,288");
+    expect(formatRupees(due(later))).not.toBe("₹1,84,288");
+  });
+
+  it("uses that week's payouts after ads, not the latest week again", () => {
+    const screen = composeOwnerPayments({
+      cycles: [
+        cycle("z-new", "2026-11-16", {
+          from: "2026-11-09",
+          netPayoutPaise: 10_361_477,
+          adsPaise: 2_270_143,
+          paidAmountPaise: null,
+        }),
+        cycle("s-new", "2026-11-15", {
+          from: "2026-11-08",
+          platform: "swiggy",
+          netPayoutPaise: 9_000_000,
+          paidAmountPaise: 8_067_351,
+        }),
+        cycle("z-old", "2026-11-09", {
+          from: "2026-11-02",
+          paidAmountPaise: 4_000_000,
+          netPayoutPaise: 5_000_000,
+        }),
+        cycle("s-old", "2026-11-08", {
+          from: "2026-11-01",
+          platform: "swiggy",
+          paidAmountPaise: 3_000_000,
+          netPayoutPaise: 4_000_000,
+        }),
+      ],
+      orders: [],
+      adjustments: [{ cycleId: "z-new", label: "ADS", amountPaise: 2_270_143 }],
+      selectedId: null,
+    });
+    const today = "2026-11-22";
+    const earlier = paymentsHeroRows(screen.payouts, "2026-11-08", today);
+    const due = earlier.reduce((total, payout) => {
+      const amount = payout.bankBasis === "paid" ? payout.paidAmountPaise : payout.netPayoutPaise;
+      return total + (amount ?? 0);
+    }, 0);
+    expect(earlier.map((payout) => payout.id).sort()).toEqual(["s-old", "z-old"]);
+    expect(formatRupees(due)).toBe("₹70,000");
+    expect(formatRupees(due)).not.toBe("₹1,61,587");
   });
 
   it("signs a positive other adjustment as a credit", () => {

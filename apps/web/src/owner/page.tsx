@@ -397,6 +397,7 @@ export function OwnerPage() {
         payments ? (
           <PaymentsScreen
             screen={payments}
+            today={today}
             onSelect={(id) => {
               const next = new URLSearchParams(search);
               next.set("cycle", id);

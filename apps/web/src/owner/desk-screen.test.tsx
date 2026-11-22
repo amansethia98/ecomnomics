@@ -76,11 +76,12 @@ const payments: OwnerPayments = {
 
 it("shows the Thursday check on a payout and not a match", () => {
   const onSelect = vi.fn();
-  const host = render(<PaymentsScreen screen={payments} onSelect={onSelect} />);
+  const host = render(<PaymentsScreen screen={payments} today="2026-11-22" onSelect={onSelect} />);
   expect(host.textContent).toContain("Check runs Thursday");
   expect(host.textContent).toContain("Net in file");
   expect(host.textContent).toContain("—");
-  expect(host.querySelector("select[aria-label='Week']")).not.toBeNull();
+  const options = [...host.querySelectorAll("option")].map((option) => option.textContent);
+  expect(options.slice(0, 2)).toEqual(["15–21 Nov", "8–14 Nov"]);
   expect(host.textContent).toContain("3–8 Nov");
   expect(host.textContent).toContain("Where your money went");
   expect(host.textContent).toContain("₹800");

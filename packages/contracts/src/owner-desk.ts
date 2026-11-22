@@ -420,15 +420,46 @@ export function ratingsForWindow(
   return composeOwnerRatings({ ...summed, from, to: end });
 }
 
-/** Latest payout of each app whose cycle overlaps the picked week. */
-export function paymentsHeroRows<
-  T extends { platform: "zomato" | "swiggy"; from: string; to: string },
->(payouts: readonly T[], weekFrom: string, weekTo: string): T[] {
-  const overlapping = payouts.filter((payout) => payout.from < weekTo && payout.to > weekFrom);
+/** Weeks ending today, newest first: 15–21 Nov, then 8–14 Nov, back to the earliest payout. */
+export function paymentWeeks(
+  today: string,
+  earliest: string | null,
+): Array<{ from: string; to: string }> {
+  const stop = earliest ?? addDays(today, -7);
+  const weeks: Array<{ from: string; to: string }> = [];
+  let to = today;
+  while (weeks.length < 16) {
+    const from = addDays(to, -7);
+    weeks.push({ from, to });
+    if (from <= stop) break;
+    to = from;
+  }
+  return weeks;
+}
+
+/**
+ * The nth newest payout of each app. Week 0 is the latest week (through yesterday);
+ * an older week uses that week's own payout and does not repeat the latest one.
+ */
+export function paymentsHeroRows<T extends { platform: "zomato" | "swiggy"; to: string }>(
+  payouts: readonly T[],
+  weekFrom: string,
+  today: string,
+): T[] {
+  let index = 0;
+  for (
+    let cursor = addDays(today, -7);
+    cursor > weekFrom && index < 16;
+    cursor = addDays(cursor, -7)
+  ) {
+    index += 1;
+  }
   return (["zomato", "swiggy"] as const).flatMap((platform) => {
-    const row =
-      overlapping.find((payout) => payout.platform === platform) ??
-      payouts.find((payout) => payout.platform === platform);
+    const rows = payouts
+      .filter((payout) => payout.platform === platform)
+      .slice()
+      .sort((left, right) => right.to.localeCompare(left.to));
+    const row = rows[index];
     return row ? [row] : [];
   });
 }
