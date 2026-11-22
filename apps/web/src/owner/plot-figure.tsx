@@ -26,6 +26,9 @@ export function PlotFigure({ plot }: { plot: OwnerPlot }) {
         for (const node of svg.querySelectorAll("text")) {
           if (node.textContent?.includes("⚠")) node.remove();
         }
+        svg.setAttribute("font-size", "12");
+        const drawn = Number(svg.getAttribute("width") ?? plot.width ?? 0);
+        if (drawn > 400) svg.style.minWidth = `${drawn}px`;
         host.current.append(svg);
         setFailed(false);
       } catch (error) {
@@ -40,7 +43,10 @@ export function PlotFigure({ plot }: { plot: OwnerPlot }) {
   }, [key, plot]);
   return (
     <div>
-      <div ref={host} className="owner-plot" />
+      <div
+        ref={host}
+        className={(plot.width ?? 960) <= 400 ? "owner-plot owner-plot-fit" : "owner-plot"}
+      />
       {failed ? <PlotFallback plot={plot} /> : null}
     </div>
   );
