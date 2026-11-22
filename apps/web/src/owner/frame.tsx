@@ -4,8 +4,8 @@ import {
   addIsoDays,
   customRange,
   formatCivilDay,
+  ownerCalendarRange,
   ownerRangeBounds,
-  rangeThrough,
 } from "@rakazo/contracts";
 import { Button, Calendar, Popover, PopoverContent, PopoverTrigger } from "@rakazo/ui-web";
 import {
@@ -181,11 +181,11 @@ export function OwnerFrame({
             </div>
           ) : null}
         </header>
-        <main className="min-w-0 flex-1 overflow-x-clip px-4 pb-24 md:px-8 md:pb-10">
+        <main className="relative z-0 min-w-0 flex-1 overflow-x-clip px-4 pb-24 md:px-8 md:pb-10">
           {children}
         </main>
       </div>
-      <nav className="owner-tabbar fixed inset-x-0 bottom-0 z-30 flex w-full max-w-full border-t border-border bg-background md:hidden">
+      <nav className="owner-tabbar fixed inset-x-0 bottom-0 z-50 flex w-full max-w-full border-t border-border bg-background pointer-events-auto md:hidden">
         {PHONE_TABS.map((id) => {
           const item = OWNER_SCREENS.find((screen) => screen.id === id);
           if (!item) return null;
@@ -258,7 +258,8 @@ function CustomRange({
   const { t } = useLingui();
   const [open, setOpen] = useState(false);
   const months = useTwoMonths() ? 2 : 1;
-  const end = rangeThrough(view.to);
+  const picked = ownerCalendarRange(view, today);
+  const end = picked.through;
   const apply = (next: OwnerView) => {
     onView(next);
     setOpen(false);
@@ -312,8 +313,8 @@ function CustomRange({
             <Calendar
               mode="range"
               numberOfMonths={months}
-              defaultMonth={civilDate(view.from)}
-              selected={{ from: civilDate(view.from), to: civilDate(end) }}
+              defaultMonth={civilDate(end)}
+              selected={{ from: civilDate(picked.from), to: civilDate(end) }}
               onSelect={(range) => {
                 if (!range?.from || !range.to) return;
                 apply({

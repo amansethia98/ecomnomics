@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { addIsoDays } from "./metric-dates.js";
+import { weekMonday } from "./ops/format.js";
 import type { OwnerPlatform } from "./owner-metrics.js";
 
 /** Inclusive start, exclusive end. `to` matches the metrics read. */
@@ -92,6 +93,29 @@ export function customRange(from: string, through: string): { from: string; to: 
 
 export function rangeThrough(exclusiveTo: string): string {
   return addIsoDays(exclusiveTo, -1);
+}
+
+/**
+ * Inclusive days Custom should open on. Week chips end on the last Sunday whose
+ * week has finished, which is the last day the week charts include. A 7-day
+ * chip includes today. A custom range keeps the URL's own last day.
+ */
+export function ownerCalendarRange(
+  view: { range: OwnerRange; from: string; to: string },
+  today: string,
+): { from: string; through: string } {
+  if (view.range === "7d") {
+    const bounds = ownerRangeBounds("7d", today);
+    return { from: bounds.from, through: rangeThrough(bounds.to) };
+  }
+  if (view.range === "4w" || view.range === "12w") {
+    let monday = weekMonday(today);
+    if (addIsoDays(monday, 7) > today) monday = addIsoDays(monday, -7);
+    const through = addIsoDays(monday, 6);
+    return { from: addIsoDays(through, 1 - ownerRangeDays(view.range)), through };
+  }
+  const through = rangeThrough(view.to);
+  return { from: view.from, through: through > today ? today : through };
 }
 
 /** `today` is an Asia/Kolkata civil date. Custom bounds are passed through. */

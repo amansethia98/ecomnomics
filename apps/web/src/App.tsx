@@ -45,6 +45,7 @@ import {
 } from "./lib/sign-in-next";
 import { syncLogOutFailure } from "./lib/sign-out";
 import { completeSsoCallback, SSO_CALLBACK_PATH } from "./lib/sso-flow";
+import { OwnerEntry } from "./owner/owner-entry";
 import { OwnerPage } from "./owner/page";
 import { IntegrationCallbackPage } from "./pages/IntegrationCallback";
 import { IntegrationSetupPage } from "./pages/IntegrationSetup";
@@ -183,10 +184,11 @@ function SessionApp() {
               <Route
                 path="/"
                 element={
-                  <Navigate
-                    to={user ? "/restaurants" : hasSignedInBefore() ? "/sign-in" : "/sign-up"}
-                    replace
-                  />
+                  user ? (
+                    <OwnerEntry fallback={<Navigate to="/restaurants" replace />} />
+                  ) : (
+                    <Navigate to={hasSignedInBefore() ? "/sign-in" : "/sign-up"} replace />
+                  )
                 }
               />
               <Route
@@ -306,7 +308,7 @@ function SessionApp() {
                   )
                 }
               >
-                <Route path="/app" element={<ShellPage />} />
+                <Route path="/app" element={<OwnerEntry fallback={<ShellPage />} />} />
                 <Route path="/app/g/:groupId" element={<ShellPage />} />
                 <Route path="/app/:botId" element={<ShellPage />} />
                 <Route element={<CallLayout />}>

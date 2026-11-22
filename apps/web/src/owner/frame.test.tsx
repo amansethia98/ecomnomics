@@ -228,8 +228,30 @@ it("opens a calendar for Custom and leaves the current range in place", () => {
   });
   expect(onView).not.toHaveBeenCalled();
   expect(document.body.textContent).toContain("Last 14 days");
+  expect(document.querySelector("[data-testid='range-end']")?.textContent).toBe("To Sun 8 Nov");
+  expect(document.body.textContent).not.toContain("To Sun 15 Nov");
+});
+
+it("prefills Custom with the open range's last day", () => {
+  const host = render(
+    <OwnerFrame
+      restaurantId="r1"
+      profile={profile}
+      screen="dashboard"
+      view={{ ...view, range: "4w", from: "2026-10-26", to: "2026-11-23" }}
+      today="2026-11-22"
+      onView={() => undefined}
+      confirmLeave={() => true}
+    >
+      <p>Dashboard</p>
+    </OwnerFrame>,
+  );
+  const custom = [...host.querySelectorAll("button")].find((item) => item.textContent === "Custom");
+  act(() => {
+    custom?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
   expect(document.querySelector("[data-testid='range-end']")?.textContent).toBe("To Sun 15 Nov");
-  expect(document.body.textContent).not.toContain("Sat 14 Nov");
+  expect(document.body.textContent).not.toContain("To Sun 22 Nov");
 });
 
 it("closes More after a screen is chosen", async () => {

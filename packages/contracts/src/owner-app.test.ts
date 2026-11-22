@@ -7,6 +7,7 @@ import {
   displayOutletName,
   metricReading,
   OwnerProfilePatchSchema,
+  ownerCalendarRange,
   ownerMetricsRequest,
   ownerRangeBounds,
   parseOwnerView,
@@ -64,6 +65,22 @@ describe("owner view", () => {
     expect(ownerRangeBounds("7d", today)).toEqual({ from: "2026-11-09", to: "2026-11-16" });
     expect(ownerRangeBounds("4w", today)).toEqual({ from: "2026-10-19", to: "2026-11-16" });
     expect(ownerRangeBounds("12w", today).from).toBe("2026-08-24");
+  });
+
+  it("opens Custom on the last day each preset actually includes", () => {
+    const sunday = "2026-11-22";
+    expect(
+      ownerCalendarRange({ range: "4w", from: "2026-10-26", to: "2026-11-23" }, sunday),
+    ).toEqual({ from: "2026-10-19", through: "2026-11-15" });
+    expect(
+      ownerCalendarRange({ range: "12w", from: "2026-08-31", to: "2026-11-23" }, sunday).through,
+    ).toBe("2026-11-15");
+    expect(
+      ownerCalendarRange({ range: "7d", from: "2026-11-16", to: "2026-11-23" }, sunday),
+    ).toEqual({ from: "2026-11-16", through: "2026-11-22" });
+    expect(
+      ownerCalendarRange({ range: "custom", from: "2026-11-09", to: "2026-11-22" }, sunday),
+    ).toEqual({ from: "2026-11-09", through: "2026-11-21" });
   });
 
   it("reads the range, platform, and outlet from the URL", () => {
