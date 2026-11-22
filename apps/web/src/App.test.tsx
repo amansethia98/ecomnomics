@@ -105,7 +105,7 @@ it.each([
   },
 );
 
-it("sends the agent shell to the owner app", async () => {
+it("opens the agent shell without loading the board chunk", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const container = document.createElement("div");
   const root = createRoot(container);
@@ -117,7 +117,7 @@ it("sends the agent shell to the owner app", async () => {
         </MemoryRouter>,
       ),
     );
-    expect(container.textContent).toBe("Restaurants");
+    expect(container.textContent).toBe("Shell");
     expect(capability.boardLoaded).not.toHaveBeenCalled();
   } finally {
     await act(async () => root.unmount());
@@ -176,7 +176,7 @@ it.each(["throw", "reject"])(
           </MemoryRouter>,
         ),
       );
-      expect(container.textContent).toBe("Restaurants");
+      expect(container.textContent).toBe("Shell");
     } finally {
       await act(async () => root.unmount());
       vi.unstubAllGlobals();

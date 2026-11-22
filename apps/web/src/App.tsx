@@ -3,7 +3,14 @@ import type { LinkFavicons } from "@rakazo/chat-ui/web";
 import { LinkFaviconsContext, RemoteImagesContext } from "@rakazo/chat-ui/web";
 import { analyticsScreen } from "@rakazo/core";
 import { Button } from "@rakazo/ui-web";
-import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
 import { LoadingState } from "./components/ai/primitives";
 import { CallLayout } from "./components/call/CallLayout";
@@ -12,6 +19,7 @@ import { MarkdownLinkPrompt } from "./components/markdown-link-prompt";
 import { PageLoading } from "./components/PageLoading";
 import { SubscriptionGate } from "./components/SubscriptionGate";
 import { authClient } from "./lib/auth";
+import { getTicketBoardEnabled, subscribeTicketBoardEnabled } from "./lib/bootstrap";
 import { syncCallIdentity } from "./lib/call-session";
 import { desktopBridge } from "./lib/desktop";
 import { syncWebLogoAvatarIdentity } from "./lib/logo-avatar-activity";
@@ -43,6 +51,7 @@ import { IntegrationCallbackPage } from "./pages/IntegrationCallback";
 import { IntegrationSetupPage } from "./pages/IntegrationSetup";
 import { McpOAuthCallbackPage } from "./pages/McpOAuthCallback";
 import { SharedPagePage } from "./pages/SharedPage";
+import { ShellPage } from "./pages/Shell";
 import { SlackInstallCallbackPage } from "./pages/SlackInstallCallback";
 
 const AuthPage = lazyComponent(() => import("./pages/Auth").then((module) => module.AuthPage));
@@ -63,6 +72,13 @@ const AdminAccessPage = lazyComponent(() =>
 );
 const InvitePage = lazyComponent(() =>
   import("./pages/Invite").then((module) => module.InvitePage),
+);
+const ArtifactsPage = lazyComponent(() =>
+  import("./pages/Artifacts").then((module) => module.ArtifactsPage),
+);
+const BoardPage = lazyComponent(() => import("./pages/Board").then((module) => module.BoardPage));
+const NavLinkPage = lazyComponent(() =>
+  import("./pages/NavLinkPage").then((module) => module.NavLinkPage),
 );
 
 function SsoCallbackPage() {
@@ -99,6 +115,11 @@ export function App() {
 function SessionApp() {
   const [searchParams] = useSearchParams();
   const next = signInNext(searchParams.get("next"));
+  const ticketBoardEnabled = useSyncExternalStore(
+    subscribeTicketBoardEnabled,
+    getTicketBoardEnabled,
+    () => false,
+  );
   const session = authClient.useSession();
   const { pathname, search } = useLocation();
   const screen = analyticsScreen(pathname);
@@ -286,10 +307,15 @@ function SessionApp() {
                   )
                 }
               >
-                <Route path="/app" element={<Navigate to="/restaurants" replace />} />
-                <Route path="/app/*" element={<Navigate to="/restaurants" replace />} />
+                <Route path="/app" element={<ShellPage />} />
+                <Route path="/app/g/:groupId" element={<ShellPage />} />
+                <Route path="/app/:botId" element={<ShellPage />} />
                 <Route element={<CallLayout />}>
                   <Route path="/onboarding/:step?" element={<OnboardingPage />} />
+                  <Route path="/app/artifacts" element={<ArtifactsPage />} />
+                  <Route path="/app/artifacts/:artifactId" element={<ArtifactsPage />} />
+                  {ticketBoardEnabled ? <Route path="/app/board" element={<BoardPage />} /> : null}
+                  <Route path="/app/x/:linkId" element={<NavLinkPage />} />
                 </Route>
               </Route>
               <Route path="*" element={<NotFoundPage />} />
