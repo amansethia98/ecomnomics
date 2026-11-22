@@ -16,11 +16,13 @@ export const ZH_TW_MESSAGES: Record<string, string> = {
   "This link expires in one hour. If you did not request this, you can ignore this email.":
     "此連結將在一小時後失效。如果你沒有提出此要求，可以忽略這封郵件。",
   "Confirm Ecomnomics account deletion": "確認刪除 Ecomnomics 帳號",
-  "Enter this code in Ecomnomics to delete your account:": "在 Ecomnomics 中輸入此驗證碼以刪除你的帳號：",
+  "Enter this code in Ecomnomics to delete your account:":
+    "在 Ecomnomics 中輸入此驗證碼以刪除你的帳號：",
   "This code expires in ten minutes. If you did not request deletion, ignore this email.":
     "此驗證碼將在十分鐘後失效。如果你沒有要求刪除，請忽略這封郵件。",
   "Your Ecomnomics confirmation code": "你的 Ecomnomics 確認碼",
-  "Enter this code in Ecomnomics to confirm it's you:": "在 Ecomnomics 中輸入此驗證碼以確認是你本人：",
+  "Enter this code in Ecomnomics to confirm it's you:":
+    "在 Ecomnomics 中輸入此驗證碼以確認是你本人：",
   "Welcome to Ecomnomics": "歡迎使用 Ecomnomics",
   "Thanks for signing up for Ecomnomics.": "感謝你註冊 Ecomnomics。",
   "Ecomnomics also has apps for": "Ecomnomics 也提供以下平台的 App：",
@@ -42,13 +44,15 @@ export const ZH_TW_MESSAGES: Record<string, string> = {
   "If you're enjoying Ecomnomics,": "如果你喜歡 Ecomnomics，",
   "give us a star on GitHub": "歡迎在 GitHub 上給我們一顆星",
   "We received your Ecomnomics plugin": "我們已收到你的 Ecomnomics 外掛",
-  "Thanks for submitting a plugin to the Ecomnomics marketplace.": "感謝你向 Ecomnomics 外掛市集提交外掛。",
+  "Thanks for submitting a plugin to the Ecomnomics marketplace.":
+    "感謝你向 Ecomnomics 外掛市集提交外掛。",
   "We review every submission and will email you when it's done.":
     "我們會審查每一份提交，完成後會寄電子郵件通知你。",
   "If you did not submit a plugin, ignore this email.": "如果你沒有提交外掛，請忽略這封郵件。",
   "{name} is in the Ecomnomics marketplace": "{name} 已上架 Ecomnomics 外掛市集",
   "Your Ecomnomics plugin submission: {name}": "你的 Ecomnomics 外掛提交：{name}",
-  "{name} is now listed in the Ecomnomics plugin marketplace.": "{name} 現已在 Ecomnomics 外掛市集上架。",
+  "{name} is now listed in the Ecomnomics plugin marketplace.":
+    "{name} 現已在 Ecomnomics 外掛市集上架。",
   "We couldn't list {name} in the Ecomnomics plugin marketplace.":
     "我們無法將 {name} 上架到 Ecomnomics 外掛市集。",
   "Confirm your Ecomnomics page claim": "確認你在 Ecomnomics 的頁面認領",

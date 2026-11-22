@@ -285,7 +285,8 @@ const subscriptionCatalog: ModelCatalogEntry[] = [
     providerName: "xAI",
     id: "grok-4.6",
     label: "grok-4.6",
-    billing: "Sign in with SuperGrok or X Premium, or paste an xAI API key. Ecomnomics does not pay.",
+    billing:
+      "Sign in with SuperGrok or X Premium, or paste an xAI API key. Ecomnomics does not pay.",
     auth: "both",
     oauthLabel: "Sign in with SuperGrok or X Premium",
     authHint: "SuperGrok / key",

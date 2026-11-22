@@ -74,7 +74,8 @@ export const RU_MESSAGES: Record<string, string> = {
     "Не удалось открыть вход в браузере. Закройте другие попытки входа и повторите.",
   "Sign-in callback rejected. Return to Ecomnomics to retry.":
     "Ответ на вход отклонён. Вернитесь в Ecomnomics, чтобы повторить попытку.",
-  "You can close this tab and return to Ecomnomics.": "Можно закрыть эту вкладку и вернуться в Ecomnomics.",
+  "You can close this tab and return to Ecomnomics.":
+    "Можно закрыть эту вкладку и вернуться в Ecomnomics.",
   "Set up Ecomnomics": "Настройка Ecomnomics",
   "Quit Ecomnomics": "Завершить Ecomnomics",
   "Welcome to Ecomnomics": "Добро пожаловать в Ecomnomics",

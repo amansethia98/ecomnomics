@@ -85,7 +85,9 @@ export async function openBrowserAuth(
             !code ||
             target.searchParams.has("error")
           ) {
-            response.writeHead(400).end(t("Sign-in callback rejected. Return to Ecomnomics to retry."));
+            response
+              .writeHead(400)
+              .end(t("Sign-in callback rejected. Return to Ecomnomics to retry."));
             return;
           }
           consumed = true;

@@ -44,7 +44,8 @@ export const HE_MESSAGES: Record<string, string> = {
   "If you're enjoying Ecomnomics,": "אם Ecomnomics מוצא חן בעיניך,",
   "give us a star on GitHub": "נשמח לכוכב ב-GitHub",
   "We received your Ecomnomics plugin": "קיבלנו את הפלאגין שלך ל-Ecomnomics",
-  "Thanks for submitting a plugin to the Ecomnomics marketplace.": "תודה ששלחת פלאגין לחנות של Ecomnomics.",
+  "Thanks for submitting a plugin to the Ecomnomics marketplace.":
+    "תודה ששלחת פלאגין לחנות של Ecomnomics.",
   "We review every submission and will email you when it's done.":
     "אנחנו בודקים כל הגשה ונשלח לך אימייל כשנסיים.",
   "If you did not submit a plugin, ignore this email.":

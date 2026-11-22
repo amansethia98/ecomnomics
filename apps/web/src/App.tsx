@@ -263,16 +263,18 @@ function SessionApp() {
                   user ? <AdminAccessPage /> : <Navigate to="/sign-in?next=/admin/access" replace />
                 }
               />
-              <Route
-                path="/restaurants/:restaurantId?/:screen?"
-                element={
-                  user ? (
-                    <OwnerPage />
-                  ) : (
-                    <Navigate to={`/sign-in?next=${encodeURIComponent(pathname)}`} replace />
-                  )
-                }
-              />
+              <Route element={<CallLayout />}>
+                <Route
+                  path="/restaurants/:restaurantId?/:screen?"
+                  element={
+                    user ? (
+                      <OwnerPage />
+                    ) : (
+                      <Navigate to={`/sign-in?next=${encodeURIComponent(pathname)}`} replace />
+                    )
+                  }
+                />
+              </Route>
               <Route
                 element={
                   user ? (

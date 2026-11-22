@@ -35,7 +35,8 @@ export const PT_BR_MESSAGES: Record<string, string> = {
   Close: "Fechar",
   "Close Window": "Fechar Janela",
   "Bring All to Front": "Trazer Todas para a Frente",
-  "Ecomnomics {version} is ready to install.": "O Ecomnomics {version} está pronto para ser instalado.",
+  "Ecomnomics {version} is ready to install.":
+    "O Ecomnomics {version} está pronto para ser instalado.",
   Restart: "Reiniciar",
   Later: "Mais tarde",
   "Could not install the update.": "Não foi possível instalar a atualização.",
@@ -73,7 +74,8 @@ export const PT_BR_MESSAGES: Record<string, string> = {
     "Não foi possível abrir o login no navegador. Feche as outras tentativas de login e tente novamente.",
   "Sign-in callback rejected. Return to Ecomnomics to retry.":
     "A resposta do login foi recusada. Volte ao Ecomnomics para tentar novamente.",
-  "You can close this tab and return to Ecomnomics.": "Você pode fechar esta aba e voltar ao Ecomnomics.",
+  "You can close this tab and return to Ecomnomics.":
+    "Você pode fechar esta aba e voltar ao Ecomnomics.",
   "Set up Ecomnomics": "Configurar o Ecomnomics",
   "Quit Ecomnomics": "Encerrar o Ecomnomics",
   "Welcome to Ecomnomics": "Boas-vindas ao Ecomnomics",

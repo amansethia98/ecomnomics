@@ -35,7 +35,8 @@ export const JA_MESSAGES: Record<string, string> = {
   Close: "閉じる",
   "Close Window": "ウインドウを閉じる",
   "Bring All to Front": "すべてを手前に移動",
-  "Ecomnomics {version} is ready to install.": "Ecomnomics {version}をインストールする準備ができました。",
+  "Ecomnomics {version} is ready to install.":
+    "Ecomnomics {version}をインストールする準備ができました。",
   Restart: "再起動",
   Later: "あとで",
   "Could not install the update.": "アップデートをインストールできませんでした。",
@@ -74,7 +75,8 @@ export const JA_MESSAGES: Record<string, string> = {
     "ブラウザでのサインインを開けませんでした。ほかのサインインを閉じてからもう一度お試しください。",
   "Sign-in callback rejected. Return to Ecomnomics to retry.":
     "サインインの応答が拒否されました。Ecomnomicsに戻ってもう一度お試しください。",
-  "You can close this tab and return to Ecomnomics.": "このタブを閉じてEcomnomicsに戻ってください。",
+  "You can close this tab and return to Ecomnomics.":
+    "このタブを閉じてEcomnomicsに戻ってください。",
   "Set up Ecomnomics": "Ecomnomicsを設定",
   "Quit Ecomnomics": "Ecomnomicsを終了",
   "Welcome to Ecomnomics": "Ecomnomicsへようこそ",

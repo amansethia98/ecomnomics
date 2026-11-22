@@ -71,7 +71,8 @@ export const HE_MESSAGES: Record<string, string> = {
     "לא ניתן היה לפתוח התחברות בדפדפן. יש לסגור ניסיונות התחברות אחרים ולנסות שוב.",
   "Sign-in callback rejected. Return to Ecomnomics to retry.":
     "תגובת ההתחברות נדחתה. יש לחזור ל-Ecomnomics כדי לנסות שוב.",
-  "You can close this tab and return to Ecomnomics.": "אפשר לסגור את הכרטיסייה הזו ולחזור ל-Ecomnomics.",
+  "You can close this tab and return to Ecomnomics.":
+    "אפשר לסגור את הכרטיסייה הזו ולחזור ל-Ecomnomics.",
   "Set up Ecomnomics": "הגדרת Ecomnomics",
   "Quit Ecomnomics": "יציאה מ-Ecomnomics",
   "Welcome to Ecomnomics": "ברוכים הבאים ל-Ecomnomics",
@@ -115,7 +116,8 @@ export const HE_MESSAGES: Record<string, string> = {
   "Invalid custom headers": "כותרות מותאמות אישית לא תקינות",
   "That address redirects elsewhere. Enter the final Ecomnomics server address.":
     "הכתובת הזו מפנה למקום אחר. יש להזין את הכתובת הסופית של שרת Ecomnomics.",
-  "That address did not respond like a Ecomnomics server.": "הכתובת הזו לא הגיבה כמו שרת Ecomnomics.",
+  "That address did not respond like a Ecomnomics server.":
+    "הכתובת הזו לא הגיבה כמו שרת Ecomnomics.",
   "The server answered with HTTP {status}.": "השרת הגיב עם HTTP {status}.",
   "Timed out reaching that address.": "תם הזמן לחיבור לכתובת הזו.",
   "Nothing is listening at that address yet.": "עדיין אין שום דבר שמאזין בכתובת הזו.",

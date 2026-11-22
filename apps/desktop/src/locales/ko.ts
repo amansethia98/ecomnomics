@@ -35,7 +35,8 @@ export const KO_MESSAGES: Record<string, string> = {
   Close: "닫기",
   "Close Window": "윈도우 닫기",
   "Bring All to Front": "모두 앞으로 가져오기",
-  "Ecomnomics {version} is ready to install.": "Ecomnomics {version}을(를) 설치할 준비가 되었습니다.",
+  "Ecomnomics {version} is ready to install.":
+    "Ecomnomics {version}을(를) 설치할 준비가 되었습니다.",
   Restart: "재시동",
   Later: "나중에",
   "Could not install the update.": "업데이트를 설치할 수 없습니다.",

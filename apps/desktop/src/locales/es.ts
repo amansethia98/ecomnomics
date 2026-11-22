@@ -81,7 +81,8 @@ export const ES_MESSAGES: Record<string, string> = {
     "No se pudo abrir el inicio de sesión en el navegador. Cierra los otros intentos de inicio de sesión y vuelve a intentarlo.",
   "Sign-in callback rejected. Return to Ecomnomics to retry.":
     "Se rechazó la respuesta del inicio de sesión. Vuelve a Ecomnomics para intentarlo de nuevo.",
-  "You can close this tab and return to Ecomnomics.": "Puedes cerrar esta pestaña y volver a Ecomnomics.",
+  "You can close this tab and return to Ecomnomics.":
+    "Puedes cerrar esta pestaña y volver a Ecomnomics.",
 
   // Setup window
   "Set up Ecomnomics": "Configurar Ecomnomics",

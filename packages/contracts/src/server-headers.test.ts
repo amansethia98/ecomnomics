@@ -14,7 +14,7 @@ describe("server request headers", () => {
   });
 
   it("refuses headers Ecomnomics or the transport own, without echoing values", () => {
-    for (const name of ["Authorization", "Cookie", "Origin", "X-Ecomnomics-Space-Id", "Host"]) {
+    for (const name of ["Authorization", "Cookie", "Origin", "X-Rakazo-Space-Id", "Host"]) {
       expect(() => serverHeadersFromRows([{ name, value: "secret" }])).toThrow(
         /^Invalid custom headers$/,
       );

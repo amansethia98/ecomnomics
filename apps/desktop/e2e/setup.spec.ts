@@ -856,6 +856,7 @@ for (const failure of ["load", "save"] as const) {
       // A cookie event on the original session must still refresh that server's identity.
       const beforeCookie = monitoringRequests;
       await previous.evaluate(() => {
+        // biome-ignore lint/suspicious/noDocumentCookie: the test fires a cookie change on purpose
         document.cookie = `monitoring-test=${Date.now()}; path=/`;
       });
       await expect.poll(() => monitoringRequests).toBeGreaterThan(beforeCookie);

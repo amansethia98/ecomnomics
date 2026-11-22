@@ -7,7 +7,8 @@ export const FR_MESSAGES: Record<string, string> = {
   "This link expires in one hour. If you did not register, ignore this email.":
     "Ce lien expire dans une heure. Si vous ne vous êtes pas inscrit, ignorez cet e-mail.",
   "Your Ecomnomics sign-in code": "Votre code de connexion Ecomnomics",
-  "Enter this code to sign in to Ecomnomics:": "Saisissez ce code pour vous connecter à Ecomnomics :",
+  "Enter this code to sign in to Ecomnomics:":
+    "Saisissez ce code pour vous connecter à Ecomnomics :",
   "This code expires in ten minutes. If you did not request it, ignore this email.":
     "Ce code expire dans dix minutes. Si vous ne l’avez pas demandé, ignorez cet e-mail.",
   "Reset your Ecomnomics password": "Réinitialisez votre mot de passe Ecomnomics",

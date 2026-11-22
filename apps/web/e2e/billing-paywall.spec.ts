@@ -228,7 +228,9 @@ test("choose your own key or monthly credits, then add a one-time top-up", async
   });
   await captureScreenshot(page, testInfo, "billing-use-existing-credits");
   // Switching reloads the page; the URL keeps Billing open to show the result.
-  await existingCredits.getByRole("button", { name: "Use Ecomnomics credits", exact: true }).click();
+  await existingCredits
+    .getByRole("button", { name: "Use Ecomnomics credits", exact: true })
+    .click();
   const reactivated = page.getByTestId("user-settings");
   await expect(reactivated).toHaveAttribute("data-settings-section", "billing");
   await expect(reactivated.getByText("$12.00", { exact: true })).toBeVisible();

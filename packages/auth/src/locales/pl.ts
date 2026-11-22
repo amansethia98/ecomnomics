@@ -16,7 +16,8 @@ export const PL_MESSAGES: Record<string, string> = {
   "This link expires in one hour. If you did not request this, you can ignore this email.":
     "Ten link wygaśnie za godzinę. Jeśli to nie Ty prosisz o reset hasła, zignoruj tę wiadomość.",
   "Confirm Ecomnomics account deletion": "Potwierdź usunięcie konta Ecomnomics",
-  "Enter this code in Ecomnomics to delete your account:": "Wpisz ten kod w Ecomnomics, aby usunąć konto:",
+  "Enter this code in Ecomnomics to delete your account:":
+    "Wpisz ten kod w Ecomnomics, aby usunąć konto:",
   "This code expires in ten minutes. If you did not request deletion, ignore this email.":
     "Ten kod wygaśnie za dziesięć minut. Jeśli to nie Ty prosisz o usunięcie konta, zignoruj tę wiadomość.",
   "Your Ecomnomics confirmation code": "Twój kod potwierdzający Ecomnomics",

@@ -67,7 +67,8 @@ export const ZH_TW_MESSAGES: Record<string, string> = {
     "已有登入正在進行。請取消後再試一次。",
   "Could not open browser sign-in. Close other sign-in attempts and retry.":
     "無法開啟瀏覽器登入。請關閉其他登入嘗試後再試一次。",
-  "Sign-in callback rejected. Return to Ecomnomics to retry.": "登入回應遭拒。請返回 Ecomnomics 再試一次。",
+  "Sign-in callback rejected. Return to Ecomnomics to retry.":
+    "登入回應遭拒。請返回 Ecomnomics 再試一次。",
   "You can close this tab and return to Ecomnomics.": "你可以關閉此分頁並返回 Ecomnomics。",
   "Set up Ecomnomics": "設定 Ecomnomics",
   "Quit Ecomnomics": "結束 Ecomnomics",
@@ -101,7 +102,8 @@ export const ZH_TW_MESSAGES: Record<string, string> = {
   "Could not start the local stack. Try again.": "無法啟動本機服務堆疊。請再試一次。",
   "Could not run the connection check. Try again.": "無法檢查連線。請再試一次。",
   "Setup bridge unavailable.": "無法使用設定橋接。",
-  "Setup could not start. Quit Ecomnomics and try again.": "無法開始設定。請結束 Ecomnomics 後再試一次。",
+  "Setup could not start. Quit Ecomnomics and try again.":
+    "無法開始設定。請結束 Ecomnomics 後再試一次。",
   "Enter a server address.": "請輸入伺服器位址。",
   "Enter a valid http:// or https:// address.": "請輸入有效的 http:// 或 https:// 位址。",
   "Enter a valid server address. Public servers require HTTPS; a new local instance must use localhost.":

@@ -38,7 +38,8 @@ export const PL_MESSAGES: Record<string, string> = {
   "Bring All to Front": "Przenieś wszystkie na wierzch",
 
   // Updates
-  "Ecomnomics {version} is ready to install.": "Ecomnomics {version} jest gotowe do zainstalowania.",
+  "Ecomnomics {version} is ready to install.":
+    "Ecomnomics {version} jest gotowe do zainstalowania.",
   Restart: "Uruchom ponownie",
   Later: "Później",
   "Could not install the update.": "Nie udało się zainstalować aktualizacji.",
@@ -81,7 +82,8 @@ export const PL_MESSAGES: Record<string, string> = {
     "Nie udało się otworzyć logowania w przeglądarce. Zamknij inne próby logowania i spróbuj ponownie.",
   "Sign-in callback rejected. Return to Ecomnomics to retry.":
     "Odrzucono odpowiedź logowania. Wróć do Ecomnomics i spróbuj ponownie.",
-  "You can close this tab and return to Ecomnomics.": "Możesz zamknąć tę kartę i wrócić do Ecomnomics.",
+  "You can close this tab and return to Ecomnomics.":
+    "Możesz zamknąć tę kartę i wrócić do Ecomnomics.",
 
   // Setup window
   "Set up Ecomnomics": "Skonfiguruj Ecomnomics",

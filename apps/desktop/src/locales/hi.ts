@@ -115,7 +115,8 @@ export const HI_MESSAGES: Record<string, string> = {
   "Invalid custom headers": "कस्टम हेडर अमान्य हैं",
   "That address redirects elsewhere. Enter the final Ecomnomics server address.":
     "वह पता कहीं और रीडायरेक्ट करता है। Ecomnomics सर्वर का अंतिम पता डालें।",
-  "That address did not respond like a Ecomnomics server.": "उस पते ने Ecomnomics सर्वर की तरह जवाब नहीं दिया।",
+  "That address did not respond like a Ecomnomics server.":
+    "उस पते ने Ecomnomics सर्वर की तरह जवाब नहीं दिया।",
   "The server answered with HTTP {status}.": "सर्वर ने HTTP {status} के साथ जवाब दिया।",
   "Timed out reaching that address.": "उस पते तक पहुँचने में समय सीमा खत्म हो गई।",
   "Nothing is listening at that address yet.": "उस पते पर अभी कुछ भी सुन नहीं रहा है।",

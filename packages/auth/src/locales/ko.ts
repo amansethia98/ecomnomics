@@ -51,7 +51,8 @@ export const KO_MESSAGES: Record<string, string> = {
     "모든 제출물을 검토하며, 검토가 끝나면 이메일로 알려 드립니다.",
   "If you did not submit a plugin, ignore this email.":
     "플러그인을 제출하지 않았다면 이 이메일을 무시하세요.",
-  "{name} is in the Ecomnomics marketplace": "{name}이(가) Ecomnomics 마켓플레이스에 등록되었습니다",
+  "{name} is in the Ecomnomics marketplace":
+    "{name}이(가) Ecomnomics 마켓플레이스에 등록되었습니다",
   "Your Ecomnomics plugin submission: {name}": "Ecomnomics 플러그인 제출: {name}",
   "{name} is now listed in the Ecomnomics plugin marketplace.":
     "{name}이(가) 이제 Ecomnomics 플러그인 마켓플레이스에 등록되었습니다.",

@@ -123,7 +123,10 @@ describe("classifyUpdaterFailure", () => {
       classifyUpdaterFailure(
         new Error("Cannot update while running on a read-only volume. The application is on a…"),
       ),
-    ).toEqual({ kind: "read-only", message: "Move Ecomnomics to Applications to install updates." });
+    ).toEqual({
+      kind: "read-only",
+      message: "Move Ecomnomics to Applications to install updates.",
+    });
     for (const message of [
       "ditto: /private/update/Ecomnomics.app/x.js.map: No space left on device\nditto: Couldn't read pkzip signature.",
       "未能完成该操作。设备上无剩余空间: 设备上无剩余空间",

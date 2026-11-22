@@ -97,7 +97,7 @@ describe("agent-desktop host screen", () => {
     await expect(screen.observe(scope, "note")).rejects.toThrow(
       'No open app is named exactly "note". Open apps with similar names: notepad, notes-sync.',
     );
-    await expect(screen.observe(scope, "rakazo")).rejects.toThrow(
+    await expect(screen.observe(scope, "Ecomnomics")).rejects.toThrow(
       "Ecomnomics can't use its own window.",
     );
     expect(calls.filter(([name]) => name === "launch")).toEqual([

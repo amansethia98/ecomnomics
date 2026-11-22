@@ -73,7 +73,8 @@ export const TR_MESSAGES: Record<string, string> = {
     "Tarayıcıda oturum açma başlatılamadı. Diğer oturum açma denemelerini kapatıp yeniden deneyin.",
   "Sign-in callback rejected. Return to Ecomnomics to retry.":
     "Oturum açma yanıtı reddedildi. Yeniden denemek için Ecomnomics’ya dönün.",
-  "You can close this tab and return to Ecomnomics.": "Bu sekmeyi kapatıp Ecomnomics’ya dönebilirsiniz.",
+  "You can close this tab and return to Ecomnomics.":
+    "Bu sekmeyi kapatıp Ecomnomics’ya dönebilirsiniz.",
   "Set up Ecomnomics": "Ecomnomics’yu Kur",
   "Quit Ecomnomics": "Ecomnomics’dan Çık",
   "Welcome to Ecomnomics": "Ecomnomics’ya hoş geldiniz",

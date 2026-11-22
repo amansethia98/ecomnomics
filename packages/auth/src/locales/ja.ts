@@ -29,7 +29,8 @@ export const JA_MESSAGES: Record<string, string> = {
   "Ecomnomics also has apps for": "Ecomnomicsには次のアプリもあります:",
   "Questions or ideas?": "ご質問やアイデアはありますか？",
   "Join us on Discord": "Discordに参加する",
-  "Ecomnomics is open source. If you like it,": "Ecomnomicsはオープンソースです。気に入っていただけたら、",
+  "Ecomnomics is open source. If you like it,":
+    "Ecomnomicsはオープンソースです。気に入っていただけたら、",
   "a star on GitHub": "GitHubでのスター",
   "helps others find it.": "が、ほかの人に見つけてもらう助けになります。",
   "Want to run it on your own servers?": "自分のサーバで動かしたいですか？",

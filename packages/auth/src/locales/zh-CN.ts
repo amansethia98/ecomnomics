@@ -16,11 +16,13 @@ export const ZH_CN_MESSAGES: Record<string, string> = {
   "This link expires in one hour. If you did not request this, you can ignore this email.":
     "此链接将在一小时后失效。如果你没有发起此请求，可以忽略此邮件。",
   "Confirm Ecomnomics account deletion": "确认删除 Ecomnomics 账户",
-  "Enter this code in Ecomnomics to delete your account:": "在 Ecomnomics 中输入此验证码以删除你的账户：",
+  "Enter this code in Ecomnomics to delete your account:":
+    "在 Ecomnomics 中输入此验证码以删除你的账户：",
   "This code expires in ten minutes. If you did not request deletion, ignore this email.":
     "此验证码将在十分钟后失效。如果你没有请求删除，请忽略此邮件。",
   "Your Ecomnomics confirmation code": "你的 Ecomnomics 确认码",
-  "Enter this code in Ecomnomics to confirm it's you:": "在 Ecomnomics 中输入此验证码以确认是你本人：",
+  "Enter this code in Ecomnomics to confirm it's you:":
+    "在 Ecomnomics 中输入此验证码以确认是你本人：",
   "Welcome to Ecomnomics": "欢迎使用 Ecomnomics",
   "Thanks for signing up for Ecomnomics.": "感谢你注册 Ecomnomics。",
   "Ecomnomics also has apps for": "Ecomnomics 还提供以下平台的应用：",
@@ -42,13 +44,15 @@ export const ZH_CN_MESSAGES: Record<string, string> = {
   "If you're enjoying Ecomnomics,": "如果你喜欢 Ecomnomics，",
   "give us a star on GitHub": "欢迎在 GitHub 上给我们点个星标",
   "We received your Ecomnomics plugin": "我们已收到你的 Ecomnomics 插件",
-  "Thanks for submitting a plugin to the Ecomnomics marketplace.": "感谢你向 Ecomnomics 插件市场提交插件。",
+  "Thanks for submitting a plugin to the Ecomnomics marketplace.":
+    "感谢你向 Ecomnomics 插件市场提交插件。",
   "We review every submission and will email you when it's done.":
     "我们会审核每一份提交，完成后会给你发邮件。",
   "If you did not submit a plugin, ignore this email.": "如果你没有提交插件，请忽略此邮件。",
   "{name} is in the Ecomnomics marketplace": "{name} 已上架 Ecomnomics 插件市场",
   "Your Ecomnomics plugin submission: {name}": "你的 Ecomnomics 插件提交：{name}",
-  "{name} is now listed in the Ecomnomics plugin marketplace.": "{name} 现已在 Ecomnomics 插件市场上架。",
+  "{name} is now listed in the Ecomnomics plugin marketplace.":
+    "{name} 现已在 Ecomnomics 插件市场上架。",
   "We couldn't list {name} in the Ecomnomics plugin marketplace.":
     "我们无法将 {name} 上架到 Ecomnomics 插件市场。",
   "Confirm your Ecomnomics page claim": "确认你在 Ecomnomics 的页面认领",

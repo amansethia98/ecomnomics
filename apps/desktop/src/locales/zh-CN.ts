@@ -45,7 +45,8 @@ export const ZH_CN_MESSAGES: Record<string, string> = {
   "Automatic updates are turned off for this install.": "此安装已关闭自动更新。",
   "Automatic updates only run in an installed build.": "自动更新仅在已安装的版本中运行。",
   "No desktop releases are published for this build yet.": "此版本尚未发布桌面版。",
-  "Move Ecomnomics to Applications to install updates.": "将 Ecomnomics 移到“应用程序”文件夹以安装更新。",
+  "Move Ecomnomics to Applications to install updates.":
+    "将 Ecomnomics 移到“应用程序”文件夹以安装更新。",
   "Free up disk space to install updates.": "释放磁盘空间以安装更新。",
   "This update could not be verified. Reinstall Ecomnomics from a trusted download.":
     "无法验证此更新。请从可信来源重新下载并安装 Ecomnomics。",
@@ -65,7 +66,8 @@ export const ZH_CN_MESSAGES: Record<string, string> = {
   "A sign-in attempt is already active. Cancel it and retry.": "已有登录正在进行。请取消后重试。",
   "Could not open browser sign-in. Close other sign-in attempts and retry.":
     "无法打开浏览器登录。请关闭其他登录尝试后重试。",
-  "Sign-in callback rejected. Return to Ecomnomics to retry.": "登录回调被拒绝。请返回 Ecomnomics 重试。",
+  "Sign-in callback rejected. Return to Ecomnomics to retry.":
+    "登录回调被拒绝。请返回 Ecomnomics 重试。",
   "You can close this tab and return to Ecomnomics.": "你可以关闭此标签页并返回 Ecomnomics。",
   "Set up Ecomnomics": "设置 Ecomnomics",
   "Quit Ecomnomics": "退出 Ecomnomics",
@@ -99,7 +101,8 @@ export const ZH_CN_MESSAGES: Record<string, string> = {
   "Could not start the local stack. Try again.": "无法启动本地服务栈。请重试。",
   "Could not run the connection check. Try again.": "无法检查连接。请重试。",
   "Setup bridge unavailable.": "设置桥接不可用。",
-  "Setup could not start. Quit Ecomnomics and try again.": "无法开始设置。请退出 Ecomnomics 后重试。",
+  "Setup could not start. Quit Ecomnomics and try again.":
+    "无法开始设置。请退出 Ecomnomics 后重试。",
   "Enter a server address.": "请输入服务器地址。",
   "Enter a valid http:// or https:// address.": "请输入有效的 http:// 或 https:// 地址。",
   "Enter a valid server address. Public servers require HTTPS; a new local instance must use localhost.":

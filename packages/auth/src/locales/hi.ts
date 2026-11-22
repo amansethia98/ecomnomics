@@ -16,7 +16,8 @@ export const HI_MESSAGES: Record<string, string> = {
   "This link expires in one hour. If you did not request this, you can ignore this email.":
     "यह लिंक एक घंटे में खत्म हो जाएगा। अगर आपने इसका अनुरोध नहीं किया है, तो आप इस ईमेल को अनदेखा कर सकते हैं।",
   "Confirm Ecomnomics account deletion": "Ecomnomics खाता हटाने की पुष्टि करें",
-  "Enter this code in Ecomnomics to delete your account:": "अपना खाता हटाने के लिए Ecomnomics में यह कोड डालें:",
+  "Enter this code in Ecomnomics to delete your account:":
+    "अपना खाता हटाने के लिए Ecomnomics में यह कोड डालें:",
   "This code expires in ten minutes. If you did not request deletion, ignore this email.":
     "यह कोड दस मिनट में खत्म हो जाएगा। अगर आपने खाता हटाने का अनुरोध नहीं किया है, तो इस ईमेल को अनदेखा करें।",
   "Your Ecomnomics confirmation code": "आपका Ecomnomics पुष्टि कोड",

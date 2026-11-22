@@ -45,13 +45,15 @@ export const SUBSCRIPTION_SIGN_IN_PROVIDERS: Record<
     mode: "device-code",
     loginLabel: "Sign in with GitHub Copilot",
     hint: "Copilot",
-    billing: "Sign in with GitHub Copilot. Uses your Copilot subscription. Ecomnomics does not pay.",
+    billing:
+      "Sign in with GitHub Copilot. Uses your Copilot subscription. Ecomnomics does not pay.",
   },
   [XAI_OAUTH_PROVIDER]: {
     mode: "device-code",
     loginLabel: "Sign in with SuperGrok or X Premium",
     hint: "SuperGrok / key",
-    billing: "Sign in with SuperGrok or X Premium, or paste an xAI API key. Ecomnomics does not pay.",
+    billing:
+      "Sign in with SuperGrok or X Premium, or paste an xAI API key. Ecomnomics does not pay.",
   },
   [ANTHROPIC_OAUTH_PROVIDER]: {
     mode: "auth-url",
