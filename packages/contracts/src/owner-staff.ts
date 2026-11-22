@@ -17,6 +17,7 @@ export interface StaffMetricBlock {
   changePct: number | null;
   compare: string | null;
   pending: string | null;
+  urgent?: number | null;
   watch?: number | null;
   chips?: readonly string[];
 }
@@ -207,10 +208,11 @@ export function briefCard(text: string): StaffBlock[] {
   const chosen = summaries.filter((match) => match[2]).at(-1) ?? summaries.at(-1);
   const urgent = chosen?.[1] ? Number(chosen[1]) : null;
   const watch = chosen?.[2] ? Number(chosen[2]) : null;
-  const sales = text.match(/Net sales ₹([\d,]+) \(([+−-][\d.]+)%\)/);
+  const sales = text.match(/Net sales ₹([\d,]+) \(([+−-][\d.]+)%/);
   const paise = sales?.[1] ? Math.round(Number(sales[1].replace(/,/g, "")) * 100) : null;
   const changePct = sales?.[2] ? Number(sales[2].replace("−", "-")) : null;
   const versus = text.match(/vs ([^·\n]+)/);
+  const hello = text.match(/Good morning[^\n*]*/);
   const reds = text.split("\n").flatMap((line) => {
     if (!line.includes("🔴") || line.includes("Act now")) return [];
     const clean = line
@@ -220,14 +222,16 @@ export function briefCard(text: string): StaffBlock[] {
     return clean ? [clean] : [];
   });
   const blocks: StaffBlock[] = [];
-  if (urgent != null) {
+  if (hello?.[0]) blocks.push({ kind: "text", text: hello[0].trim(), heading: true });
+  if (paise != null || urgent != null) {
     blocks.push({
       kind: "metric",
-      label: urgent === 1 ? "1 urgent" : `${urgent} urgent`,
+      label: "Net sales",
       paise,
       changePct,
       compare: versus?.[1]?.trim() ?? null,
       pending: /swiggy[^\n]*pending/i.test(text) ? "swiggy" : null,
+      urgent,
       watch,
     });
   }
