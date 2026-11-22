@@ -23,6 +23,9 @@ export function PlotFigure({ plot }: { plot: OwnerPlot }) {
           setFailed(true);
           return;
         }
+        for (const node of svg.querySelectorAll("text")) {
+          if (node.textContent?.includes("⚠")) node.remove();
+        }
         host.current.append(svg);
         setFailed(false);
       } catch (error) {

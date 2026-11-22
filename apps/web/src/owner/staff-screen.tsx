@@ -4,11 +4,10 @@ import {
   formatCivilDay,
   formatRupees,
   formatSignedPct,
-  olderWeekLabel,
   STAFF_QUESTION_LIMIT,
 } from "@rakazo/contracts";
 import { Button } from "@rakazo/ui-web";
-import { Sparkles } from "lucide-react";
+import { Mic, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ChangeBadge } from "./marks";
@@ -116,7 +115,7 @@ export function StaffScreen({
           className="flex size-11 items-center justify-center rounded-full border border-border"
           disabled={disabled}
         >
-          {t`Mic`}
+          <Mic aria-hidden="true" className="size-4" />
         </button>
         <Button
           type="submit"
@@ -143,9 +142,6 @@ function Message({
 }) {
   const { t } = useLingui();
   const mine = message.role === "owner";
-  const opening = message.blocks.find((block) => block.kind === "text");
-  const older =
-    message.role === "staff" && opening?.kind === "text" && olderWeekLabel(opening.text);
   return (
     <div className={mine ? "mt-2 flex justify-end" : "mt-2 flex items-start gap-2"}>
       {mine ? null : (
@@ -160,7 +156,9 @@ function Message({
             : "max-w-[80%] rounded-2xl bg-background px-3 py-2"
         }
       >
-        {older ? <p className="text-label text-muted-foreground">{t`older answer`}</p> : null}
+        {message.older ? (
+          <p className="text-label text-muted-foreground">{t`older answer`}</p>
+        ) : null}
         {message.blocks.map((block, index) => (
           <Block
             key={`${message.id}-${index}`}
@@ -185,13 +183,25 @@ function Block({
 }) {
   const { t } = useLingui();
   if (block.kind === "text") {
+    if (block.chip) return <span className="owner-pill mt-2 mr-2">{block.text}</span>;
     if (block.heading) return <h3 className="mt-2 text-heading3 font-medium">{block.text}</h3>;
     return <p className="mt-2">{block.text}</p>;
   }
   if (block.kind === "metric") {
     return (
       <div className="mt-3">
-        <p className="text-label text-muted-foreground">{block.label}</p>
+        {block.label.includes("urgent") ? (
+          <p className="flex flex-wrap gap-2">
+            <span className="owner-pill owner-pill-act">{block.label}</span>
+            {block.watch != null ? (
+              <span className="owner-pill owner-pill-watch">
+                {block.watch === 1 ? t`Watch (1)` : t`Watch (${block.watch})`}
+              </span>
+            ) : null}
+          </p>
+        ) : (
+          <p className="text-label text-muted-foreground">{block.label}</p>
+        )}
         <p className="text-heading3 font-medium">
           {block.paise != null ? formatRupees(block.paise) : t`Not in yet`}
         </p>

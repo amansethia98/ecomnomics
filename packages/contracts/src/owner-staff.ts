@@ -17,6 +17,8 @@ export interface StaffMetricBlock {
   changePct: number | null;
   compare: string | null;
   pending: string | null;
+  watch?: number | null;
+  chips?: readonly string[];
 }
 
 export interface StaffChoiceBlock {
@@ -37,6 +39,7 @@ export interface StaffTextBlock {
   kind: "text";
   text: string;
   heading?: boolean;
+  chip?: boolean;
 }
 
 export type StaffBlock = StaffTextBlock | StaffMetricBlock | StaffChartBlock | StaffChoiceBlock;
@@ -48,6 +51,8 @@ export interface StaffMessage {
   blocks: StaffBlock[];
   counted: boolean;
   failed: boolean;
+  /** A stored answer about a week that is not Monday to Sunday. */
+  older?: boolean;
 }
 
 export interface StaffQuota {
@@ -197,18 +202,22 @@ export function olderWeekLabel(text: string): boolean {
 
 /** Counts and the first act-now line, read from the brief we already store. */
 export function briefCard(text: string): StaffBlock[] {
-  const act = text.match(/Act now \((\d+)\)/);
-  const urgent = act ? Number(act[1]) : null;
+  const summaries = [...text.matchAll(/Act now \((\d+)\)(?:[^\n]*Watch \((\d+)\))?/g)];
+  const chosen = summaries.filter((match) => match[2]).at(-1) ?? summaries.at(-1);
+  const urgent = chosen?.[1] ? Number(chosen[1]) : null;
+  const watch = chosen?.[2] ? Number(chosen[2]) : null;
   const sales = text.match(/Net sales ₹([\d,]+) \(([+−-][\d.]+)%\)/);
   const paise = sales?.[1] ? Math.round(Number(sales[1].replace(/,/g, "")) * 100) : null;
   const changePct = sales?.[2] ? Number(sales[2].replace("−", "-")) : null;
   const versus = text.match(/vs ([^·\n]+)/);
-  const red = text
-    .split("\n")
-    .find((line) => line.includes("🔴") && !line.includes("Act now"))
-    ?.replace(/🔴/g, "")
-    .replace(/\s*Fix:.*$/, "")
-    .trim();
+  const reds = text.split("\n").flatMap((line) => {
+    if (!line.includes("🔴") || line.includes("Act now")) return [];
+    const clean = line
+      .replace(/🔴/g, "")
+      .replace(/\s*Fix:.*$/, "")
+      .trim();
+    return clean ? [clean] : [];
+  });
   const blocks: StaffBlock[] = [];
   if (urgent != null) {
     blocks.push({
@@ -218,9 +227,12 @@ export function briefCard(text: string): StaffBlock[] {
       changePct,
       compare: versus?.[1]?.trim() ?? null,
       pending: /swiggy[^\n]*pending/i.test(text) ? "swiggy" : null,
+      watch,
     });
   }
-  if (red) blocks.push({ kind: "text", text: `Most urgent: ${red}` });
+  const most = reds[0];
+  if (most) blocks.push({ kind: "text", text: `Most urgent: ${most}` });
+  for (const chip of reds.slice(1, 3)) blocks.push({ kind: "text", text: chip, chip: true });
   return blocks;
 }
 
@@ -233,8 +245,10 @@ export function briefBlocks(text: string): StaffTextBlock[] {
       .replace(/[\u{1F534}\u{1F7E1}]/gu, "")
       .replace(/\s{2,}/g, " ")
       .trim();
-    if (!trimmed) continue;
-    if (/\d+(?:\.\d+)?% \(\d+ of \d+\)/.test(trimmed) || trimmed.startsWith("Fix:")) continue;
+    if (!trimmed || /[\u{1F534}\u{1F7E1}]/u.test(line)) continue;
+    if (/\d+(?:\.\d+)?% \(\d+ of \d+\)/.test(trimmed) || trimmed.includes("Fix:")) continue;
+    if (/Act now \(\d+\)/.test(trimmed) || /Watch \(\d+\)/.test(trimmed)) continue;
+    if (/^\d+ urgent$/.test(trimmed)) continue;
     const heading = trimmed.match(/^\*+([^*]+)\*+$/) ?? trimmed.match(/^#{1,3}\s+(.+)$/);
     if (heading?.[1]) {
       blocks.push({ kind: "text", text: heading[1].trim(), heading: true });
@@ -243,6 +257,25 @@ export function briefBlocks(text: string): StaffTextBlock[] {
     blocks.push({ kind: "text", text: trimmed.replace(/\*([^*]+)\*/g, "$1") });
   }
   return blocks.length > 0 ? blocks : [{ kind: "text", text: dated.trim() }];
+}
+
+/** Marks a non-Monday week answer, and keeps one copy of an identical older answer. */
+export function foldStaffMessages(messages: readonly StaffMessage[]): StaffMessage[] {
+  const seen = new Set<string>();
+  const kept: StaffMessage[] = [];
+  for (const message of messages) {
+    const text = message.blocks
+      .flatMap((block) => (block.kind === "text" ? [block.text] : []))
+      .join("\n");
+    const older = message.role === "staff" && olderWeekLabel(text);
+    if (older) {
+      const key = text.trim();
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    kept.push({ ...message, older });
+  }
+  return kept;
 }
 
 export function staffQuota(asked: number): StaffQuota {
@@ -274,7 +307,9 @@ export function composeStaffThread(input: {
         failed: false,
       }
     : null;
-  const messages = briefMessage ? [briefMessage, ...input.messages] : [...input.messages];
+  const messages = foldStaffMessages(
+    briefMessage ? [briefMessage, ...input.messages] : [...input.messages],
+  );
   const first = messages.length === 0;
   return {
     greeting:
