@@ -34,15 +34,15 @@ import {
   formatIstClock,
   indiaCivilDate,
   istMorning,
-  labeledPayoutTotals,
   nextReportDelivery,
   noteFailedFetch,
-  paymentPeriods,
+  payoutAppFigures,
   pctChange,
   resolvedLine,
   resolveOpsRulesConfig,
   rollupDailyApps,
   snoozeAlert,
+  unstoredPayoutWindows,
   utcMidnight,
   viewFromDaily,
   weekSales,
@@ -644,6 +644,7 @@ export async function readOwnerHomeForMember(
       payoutPaise: null,
       payoutPaidPaise: payout.paidPaise,
       payoutPendingPaise: payout.pendingPaise,
+      payoutApps: payout.apps,
       payoutToCheck: states.filter((alert) => alert.cadence === "payout" && visible(alert, today))
         .length,
       fetched: {
@@ -667,10 +668,18 @@ interface PayoutTileRow {
 async function payoutTile(
   db: PrismaClient,
   scope: Pick<RestaurantScope, "restaurantId" | "spaceId">,
-  _today: string,
+  today: string,
   outletId?: string,
-): Promise<{ paidPaise: number | null; pendingPaise: number | null }> {
-  const empty = { paidPaise: null, pendingPaise: null };
+): Promise<{
+  paidPaise: number | null;
+  pendingPaise: number | null;
+  apps: ReturnType<typeof payoutAppFigures>;
+}> {
+  const empty = {
+    paidPaise: null as number | null,
+    pendingPaise: null as number | null,
+    apps: payoutAppFigures([]),
+  };
   try {
     const cycles = await db.payoutCycle.findMany({
       where: {
@@ -721,11 +730,16 @@ async function payoutTile(
         },
       ];
     });
-    const period = paymentPeriods(rows)[0];
-    if (!period) return empty;
-    return labeledPayoutTotals(
-      [period.zomato, period.swiggy].filter((row): row is PayoutTileRow => row != null),
-    );
+    const open: PayoutTileRow[] = unstoredPayoutWindows(rows, today).map((window) => ({
+      id: `unstored-${window.platform}-${window.from}`,
+      platform: window.platform,
+      from: window.from,
+      to: window.to,
+      bankBasis: "missing",
+      paidAmountPaise: null,
+      expectedPaise: null,
+    }));
+    return { paidPaise: null, pendingPaise: null, apps: payoutAppFigures([...rows, ...open]) };
   } catch {
     return empty;
   }

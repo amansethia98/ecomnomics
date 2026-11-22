@@ -189,9 +189,35 @@ it("says no change when a tile moved by nothing", () => {
   act(() => {
     createRoot(host).render(<NumberCard tile={tile} onOpen={() => undefined} />);
   });
-  expect(host.textContent).toContain("no change");
-  expect(host.textContent).not.toContain("0.0%");
+  expect(host.textContent).toContain("Steady");
+  expect(host.textContent).not.toContain("Down");
   expect(host.textContent).not.toContain("festival week");
+});
+
+it("shows one judgement when the word and the arrow would disagree", () => {
+  const tile: DashTile = {
+    id: "online",
+    value: 90,
+    format: "pct",
+    changePct: -1,
+    spark: [],
+    word: "improving",
+    weeks: 1,
+    good: true,
+    state: "value",
+    festival: false,
+    splits: [],
+    basis: "vs last week",
+    span: "7 days",
+  };
+  const host = document.createElement("div");
+  document.body.append(host);
+  act(() => {
+    createRoot(host).render(<NumberCard tile={tile} onOpen={() => undefined} />);
+  });
+  expect(host.textContent).toContain("Steady");
+  expect(host.textContent).not.toContain("Down");
+  expect(host.textContent).not.toContain("Improving");
 });
 
 function render(model: OwnerDashboardModel) {

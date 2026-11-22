@@ -88,7 +88,7 @@ export function SalesChart({ model, fitWidth }: { model: OwnerDashboardModel; fi
           stroke={panel.platform === "zomato" ? "var(--owner-zomato)" : "var(--owner-swiggy)"}
           strokeWidth={1.5}
           dot={false}
-          connectNulls
+          connectNulls={false}
         />
       ))}
       <Line
@@ -99,7 +99,7 @@ export function SalesChart({ model, fitWidth }: { model: OwnerDashboardModel; fi
         strokeDasharray="4 4"
         strokeWidth={1.5}
         dot={false}
-        connectNulls
+        connectNulls={false}
       />
       {brush ? <Brush dataKey="label" height={20} stroke="var(--border)" /> : null}
     </LineChart>
@@ -243,7 +243,7 @@ export function FunnelChart({
               stroke={platform === "zomato" ? "var(--owner-zomato)" : "var(--owner-swiggy)"}
               strokeWidth={1.5}
               dot={false}
-              connectNulls
+              connectNulls={false}
             />
           ) : null,
         )}

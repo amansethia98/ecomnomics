@@ -177,14 +177,14 @@ export function OwnerDashboard({
       return current;
     });
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-8">
+    <div className="mx-auto flex min-w-0 max-w-5xl flex-col gap-8 overflow-x-hidden">
       <Answer model={model} />
       <section className="owner-panel flex flex-col gap-2 p-3">
         <Suspense fallback={<Skeleton className="h-56 w-full" />}>
           <SalesChart model={model} />
         </Suspense>
         {model.pins.length > 0 ? (
-          <ol className="flex flex-nowrap gap-3 overflow-x-auto text-body-sm whitespace-nowrap text-muted-foreground">
+          <ol className="flex flex-wrap gap-x-3 gap-y-1 text-body-sm text-muted-foreground">
             {model.pins.map((pin) => (
               <li key={`${pin.week}-${pin.kind}`}>
                 {pin.n} <PinLabel kind={pin.kind} label={pin.label} />
@@ -219,7 +219,7 @@ export function OwnerDashboard({
               <p className="text-body-sm">
                 <StepLabel step={step} />{" "}
                 <span className="text-muted-foreground">
-                  <StepHint step={step} />
+                  <StepHint model={model} step={step} />
                 </span>
               </p>
               <Suspense fallback={<Skeleton className="h-24 w-full" />}>
@@ -329,11 +329,37 @@ function StepLabel({ step }: { step: "menu" | "cart" | "order" }) {
   return t`Placed the order`;
 }
 
-function StepHint({ step }: { step: "menu" | "cart" | "order" }) {
+function latestStepPct(model: OwnerDashboardModel, step: "menu" | "cart" | "order"): number | null {
+  let week = "";
+  const values: number[] = [];
+  for (const series of model.funnel) {
+    if (series.step !== step) continue;
+    for (const point of series.points) {
+      if (point.pct == null) continue;
+      if (point.week > week) {
+        week = point.week;
+        values.length = 0;
+        values.push(point.pct);
+      } else if (point.week === week) values.push(point.pct);
+    }
+  }
+  if (values.length === 0) return null;
+  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function StepHint({
+  model,
+  step,
+}: {
+  model: OwnerDashboardModel;
+  step: "menu" | "cart" | "order";
+}) {
   const { t } = useLingui();
-  if (step === "menu") return t`of people who saw you`;
-  if (step === "cart") return t`of menu opens`;
-  return t`of carts`;
+  const pct = latestStepPct(model, step);
+  if (step === "menu")
+    return pct == null ? t`of people who saw you` : t`${pct}% of people who saw you`;
+  if (step === "cart") return pct == null ? t`of menu opens` : t`${pct}% of menu opens`;
+  return pct == null ? t`of carts` : t`${pct}% of carts`;
 }
 
 export function FunnelLine({ text }: { text: string }) {
@@ -357,10 +383,22 @@ export function FunnelLine({ text }: { text: string }) {
 
 export function DashboardSkeleton() {
   return (
-    <div className="flex flex-col gap-4">
+    <div className="mx-auto flex min-w-0 max-w-5xl flex-col gap-8 overflow-x-hidden">
       <Skeleton className="h-8 w-2/3" />
       <Skeleton className="h-56 w-full" />
-      <Skeleton className="h-24 w-full" />
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {["sales", "orders", "aov", "online", "prep", "rejected", "rating", "ads"].map((id) => (
+          <Skeleton key={id} className="h-24 w-full" />
+        ))}
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Skeleton className="h-40 w-full" />
+        <div className="flex flex-col gap-3">
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+        </div>
+      </div>
     </div>
   );
 }

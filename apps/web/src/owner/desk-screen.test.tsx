@@ -82,16 +82,26 @@ it("shows the Thursday check on a payout and not a match", () => {
   expect(host.textContent).toContain("Check runs Thursday");
   expect(host.textContent).toContain("Net in file");
   expect(host.textContent).toContain("Not in report");
-  const options = [...host.querySelectorAll("option")].map((option) => option.textContent);
-  expect(options).toEqual(["9–15 Nov", "3–8 Nov"]);
+  const options = [...host.querySelectorAll("option")].map((option) => option.textContent ?? "");
+  expect(options).toEqual([
+    "Zomato 16–23 Nov · Report not in yet",
+    "Zomato 9–16 Nov",
+    "Swiggy 9–15 Nov · Report not in yet",
+    "Swiggy 3–9 Nov",
+  ]);
+  expect(options.some((option) => option.includes("Zomato") && option.includes("Swiggy"))).toBe(
+    false,
+  );
   const weekLine = host.querySelector("[data-testid='payout-week']")?.textContent ?? "";
-  expect(weekLine).toContain("3–8 Nov");
-  expect(weekLine).toContain("Report not in yet");
-  expect(weekLine).not.toContain("15–21 Nov");
+  expect(weekLine).toContain("Zomato 16–23 Nov · Report not in yet");
+  expect(weekLine).toContain("Swiggy 9–15 Nov · Report not in yet");
+  expect(weekLine).not.toContain("₹1,200");
+  expect(weekLine).not.toMatch(/paid · expected/i);
   expect(host.textContent).toContain("Where your money went");
   expect(host.textContent).toContain("₹800");
   expect(host.textContent).not.toContain("Matches");
-  expect(host.textContent).toContain("Pending");
+  expect(host.textContent).toContain("Expected ₹800");
+  expect(host.textContent).not.toContain("paid · expected");
   expect(host.textContent).toContain("View orders");
   expect(host.textContent).not.toContain("o-1");
   act(() => {
@@ -105,6 +115,48 @@ it("shows the Thursday check on a payout and not a match", () => {
   expect(host.querySelector(".owner-dot-zomato")).not.toBeNull();
   expect(host.textContent).not.toContain("Ad credit");
   expect(formatRupees(-500)).not.toBe(formatRupees(500));
+});
+
+it("keeps each app's latest period on its own header line", () => {
+  const swiggy = payments.payouts[0];
+  const zomato = payments.payouts[1];
+  if (!swiggy || !zomato) throw new Error("fixture");
+  const host = render(
+    <PaymentsScreen
+      today="2026-11-12"
+      onSelect={() => undefined}
+      screen={{
+        ...payments,
+        payouts: [
+          {
+            ...swiggy,
+            id: "swiggy-paid",
+            from: "2026-11-08",
+            to: "2026-11-15",
+            paidAmountPaise: 8_067_400,
+            bankBasis: "paid",
+          },
+          {
+            ...zomato,
+            id: "zomato-paid",
+            from: "2026-11-09",
+            to: "2026-11-16",
+            paidAmountPaise: 8_091_300,
+            expectedPaise: 8_091_300,
+            bankBasis: "paid",
+          },
+        ],
+        selectedId: "swiggy-paid",
+      }}
+    />,
+  );
+  const options = [...host.querySelectorAll("option")].map((option) => option.textContent);
+  expect(options).toEqual(["Zomato 9–16 Nov", "Swiggy 8–15 Nov"]);
+  const weekLine = host.querySelector("[data-testid='payout-week']")?.textContent ?? "";
+  expect(weekLine).toContain("Zomato 9–16 Nov · Paid ₹80,913");
+  expect(weekLine).toContain("Swiggy 8–15 Nov · Paid ₹80,674");
+  expect(weekLine).not.toContain("₹1,61,587");
+  expect(host.textContent).not.toContain("Zomato 9–16 Nov · Swiggy");
 });
 
 it("asks for a licence date and reminds inside seven days", () => {

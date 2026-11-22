@@ -220,7 +220,7 @@ export function OwnerFrame({
             </div>
           ) : null}
         </header>
-        <main className="owner-page relative z-0 min-w-0 flex-1 overflow-x-clip px-4 pb-28 md:px-8 md:pb-10">
+        <main className="owner-page relative z-0 min-w-0 flex-1 overflow-x-clip px-4 md:px-8">
           {children}
         </main>
       </div>

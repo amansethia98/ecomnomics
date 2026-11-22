@@ -33,11 +33,17 @@ export function ChartContainer({
     <ChartContext.Provider value={{ config }}>
       <div
         data-chart={chartId}
-        className={cn("flex h-56 w-full min-w-0 max-w-full text-body-sm", className)}
+        className={cn("relative h-56 w-full min-w-0 max-w-full text-body-sm", className)}
         {...props}
       >
         <ChartStyle id={chartId} config={config} />
-        <RechartsPrimitive.ResponsiveContainer width="100%" height="100%">
+        <RechartsPrimitive.ResponsiveContainer
+          width="100%"
+          height="100%"
+          minWidth={0}
+          initialDimension={{ width: 320, height: 180 }}
+          className="absolute inset-0 h-full max-w-full"
+        >
           {children}
         </RechartsPrimitive.ResponsiveContainer>
       </div>

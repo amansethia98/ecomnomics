@@ -1,16 +1,21 @@
 import { useLingui } from "@lingui/react/macro";
 import type { OwnerPayments } from "@rakazo/contracts";
 import {
-  formatExclusiveRange,
+  formatInclusiveRange,
   formatRupees,
-  labeledPayoutTotals,
+  largestRemainderRupees,
+  paymentPeriodLabel,
   paymentPeriods,
+  payoutAppFigures,
+  payoutAppLine,
+  unstoredPayoutWindows,
 } from "@rakazo/contracts";
 import { useState } from "react";
 import { PlatformDot } from "./marks";
 
 export function PaymentsScreen({
   screen,
+  today,
   onSelect,
 }: {
   screen: OwnerPayments;
@@ -18,9 +23,26 @@ export function PaymentsScreen({
   onSelect: (id: string) => void;
 }) {
   const { t } = useLingui();
-  const periods = paymentPeriods(screen.payouts);
+  const payouts = [
+    ...screen.payouts,
+    ...unstoredPayoutWindows(screen.payouts, today).map((window) => ({
+      id: `unstored-${window.platform}-${window.from}`,
+      outletId: "",
+      platform: window.platform,
+      from: window.from,
+      to: window.to,
+      orderCount: null,
+      netPayoutPaise: null,
+      paidAmountPaise: null,
+      expectedPaise: null,
+      outletName: null,
+      bankBasis: "missing" as const,
+      status: "pending_check" as const,
+    })),
+  ];
+  const periods = paymentPeriods(payouts);
   const periodKey = (period: (typeof periods)[number]) =>
-    `${period.from}|${period.to}|${period.zomato?.id ?? ""}|${period.swiggy?.id ?? ""}`;
+    `${period.zomato?.id ?? period.swiggy?.id ?? ""}`;
   const initial = periods.find(
     (period) => period.zomato?.id === screen.selectedId || period.swiggy?.id === screen.selectedId,
   );
@@ -32,86 +54,81 @@ export function PaymentsScreen({
     return <p>{t`This week's payout file isn't out yet (usually Thursday morning).`}</p>;
   }
   const chosen = periods.find((item) => periodKey(item) === week) ?? periods[0] ?? null;
-  const weekLabel = chosen ? formatExclusiveRange(chosen.from, chosen.to) : "";
-  const heroRows = [chosen?.zomato, chosen?.swiggy].filter((row) => row != null);
-  const shown = heroRows;
-  const totals = labeledPayoutTotals(heroRows);
+  const names = { zomato: t`Zomato`, swiggy: t`Swiggy` };
+  const words = { missing: t`Report not in yet`, paid: t`Paid`, expected: t`Expected` };
+  const latest = payoutAppFigures(payouts);
+  const shown = [chosen?.zomato ?? chosen?.swiggy].filter((row) => row != null);
+  const storedOpen = shown.some((row) => !row.id.startsWith("unstored-"));
+  const amounts = displayPaise(screen.breakdown ?? []);
   return (
-    <div className="mx-auto flex min-w-0 max-w-3xl flex-col gap-8 overflow-x-clip">
+    <div className="mx-auto flex min-w-0 max-w-3xl flex-col gap-8 overflow-x-hidden pb-4">
       {chosen ? (
-        <div className="flex items-start justify-between gap-3">
-          <div>
+        <div className="flex min-w-0 flex-col gap-3">
+          <div className="min-w-0">
             <p className="text-label text-muted-foreground">{t`Latest payouts · Zomato and Swiggy`}</p>
-            <h2 className="owner-title">
-              {totals.paidPaise != null ? (
-                <span className="block">
-                  {t`Paid`} {formatRupees(totals.paidPaise)}
-                </span>
-              ) : null}
-              {totals.pendingPaise != null ? (
-                <span className="block">
-                  {t`Pending`} {formatRupees(totals.pendingPaise)}
-                </span>
-              ) : null}
-            </h2>
-            <p data-testid="payout-week" className="text-body-sm text-muted-foreground">
-              {weekLabel}
-              {(["zomato", "swiggy"] as const).map((platform) => {
-                const payout = chosen[platform];
-                const name = platform === "zomato" ? t`Zomato` : t`Swiggy`;
-                const text = payoutText(name, payout, {
-                  missing: t`Report not in yet`,
-                  paid: t`paid`,
-                  expected: t`expected`,
-                  pending: t`pending`,
-                });
-                return (
-                  <span key={platform}>
-                    {" · "}
-                    <span
-                      className={
-                        platform === "zomato"
-                          ? "owner-dot owner-dot-zomato"
-                          : "owner-dot owner-dot-swiggy"
-                      }
-                      aria-hidden="true"
-                    />{" "}
-                    {text}
-                  </span>
-                );
-              })}
-            </p>
+            <div
+              data-testid="payout-week"
+              className="mt-1 flex flex-col gap-1 text-heading3 font-medium"
+            >
+              {(["zomato", "swiggy"] as const).map((platform) => (
+                <p key={platform}>
+                  <span
+                    className={
+                      platform === "zomato"
+                        ? "owner-dot owner-dot-zomato"
+                        : "owner-dot owner-dot-swiggy"
+                    }
+                    aria-hidden="true"
+                  />{" "}
+                  {payoutAppLine(names[platform], latest[platform], words)}
+                </p>
+              ))}
+            </div>
           </div>
           {periods.length > 0 ? (
             <select
               aria-label={t`Week`}
-              className="h-8 shrink-0 rounded-full border border-border bg-background px-3"
+              className="h-10 w-full max-w-full rounded-full border border-border bg-background px-4"
               value={chosen ? periodKey(chosen) : week}
               onChange={(event) => {
                 const next = event.target.value;
                 setWeek(next);
                 const period = periods.find((item) => periodKey(item) === next);
-                const payout = period?.zomato ?? period?.swiggy ?? null;
-                if (payout && payout.id !== screen.selectedId) onSelect(payout.id);
+                const payout = period?.zomato ?? period?.swiggy;
+                if (
+                  payout &&
+                  !payout.id.startsWith("unstored-") &&
+                  payout.id !== screen.selectedId
+                ) {
+                  onSelect(payout.id);
+                }
               }}
             >
-              {periods.map((item) => (
-                <option key={periodKey(item)} value={periodKey(item)}>
-                  {formatExclusiveRange(item.from, item.to)}
-                </option>
-              ))}
+              {periods.map((item) => {
+                const payout = item.zomato ?? item.swiggy;
+                const label = paymentPeriodLabel(item, names);
+                const text =
+                  payout?.id.startsWith("unstored-") === true
+                    ? `${label} · ${words.missing}`
+                    : label;
+                return (
+                  <option key={periodKey(item)} value={periodKey(item)}>
+                    {text}
+                  </option>
+                );
+              })}
             </select>
           ) : null}
         </div>
       ) : null}
-      {(screen.breakdown ?? []).length > 0 ? (
+      {storedOpen && (screen.breakdown ?? []).length > 0 ? (
         <section>
           <h2 className="text-label text-muted-foreground">{t`Where your money went`}</h2>
           <ul>
             {(screen.breakdown ?? []).map((row) => (
               <li key={row.id} className="flex justify-between border-t border-border py-2">
                 <span>{row.label}</span>
-                <span>{rowAmount(row, t`Not in report`)}</span>
+                <span>{rowAmount(row, amounts, t`Not in report`)}</span>
               </li>
             ))}
           </ul>
@@ -126,6 +143,7 @@ export function PaymentsScreen({
               className={`flex w-full items-center gap-3 py-3 text-left ${payout.id === screen.selectedId ? "text-primary" : ""}`}
               aria-pressed={payout.id === screen.selectedId}
               onClick={() => {
+                if (payout.id.startsWith("unstored-")) return;
                 if (payout.id === screen.selectedId) {
                   setOrdersOpen((open) => !open);
                   return;
@@ -136,19 +154,16 @@ export function PaymentsScreen({
             >
               <PlatformDot platform={payout.platform} />
               <span className="flex-1">
-                <span className="block font-medium">{payout.outletName ?? t`Outlet`}</span>
+                <span className="block font-medium">
+                  {formatInclusiveRange(payout.from, payout.to)}
+                </span>
                 <span className="block text-body-sm text-muted-foreground">
                   {payout.id === screen.selectedId && !ordersOpen ? `${t`View orders`} · ` : ""}
-                  {payout.bankBasis === "paid"
-                    ? t`Paid to bank`
-                    : payout.bankBasis === "net"
-                      ? t`Net in file`
-                      : t`Net in file`}
-                  {payout.paidAmountPaise != null
-                    ? ` · ${formatRupees(payout.paidAmountPaise)}`
-                    : payout.expectedPaise != null
-                      ? ` · ${formatRupees(payout.expectedPaise)}`
-                      : ` · ${t`Not in report`}`}
+                  {payoutFigure(payout, {
+                    missing: t`Report not in yet`,
+                    paid: t`Paid`,
+                    expected: t`Expected`,
+                  })}
                 </span>
               </span>
               <span className="owner-pill bg-muted text-muted-foreground">{t`Check runs Thursday`}</span>
@@ -169,26 +184,46 @@ function shownExpected(payout: OwnerPayments["payouts"][number]): number | null 
   return payout.bankBasis === "net" ? payout.netPayoutPaise : null;
 }
 
-function payoutText(
-  name: string,
-  payout: OwnerPayments["payouts"][number] | null,
-  label: { missing: string; paid: string; expected: string; pending: string },
+function payoutFigure(
+  payout: OwnerPayments["payouts"][number],
+  label: { missing: string; paid: string; expected: string },
 ): string {
-  if (!payout) return `${name} ${label.missing}`;
-  const expected = shownExpected(payout);
   if (payout.bankBasis === "paid" && payout.paidAmountPaise != null) {
-    const paid = `${name} ${formatRupees(payout.paidAmountPaise)} ${label.paid}`;
-    return expected == null ? paid : `${paid} · ${label.expected} ${formatRupees(expected)}`;
+    return `${label.paid} ${formatRupees(payout.paidAmountPaise)}`;
   }
-  if (expected != null) return `${name} ${formatRupees(expected)} ${label.pending}`;
-  return `${name} ${label.missing}`;
+  const expected = shownExpected(payout);
+  if (expected != null) return `${label.expected} ${formatRupees(expected)}`;
+  return label.missing;
 }
 
-function rowAmount(row: OwnerPayments["breakdown"][number], missing: string): string {
+function signedLine(row: OwnerPayments["breakdown"][number]): number | null {
+  if (row.paise == null || row.id === "bank" || row.id === "net" || row.id === "gst") return null;
+  if (row.id === "adjustments") return null;
+  if (row.id === "sales" || row.id === "other") return row.paise;
+  return -Math.abs(row.paise);
+}
+
+function displayPaise(rows: OwnerPayments["breakdown"]): Record<string, number> {
+  const total = rows.find((row) => row.id === "bank" || row.id === "net")?.paise;
+  if (total == null) return {};
+  const parts = rows.flatMap((row) => {
+    const paise = signedLine(row);
+    return paise == null ? [] : [{ id: row.id, paise }];
+  });
+  if (parts.reduce((sum, part) => sum + part.paise, 0) !== total) return {};
+  return largestRemainderRupees(parts, total);
+}
+
+function rowAmount(
+  row: OwnerPayments["breakdown"][number],
+  amounts: Record<string, number>,
+  missing: string,
+): string {
   if (row.paise == null) return missing;
+  const shown = amounts[row.id] ?? row.paise;
   const signed =
     row.label.startsWith("−") || row.label.startsWith("+") || row.label.startsWith("=");
-  return formatRupees(signed ? Math.abs(row.paise) : row.paise);
+  return formatRupees(signed ? Math.abs(shown) : shown);
 }
 
 function PayoutOrders({ screen }: { screen: OwnerPayments }) {
@@ -212,12 +247,16 @@ function PayoutOrders({ screen }: { screen: OwnerPayments }) {
 function Reach({ screen }: { screen: OwnerPayments }) {
   const { t } = useLingui();
   const sales = screen.breakdown.find((row) => row.id === "sales")?.paise;
-  const bank = screen.breakdown.find((row) => row.id === "bank" || row.id === "net")?.paise;
-  if (sales == null || sales <= 0 || bank == null) return null;
-  const reached = Math.round((bank / sales) * 100);
+  const bank = screen.breakdown.find((row) => row.id === "bank");
+  const net = screen.breakdown.find((row) => row.id === "net");
+  const closing = bank ?? net;
+  if (sales == null || sales <= 0 || closing?.paise == null) return null;
+  const reached = Math.round((closing.paise / sales) * 100);
   return (
     <p className="mt-3 text-body-sm">
-      {t`Out of every ₹100 in sales, ₹${reached} reached your bank`}
+      {closing.basis === "paid"
+        ? t`Out of every ₹100 in sales, ₹${reached} reached your bank`
+        : t`Out of every ₹100 in sales, ₹${reached} is expected, not paid yet`}
     </p>
   );
 }

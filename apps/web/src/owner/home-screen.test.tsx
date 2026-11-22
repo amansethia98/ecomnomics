@@ -105,6 +105,49 @@ it("shows the act-now card without a snooze, and snooze only on a watch row", ()
   expect(snooze).toEqual(["···"]);
 });
 
+it("greets with the current India time and matches a paid payout", () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  act(() => {
+    createRoot(host).render(
+      <MemoryRouter>
+        <OwnerHomeScreen
+          restaurantId="r1"
+          restaurantName="Kesar Kitchen"
+          home={{
+            ...home,
+            date: "2026-11-21",
+            now: "2026-11-22T15:00:00.000Z",
+            payoutApps: {
+              zomato: {
+                basis: "expected",
+                paise: 8_091_300,
+                from: "2026-11-09",
+                to: "2026-11-16",
+              },
+              swiggy: {
+                basis: "paid",
+                paise: 8_067_400,
+                from: "2026-11-08",
+                to: "2026-11-15",
+              },
+            },
+          }}
+          onSnooze={() => undefined}
+          onAnswer={() => undefined}
+        />
+      </MemoryRouter>,
+    );
+  });
+  expect(host.textContent).toContain("Good evening");
+  expect(host.textContent).toContain("Sun 22 Nov");
+  expect(host.textContent).not.toContain("Sat 21 Nov");
+  expect(host.textContent).toContain("Zomato 9–16 Nov · Expected ₹80,913");
+  expect(host.textContent).toContain("Swiggy 8–15 Nov · Paid ₹80,674");
+  expect(host.textContent).not.toContain("₹1,61,587");
+  expect(host.textContent).not.toContain("Swiggy pending, usually in by 11 AM");
+});
+
 it("labels each app against the same weekday last week", () => {
   const host = document.createElement("div");
   document.body.append(host);

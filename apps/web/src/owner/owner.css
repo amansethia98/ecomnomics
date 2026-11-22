@@ -154,6 +154,17 @@
   }
 }
 
+.ecomnomics .owner-page {
+  overflow-x: clip;
+  padding-bottom: calc(6.75rem + env(safe-area-inset-bottom, 0px));
+}
+
+@media (min-width: 768px) {
+  .ecomnomics .owner-page {
+    padding-bottom: 2.5rem;
+  }
+}
+
 .ecomnomics .owner-tabbar {
   position: fixed;
   right: 0;
