@@ -69,6 +69,22 @@ async function recordQuestion(
   today: string,
   text: string,
 ) {
+  const day = utcMidnight(today);
+  const earlier = await db.ownerStaffTurn.findMany({
+    where: {
+      restaurantId: restaurant.restaurantId,
+      spaceId: restaurant.spaceId,
+      userId,
+      role: "owner",
+      businessDate: day,
+      failed: false,
+    },
+    select: { body: true },
+  });
+  const needle = text.trim().toLowerCase();
+  if (earlier.some((turn) => textOf(turn.body).trim().toLowerCase() === needle)) {
+    return loadThread(db, restaurant, userId, today);
+  }
   const asked = await askedToday(db, restaurant.restaurantId, restaurant.spaceId, userId, today);
   if (asked >= STAFF_QUESTION_LIMIT) {
     throw new RestaurantAgentError(
@@ -108,7 +124,6 @@ async function recordQuestion(
       suppressedUntil: null,
     });
   }
-  const day = utcMidnight(today);
   await db.ownerStaffTurn.create({
     data: {
       restaurantId: restaurant.restaurantId,
@@ -629,7 +644,7 @@ async function askedToday(
   userId: string,
   today: string,
 ) {
-  return db.ownerStaffTurn.count({
+  const turns = await db.ownerStaffTurn.findMany({
     where: {
       restaurantId,
       spaceId,
@@ -638,7 +653,13 @@ async function askedToday(
       counted: true,
       businessDate: utcMidnight(today),
     },
+    select: { body: true },
   });
+  return new Set(
+    turns
+      .map((turn) => textOf(turn.body).trim().toLowerCase())
+      .filter((question) => question.length > 0),
+  ).size;
 }
 
 function toRecord(action: {

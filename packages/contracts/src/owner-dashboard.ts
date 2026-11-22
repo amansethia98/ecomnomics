@@ -1615,12 +1615,12 @@ export function resolveOwnerPlot<
   T extends {
     x?: Record<string, unknown>;
     y?: Record<string, unknown>;
-    marks: ReadonlyArray<{ data?: unknown[] }>;
+    marks: ReadonlyArray<{ data?: unknown[]; options?: Record<string, unknown> }>;
   },
 >(plot: T): T {
   return {
     ...plot,
-    x: resolveAxis(legacyAxis(plot.x)),
+    x: resolveAxis(legacyAxis(plot.x, plot.marks)),
     y: resolveAxis(legacyAxis(plot.y)),
     marks: plot.marks.map((mark) => ({
       ...mark,
@@ -1642,11 +1642,23 @@ export function resolveOwnerPlot<
 /** Charts saved before format keys dropped their tick functions and kept a bare axis. */
 function legacyAxis(
   axis: Record<string, unknown> | undefined,
+  marks?: ReadonlyArray<{ data?: unknown[]; options?: Record<string, unknown> }>,
 ): Record<string, unknown> | undefined {
   if (!axis || axis.format != null || typeof axis.tickFormat === "function") return axis;
   if (axis.type === "utc") return { ...axis, format: "date" };
   if (axis.grid === true) return { ...axis, format: "inr" };
+  if (marks?.some((mark) => isoDateChannel(mark))) return { ...axis, format: "civil" };
   return axis;
+}
+
+function isoDateChannel(mark: { data?: unknown[]; options?: Record<string, unknown> }): boolean {
+  const key = mark.options?.x;
+  if (typeof key !== "string" || key === "at" || key === "x1" || key === "x2") return false;
+  return (mark.data ?? []).some((row) => {
+    if (!row || typeof row !== "object") return false;
+    const value = (row as Record<string, unknown>)[key];
+    return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+  });
 }
 
 function resolveAxis(
