@@ -3,9 +3,11 @@ import { resolveOwnerPlot } from "./owner-dashboard.js";
 import type { MarketingActionRecord, MarketingReading, StaffMessage } from "./owner-staff.js";
 import {
   answerStaffQuestion,
+  briefBlocks,
   choiceReply,
   composeStaffThread,
   presentMarketing,
+  repeatQuestion,
   staffQuota,
 } from "./owner-staff.js";
 
@@ -102,11 +104,18 @@ it("answers from the numbers it was given and does not count a failed try", () =
     ...base("How were sales last week?"),
     salesPaise: 500_000,
     changePct: 4,
-    compare: "vs the same days last week",
-    period: "Mon–Sun",
+    compare: "2–8 Nov",
+    period: "9–15 Nov vs 2–8 Nov",
   });
   expect(lastWeek.blocks[0]?.kind === "text" && lastWeek.blocks[0].text).toBe(
-    "Last week (Mon–Sun) vs the same days last week.",
+    "9–15 Nov vs 2–8 Nov",
+  );
+  if (lastWeek.blocks[1]?.kind === "metric") {
+    expect(lastWeek.blocks[1].compare).toBe("2–8 Nov");
+  }
+  const chartStroke = lastWeek.blocks.find((block) => block.kind === "chart");
+  expect(chartStroke?.kind === "chart" && chartStroke.plot.marks[0]?.options?.stroke).toBe(
+    "var(--foreground)",
   );
 
   const failed = answerStaffQuestion({
@@ -172,7 +181,51 @@ it("draws a stored chart's week labels as short dates", () => {
   expect(tick?.("2026-10-05")).toBe("5 Oct");
 });
 
-it("keeps one copy when the same question is asked twice in a day", () => {
+it("treats the same question inside a minute as one turn", () => {
+  expect(
+    repeatQuestion({
+      previousText: "Why did sales move?",
+      previousAt: "2026-11-22T09:00:00.000Z",
+      text: "Why did sales move?",
+      now: "2026-11-22T09:00:30.000Z",
+    }),
+  ).toBe(true);
+  expect(
+    repeatQuestion({
+      previousText: "Why did sales move?",
+      previousAt: "2026-11-22T09:00:00.000Z",
+      text: "Why did sales move?",
+      now: "2026-11-22T09:02:00.000Z",
+    }),
+  ).toBe(false);
+});
+
+it("keeps a stored brief closing on the day it was sent", () => {
+  const thread = composeStaffThread({
+    restaurantName: "Kesar Kitchen",
+    hasHistory: true,
+    brief: {
+      date: "2026-11-15",
+      text: "Good morning.\nData as of Sun 15 Nov, 9:00 AM IST.",
+    },
+    messages: [],
+    askedToday: 0,
+  });
+  const text = thread.messages.flatMap((message) =>
+    message.blocks.flatMap((block) => (block.kind === "text" ? [block.text] : [])),
+  );
+  expect(text.join(" ")).toContain("Sun 15 Nov");
+  expect(text.join(" ")).not.toContain("22 Nov");
+});
+
+it("drops the status emoji and the raw metric line from a brief", () => {
+  const blocks = briefBlocks(
+    "🔴 Zomato bad orders 33.3% (15 of 45). Fix: pack it first.\nSales were quiet.",
+  );
+  expect(blocks.map((block) => block.text).join(" ")).toBe("Sales were quiet.");
+});
+
+it("keeps a later question that uses the same words after the minute", () => {
   const owner = (id: string, text: string): StaffMessage => ({
     id,
     role: "owner",
@@ -203,7 +256,14 @@ it("keeps one copy when the same question is asked twice in a day", () => {
     ],
     askedToday: 2,
   });
-  expect(thread.messages.map((message) => message.id)).toEqual(["q1", "a1", "q3", "a3"]);
+  expect(thread.messages.map((message) => message.id)).toEqual([
+    "q1",
+    "a1",
+    "q2",
+    "a2",
+    "q3",
+    "a3",
+  ]);
 });
 
 it("offers an action once, and records the owner's choice in words", () => {

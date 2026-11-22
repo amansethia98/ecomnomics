@@ -106,8 +106,12 @@ it("links an empty marketing log to the chat and folds extra waiting rows", () =
   const host = render(
     <MarketingActionsScreen restaurantId="r1" screen={empty} onConfirm={() => undefined} />,
   );
-  expect(host.textContent).toContain("No suggestions are waiting");
-  expect(host.textContent).toContain("you approve");
+  expect(host.textContent).toContain(
+    "Your chief of staff will suggest your first action after a week of data",
+  );
+  expect(host.textContent).toContain("Ask your chief of staff →");
+  expect(host.textContent).not.toContain("All (0)");
+  expect(host.querySelector("table")).toBeNull();
   const known = render(
     <MarketingActionsScreen
       restaurantId="r1"
@@ -115,7 +119,9 @@ it("links an empty marketing log to the chat and folds extra waiting rows", () =
       onConfirm={() => undefined}
     />,
   );
-  expect(known.textContent).toContain("No suggestions yet.");
+  expect(known.textContent).toContain(
+    "Your chief of staff will suggest your first action after a week of data",
+  );
   expect(known.textContent).toContain("You switch offers on");
 
   const many: MarketingScreen = {

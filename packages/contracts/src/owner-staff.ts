@@ -159,7 +159,23 @@ const OFFER = /\b(offer|discount|ads?|what should i do)\b/i;
 
 export const StaffQuestionSchema = z.object({
   text: z.string().trim().min(1).max(500),
+  key: z.string().trim().min(1).max(80).optional(),
 });
+
+/** Same owner text inside a minute is the same turn. */
+export function repeatQuestion(input: {
+  previousText: string;
+  previousAt: string;
+  text: string;
+  now: string;
+  previousKey?: string | null;
+  key?: string | null;
+}): boolean {
+  const elapsed = Date.parse(input.now) - Date.parse(input.previousAt);
+  if (!Number.isFinite(elapsed) || elapsed < 0 || elapsed >= 60_000) return false;
+  if (input.key && input.previousKey && input.key === input.previousKey) return true;
+  return input.previousText.trim().toLowerCase() === input.text.trim().toLowerCase();
+}
 
 export const StaffChoiceSchema = z.object({
   actionId: z.string().trim().min(1).max(80),
@@ -175,8 +191,12 @@ export function briefBlocks(text: string): StaffTextBlock[] {
   const dated = text.replace(/\b(\d{4}-\d{2}-\d{2})\b/g, (iso) => formatCivilDay(iso));
   const blocks: StaffTextBlock[] = [];
   for (const line of dated.split("\n")) {
-    const trimmed = line.trim();
+    const trimmed = line
+      .replace(/[\u{1F534}\u{1F7E1}]/gu, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
     if (!trimmed) continue;
+    if (/\d+(?:\.\d+)?% \(\d+ of \d+\)/.test(trimmed) || trimmed.startsWith("Fix:")) continue;
     const heading = trimmed.match(/^\*+([^*]+)\*+$/) ?? trimmed.match(/^#{1,3}\s+(.+)$/);
     if (heading?.[1]) {
       blocks.push({ kind: "text", text: heading[1].trim(), heading: true });
@@ -216,9 +236,7 @@ export function composeStaffThread(input: {
         failed: false,
       }
     : null;
-  const messages = collapseSameDay(
-    briefMessage ? [briefMessage, ...input.messages] : [...input.messages],
-  );
+  const messages = briefMessage ? [briefMessage, ...input.messages] : [...input.messages];
   const first = messages.length === 0;
   return {
     greeting:
@@ -229,35 +247,6 @@ export function composeStaffThread(input: {
     messages,
     quota,
   };
-}
-
-/** One answer per question on a day. A later identical ask is the same reply. */
-function collapseSameDay(messages: readonly StaffMessage[]): StaffMessage[] {
-  const seen = new Set<string>();
-  const kept: StaffMessage[] = [];
-  for (let index = 0; index < messages.length; index += 1) {
-    const message = messages[index];
-    if (!message) continue;
-    if (message.role !== "owner") {
-      kept.push(message);
-      continue;
-    }
-    const text = message.blocks
-      .flatMap((block) => (block.kind === "text" ? [block.text] : []))
-      .join("\n")
-      .trim()
-      .toLowerCase();
-    const next = messages[index + 1];
-    const paired = Boolean(next && next.role === "staff" && next.date === message.date);
-    const key = `${message.date}\n${text}`;
-    if (text && !message.failed && seen.has(key)) {
-      if (paired) index += 1;
-      continue;
-    }
-    if (text && !message.failed) seen.add(key);
-    kept.push(message);
-  }
-  return kept;
 }
 
 export function answerStaffQuestion(input: StaffAnswerInput): StaffAnswer {
@@ -359,7 +348,7 @@ export function answerStaffQuestion(input: StaffAnswerInput): StaffAnswer {
         input.salesPaise == null
           ? "Your first numbers arrive after tonight's download."
           : /\bweek\b/i.test(input.question) && input.period
-            ? `Last week (${input.period}) vs the same days last week.`
+            ? input.period
             : "Here is the latest week I can measure.",
     },
     metric(input),
@@ -380,7 +369,7 @@ export function answerStaffQuestion(input: StaffAnswerInput): StaffAnswer {
               at: point.week,
               sales: point.sales,
             })),
-            options: { x: "at", y: "sales", stroke: "var(--owner-zomato)" },
+            options: { x: "at", y: "sales", stroke: "var(--foreground)" },
           },
         ],
       },

@@ -279,6 +279,7 @@ export function restaurantOwnerRoutes(options: RestaurantOwnerRouteOptions) {
           session.userId,
           c.req.param("restaurantId"),
           parsed.data.text,
+          parsed.data.key,
         ),
       );
     } catch (error) {

@@ -7,7 +7,8 @@ import {
   STAFF_QUESTION_LIMIT,
 } from "@rakazo/contracts";
 import { Button } from "@rakazo/ui-web";
-import { useState } from "react";
+import { Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ChangeBadge } from "./marks";
 import { PlotFigure } from "./plot-figure";
@@ -22,19 +23,49 @@ export function StaffScreen({
   restaurantId: string;
   thread: StaffThread;
   notice?: string | null;
-  onAsk: (text: string) => void;
+  onAsk: (text: string, key: string) => void;
   onChoose: (actionId: string, choice: "approve" | "change" | "not_now") => void;
 }) {
   const { t } = useLingui();
   const [text, setText] = useState("");
-  const disabled = thread.quota.inputDisabled;
+  const [sending, setSending] = useState(false);
+  const [askKey, setAskKey] = useState(() => crypto.randomUUID());
+  const disabled = thread.quota.inputDisabled || sending;
+  useEffect(() => {
+    setSending(false);
+  }, [thread.messages.length]);
+  const ask = (next: string) => {
+    if (!next || disabled) return;
+    setSending(true);
+    onAsk(next, askKey);
+    setAskKey(crypto.randomUUID());
+    setText("");
+  };
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
-      {thread.greeting ? <p className="text-heading3 font-medium">{thread.greeting}</p> : null}
+    <div className="mx-auto flex max-w-3xl flex-col gap-4">
+      <header className="flex items-center gap-3">
+        <span className="flex size-9 items-center justify-center rounded-full bg-background">
+          <Sparkles aria-hidden="true" className="size-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="font-medium">{t`Chief of staff`}</p>
+          <p className="text-body-sm text-muted-foreground">
+            {t`Knows your Zomato & Swiggy numbers · nothing changes without your OK`}
+          </p>
+        </div>
+        <button type="button" className="text-body-sm text-primary" onClick={() => setText("")}>
+          {t`New chat`}
+        </button>
+      </header>
+      {thread.greeting ? (
+        <p className="text-body-sm text-muted-foreground">{thread.greeting}</p>
+      ) : null}
       {thread.messages.map((message, index) => (
         <div key={message.id}>
           {index === 0 || thread.messages[index - 1]?.date !== message.date ? (
-            <p className="text-label text-muted-foreground">{formatCivilDay(message.date)}</p>
+            <p className="my-2 text-center text-label text-muted-foreground">
+              {formatCivilDay(message.date)}
+            </p>
           ) : null}
           <Message message={message} restaurantId={restaurantId} onChoose={onChoose} />
         </div>
@@ -45,8 +76,9 @@ export function StaffScreen({
             <button
               key={starter}
               type="button"
-              className="text-body-sm text-primary"
-              onClick={() => onAsk(starter)}
+              className="rounded-full border border-border bg-background px-3 py-1 text-body-sm"
+              disabled={disabled}
+              onClick={() => ask(starter)}
             >
               {starter}
             </button>
@@ -59,24 +91,38 @@ export function StaffScreen({
         </p>
       ) : null}
       <form
-        className="flex gap-2"
+        className="flex items-center gap-2"
         onSubmit={(event) => {
           event.preventDefault();
-          const next = text.trim();
-          if (!next || disabled) return;
-          setText("");
-          onAsk(next);
+          ask(text.trim());
         }}
       >
         <input
           aria-label={t`Question`}
-          className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 text-body"
+          className="h-11 min-w-0 flex-1 rounded-full border border-border bg-background px-4 text-body"
           disabled={disabled}
           value={text}
-          placeholder={disabled ? t`You've used today's 30 questions. Resets at midnight.` : t`Ask`}
+          placeholder={
+            disabled && thread.quota.inputDisabled
+              ? t`You've used today's 30 questions. Resets at midnight.`
+              : t`Ask anything about your business…`
+          }
           onChange={(event) => setText(event.target.value)}
         />
-        <Button type="submit" disabled={disabled || text.trim().length === 0}>
+        <button
+          type="button"
+          aria-label={t`Voice`}
+          className="flex size-11 items-center justify-center rounded-full border border-border"
+          disabled={disabled}
+        >
+          {t`Mic`}
+        </button>
+        <Button
+          type="submit"
+          className="size-11 rounded-full px-0"
+          disabled={disabled || text.trim().length === 0}
+          aria-label={t`Send`}
+        >
           {t`Send`}
         </Button>
       </form>
@@ -94,16 +140,30 @@ function Message({
   restaurantId: string;
   onChoose: (actionId: string, choice: "approve" | "change" | "not_now") => void;
 }) {
+  const mine = message.role === "owner";
   return (
-    <div className={message.role === "owner" ? "mt-2 text-right" : "mt-2"}>
-      {message.blocks.map((block, index) => (
-        <Block
-          key={`${message.id}-${index}`}
-          block={block}
-          restaurantId={restaurantId}
-          onChoose={onChoose}
-        />
-      ))}
+    <div className={mine ? "mt-2 flex justify-end" : "mt-2 flex items-start gap-2"}>
+      {mine ? null : (
+        <span className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-background">
+          <Sparkles aria-hidden="true" className="size-3.5" />
+        </span>
+      )}
+      <div
+        className={
+          mine
+            ? "max-w-[80%] rounded-2xl bg-primary px-3 py-2 text-primary-foreground"
+            : "max-w-[80%] rounded-2xl bg-background px-3 py-2"
+        }
+      >
+        {message.blocks.map((block, index) => (
+          <Block
+            key={`${message.id}-${index}`}
+            block={block}
+            restaurantId={restaurantId}
+            onChoose={onChoose}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -132,7 +192,11 @@ function Block({
         {block.changePct != null && block.compare ? (
           <ChangeBadge
             direction={block.changePct < 0 ? "down" : "up"}
-            label={`${formatSignedPct(block.changePct)} vs ${block.compare}`}
+            label={
+              block.compare.startsWith("vs ")
+                ? `${formatSignedPct(block.changePct)} ${block.compare}`
+                : `${formatSignedPct(block.changePct)} vs ${block.compare}`
+            }
           />
         ) : null}
         {block.pending ? (
