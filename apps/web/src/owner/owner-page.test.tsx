@@ -100,7 +100,7 @@ it("opens payments, documents, menu, and ratings from their routes", async () =>
     ["/restaurants/r1/payments", "Check runs Thursday"],
     ["/restaurants/r1/documents", "Your first brief arrives tomorrow at 9:00 AM."],
     ["/restaurants/r1/menu", "Dish-by-dish insights are on the way"],
-    ["/restaurants/r1/ratings", "No reviews are in yet."],
+    ["/restaurants/r1/ratings", "Reviews and replies are on the way"],
   ] as const) {
     const root = createRoot(host);
     await act(async () => {
@@ -109,7 +109,7 @@ it("opens payments, documents, menu, and ratings from their routes", async () =>
     await vi.waitFor(() => {
       expect(host.textContent, path).toContain(copy);
     });
-    if (path.endsWith("/payments")) expect(host.textContent).toContain("Ad credit");
+    if (path.endsWith("/payments")) expect(host.textContent).toContain("Latest payouts");
     await act(async () => {
       root.unmount();
     });
