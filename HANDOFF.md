@@ -50,14 +50,18 @@ Useful checks: `pnpm --filter @rakazo/web build`, `pnpm check`, `pnpm test`.
 
 These were found on the preview with real walkthroughs and should be fixed in a follow-up, not treated as finished work:
 
-- Charts look poor and are not interactive (no useful hover or tap).
-- Date filters were reported broken.
+- Charts look poor and are not interactive. Hover and click on a chart do nothing.
+- The 7D, 4W, and 12W range chips work, and so do the Both / Zomato / Swiggy platform chips.
+- The Custom chip only changes the URL (`from` / `to`) and does not open a picker. The view stays on the previous range.
+- When a custom range is loaded from the URL, the To box shows one day earlier than the URL `to=` value (the exclusive end is shown off by one). A custom 14-day range is labelled "last 2 weeks" but the chart only has 2 points.
+- Tile sparklines, "When you sell", and "How customers find you" do not change when the range changes.
 - On a 390px phone, Dashboard and Chief of staff are wider than the screen, so bottom tab items (Payments, More) can be unreachable.
 - Text is clipped on Chief of staff, and some text overlaps on Ratings.
 - The More pop-up stays open after you pick something.
 - Dashboard can show "Loading" for 3–8 seconds.
-- On Payments, Zomato breakdown rows show dashes.
-- The week picker is missing 15–21 Nov.
+- The Payments week dropdown mixes Zomato and Swiggy weeks (they alternate), and the header can mix two weeks. The week picker is missing 15–21 Nov.
+- Zomato payout weeks show dashes in the breakdown, except Ads and Expected.
+- On Home, the "Sat 21 Nov" chip looks like a control but does nothing.
 
 ## Recommended next steps
 
