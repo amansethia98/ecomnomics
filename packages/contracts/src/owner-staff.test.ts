@@ -412,6 +412,46 @@ it("keeps an empty bubble and does not fold a question into its answer", () => {
   expect(thread.messages.map((message) => message.id)).toEqual(["empty", "empty-2", "q", "a"]);
 });
 
+it("keeps a chart answer that repeats an earlier sentence", () => {
+  const sentence = "Here is the latest week I can measure.";
+  const thread = composeStaffThread({
+    restaurantName: "Kesar Kitchen",
+    hasHistory: true,
+    brief: null,
+    messages: [
+      {
+        id: "plain",
+        role: "staff",
+        date: "2026-11-16",
+        blocks: [{ kind: "text", text: sentence }],
+        counted: false,
+        failed: false,
+      },
+      {
+        id: "charted",
+        role: "staff",
+        date: "2026-11-16",
+        blocks: [
+          { kind: "text", text: sentence },
+          {
+            kind: "chart",
+            plot: {
+              id: "staff-sales",
+              width: 640,
+              height: 160,
+              marks: [],
+            },
+          },
+        ],
+        counted: false,
+        failed: false,
+      },
+    ],
+    askedToday: 0,
+  });
+  expect(thread.messages.map((message) => message.id)).toEqual(["plain", "charted"]);
+});
+
 it("offers an action once, and records the owner's choice in words", () => {
   const offer = answerStaffQuestion(base("Should I run an offer?"));
   expect(offer.suggest).toBe(true);

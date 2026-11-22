@@ -264,7 +264,13 @@ function messageText(message: StaffMessage): string {
   return message.blocks
     .flatMap((block) => {
       if (block.kind === "text") return [block.text];
-      if (block.kind === "metric" && block.compare) return [block.compare];
+      if (block.kind === "metric") {
+        return [
+          `${block.label}|${block.paise ?? ""}|${block.changePct ?? ""}|${block.compare ?? ""}`,
+        ];
+      }
+      if (block.kind === "chart") return [`chart:${block.plot.id}`];
+      if (block.kind === "choice") return [`choice:${block.actionId}`];
       return [];
     })
     .join("\n");
