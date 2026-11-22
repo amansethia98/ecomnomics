@@ -18,14 +18,11 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { NumberCard } from "./number-card";
 
-const SalesChart = lazy(() =>
-  import("./owner-charts").then((mod) => ({ default: mod.SalesChart })),
-);
-const HeatGrid = lazy(() => import("./owner-charts").then((mod) => ({ default: mod.HeatGrid })));
-const SparkLine = lazy(() => import("./owner-charts").then((mod) => ({ default: mod.SparkLine })));
-const FunnelChart = lazy(() =>
-  import("./owner-charts").then((mod) => ({ default: mod.FunnelChart })),
-);
+const ownerCharts = import("./owner-charts");
+const SalesChart = lazy(() => ownerCharts.then((mod) => ({ default: mod.SalesChart })));
+const HeatGrid = lazy(() => ownerCharts.then((mod) => ({ default: mod.HeatGrid })));
+const SparkLine = lazy(() => ownerCharts.then((mod) => ({ default: mod.SparkLine })));
+const FunnelChart = lazy(() => ownerCharts.then((mod) => ({ default: mod.FunnelChart })));
 
 const readingsCache = new Map<string, DashReading[]>();
 const readingsInflight = new Map<string, Promise<DashReading[]>>();
