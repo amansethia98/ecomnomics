@@ -100,7 +100,7 @@ export interface OwnerDashboardModel {
   pins: DashPin[];
   shadeWeek: string | null;
   tiles: DashTile[];
-  heatmap: Array<{ week: string; weekday: string; orders: number | null; pending: boolean }>;
+  heatmap: Array<{ weekday: string; hour: number; salesPaise: number | null }>;
   funnel: Array<{
     step: "menu" | "cart" | "order";
     platform: OpsPlatform;
@@ -173,10 +173,7 @@ export function composeOwnerDashboard(input: OwnerDashboardInput): OwnerDashboar
         : aligned.change > 0
           ? "up"
           : "down";
-  const heatmapWeeks = (window.unit === "week" ? chart.starts : weekBuckets(chart.starts)).filter(
-    (week) => addDays(week, 7) <= bounded.today,
-  );
-  const heatmap = heatmapFor(bounded.readings, heatmapWeeks, platforms);
+  const heatmap = heatmapFor(bounded.readings, window.currentFrom, window.currentTo, platforms);
   const funnel = funnelFor(bounded.readings, chart.starts, chart.grain, platforms);
   const funnelWeeks = funnelFor(
     bounded.readings,
@@ -242,27 +239,6 @@ interface ComparedWindow {
   previousTo: string;
 }
 
-/** Last day at or before `through` with an ok sales reading for a selected app. */
-function lastSalesDay(
-  readings: readonly DashReading[],
-  platforms: OpsPlatform[],
-  through: string,
-): string | null {
-  const dates = readings
-    .filter(
-      (reading) =>
-        reading.grain === "day" &&
-        platforms.includes(reading.platform) &&
-        reading.key === SALES_KEY[reading.platform] &&
-        reading.state === "ok" &&
-        reading.value != null &&
-        reading.from <= through,
-    )
-    .map((reading) => reading.from);
-  dates.sort();
-  return dates.at(-1) ?? null;
-}
-
 /** Monday of the last week that has fully ended by `today`, at or before `onOrBefore`. */
 function recentMondays(today: string, count: number): string[] {
   const end = completeMonday(today, today);
@@ -283,27 +259,27 @@ function rangeCap(to: string, today: string): string {
 }
 
 /**
- * A day range stays its full length and ends on the last day before today that has sales.
+ * A day range uses the URL's inclusive days, including a day with no sales.
  * A week range ends on the last complete week, so a trailing partial week is never a point.
  */
-function comparisonWindow(input: OwnerDashboardInput, platforms: OpsPlatform[]): ComparedWindow {
+function comparisonWindow(input: OwnerDashboardInput, _platforms: OpsPlatform[]): ComparedWindow {
   const span = Math.max(1, daysBetween(input.from, input.to));
   const unit = span < 21 ? "day" : "week";
   if (unit === "day") {
     const cap = rangeCap(input.to, input.today);
-    const end = lastSalesDay(input.readings, platforms, cap) ?? cap;
-    const currentTo = addDays(end, 1);
-    const currentFrom = addDays(currentTo, -span);
+    const currentTo = addDays(cap, 1);
+    const currentFrom = input.from < currentTo ? input.from : addDays(currentTo, -span);
+    const count = Math.max(1, daysBetween(currentFrom, currentTo));
     return {
       unit,
-      count: span,
-      length: span,
+      count,
+      length: count,
       grain: "day",
       step: 1,
       currentFrom,
       currentTo,
-      previousFrom: addDays(currentFrom, -span),
-      previousTo: addDays(currentTo, -span),
+      previousFrom: addDays(currentFrom, -count),
+      previousTo: addDays(currentTo, -count),
     };
   }
   const count = Math.max(1, Math.round(span / 7));
@@ -1347,21 +1323,53 @@ function reduceRows(rows: DashReading[], average: boolean): WindowTotal {
   return { kind: "value", total: average ? total / ok.length : total };
 }
 
-function heatmapFor(readings: readonly DashReading[], weeks: string[], platforms: OpsPlatform[]) {
+/** Meal windows in IST hours. A day's sales is shared across the hours of the meals it recorded. */
+const MEAL_HOURS: ReadonlyArray<{ key: string; hours: readonly number[] }> = [
+  { key: "breakfast_orders", hours: [7, 8, 9, 10] },
+  { key: "lunch_orders", hours: [11, 12, 13, 14, 15] },
+  { key: "snacks_orders", hours: [16, 17, 18] },
+  { key: "dinner_orders", hours: [19, 20, 21, 22] },
+  { key: "late_night_orders", hours: [23, 0, 1, 2, 3] },
+];
+
+function heatmapFor(
+  readings: readonly DashReading[],
+  from: string,
+  to: string,
+  platforms: OpsPlatform[],
+) {
+  const totals = new Map<string, number>();
+  for (let date = from; date < to; date = addDays(date, 1)) {
+    const sales = rowsIn(readings, "day", "ops_sales_paise", date, addDays(date, 1), platforms)
+      .concat(rowsIn(readings, "day", "swiggy_net_sales_paise", date, addDays(date, 1), platforms))
+      .filter((row) => row.state === "ok" && row.value != null)
+      .reduce((sum, row) => sum + (row.value ?? 0), 0);
+    const meals = MEAL_HOURS.map((meal) => ({
+      hours: meal.hours,
+      orders: rowsIn(readings, "day", meal.key, date, addDays(date, 1), platforms)
+        .filter((row) => row.state === "ok")
+        .reduce((sum, row) => sum + (row.value ?? 0), 0),
+    }));
+    const mealOrders = meals.reduce((sum, meal) => sum + meal.orders, 0);
+    if (sales <= 0 || mealOrders <= 0) continue;
+    const weekday = WEEKDAYS[daysBetween(weekMonday(date), date)] ?? "Mon";
+    for (const meal of meals) {
+      if (meal.orders <= 0) continue;
+      const perHour = (sales * meal.orders) / mealOrders / meal.hours.length;
+      for (const hour of meal.hours) {
+        const key = `${weekday}|${hour}`;
+        totals.set(key, (totals.get(key) ?? 0) + perHour);
+      }
+    }
+  }
   const cells: OwnerDashboardModel["heatmap"] = [];
-  for (const week of weeks) {
-    for (let offset = 0; offset < 7; offset += 1) {
-      const date = addDays(week, offset);
-      const rows = rowsIn(readings, "day", "delivered_orders", date, addDays(date, 1), platforms);
-      const pending = rows.some((row) => row.state === "pending");
-      const orders = pending
-        ? null
-        : rows.filter((row) => row.state === "ok").reduce((sum, row) => sum + (row.value ?? 0), 0);
+  for (const weekday of WEEKDAYS) {
+    for (let hour = 0; hour < 24; hour += 1) {
+      const salesPaise = totals.get(`${weekday}|${hour}`);
       cells.push({
-        week,
-        weekday: WEEKDAYS[offset] ?? "Mon",
-        orders: rows.length === 0 ? null : orders,
-        pending,
+        weekday,
+        hour,
+        salesPaise: salesPaise == null ? null : Math.round(salesPaise),
       });
     }
   }
@@ -1684,19 +1692,18 @@ export function dashboardPlots(model: OwnerDashboardModel): OwnerPlot[] {
     }
   }
   const plots: OwnerPlot[] = model.panels.map((panel) => salesPlotFor(model, panel, axis));
-  const heatWeeks = [...new Set(model.heatmap.map((cell) => cell.week))].sort();
-  const cell = 30;
+  const hours = Array.from({ length: 24 }, (_, hour) => hour);
+  const cell = 18;
   plots.push({
     id: "heatmap",
-    width: 44 + Math.max(heatWeeks.length, 1) * cell,
+    width: 44 + hours.length * cell,
     height: 16 + WEEKDAY_ORDER.length * cell,
     marginLeft: 44,
     x: {
       label: null,
-      domain: heatWeeks,
-      padding: 0.2,
-      ticks: heatWeeks.filter((_, index) => index % 3 === 0),
-      format: "civil",
+      domain: [0, 23],
+      padding: 0,
+      ticks: [0, 6, 12, 18],
     },
     y: { label: null, domain: [...WEEKDAY_ORDER], padding: 0 },
     color: {
@@ -1708,24 +1715,8 @@ export function dashboardPlots(model: OwnerDashboardModel): OwnerPlot[] {
       {
         type: "cell",
         data: model.heatmap,
-        options: { x: "week", y: "weekday", fill: "orders", inset: 2 },
+        options: { x: "hour", y: "weekday", fill: "salesPaise", inset: 1 },
       },
-      ...(model.heatmap.some((item) => item.pending)
-        ? [
-            {
-              type: "cell" as const,
-              data: model.heatmap.filter((item) => item.pending),
-              options: {
-                x: "week",
-                y: "weekday",
-                fill: "transparent",
-                stroke: "var(--border)",
-                strokeDasharray: "3 2",
-                inset: 2,
-              },
-            },
-          ]
-        : []),
     ],
   });
   for (const step of ["menu", "cart", "order"] as const) {
@@ -1866,21 +1857,23 @@ function salesPlotFor(
 }
 
 /** Keep the quietest day above the white end of the purple ramp. */
-function heatmapDomain(cells: ReadonlyArray<{ orders: number | null }>): [number, number] {
+function heatmapDomain(cells: ReadonlyArray<{ salesPaise: number | null }>): [number, number] {
   const max = Math.max(
     1,
-    ...cells.flatMap((cell) => (cell.orders != null && cell.orders > 0 ? [cell.orders] : [])),
+    ...cells.flatMap((cell) =>
+      cell.salesPaise != null && cell.salesPaise > 0 ? [cell.salesPaise] : [],
+    ),
   );
   return [max / 8, max];
 }
 
 export function heatmapHeadline(
-  cells: ReadonlyArray<{ weekday: string; orders: number | null }>,
+  cells: ReadonlyArray<{ weekday: string; salesPaise: number | null }>,
 ): string | null {
   const totals = new Map<string, number>();
   for (const cell of cells) {
-    if (cell.orders == null) continue;
-    totals.set(cell.weekday, (totals.get(cell.weekday) ?? 0) + cell.orders);
+    if (cell.salesPaise == null) continue;
+    totals.set(cell.weekday, (totals.get(cell.weekday) ?? 0) + cell.salesPaise);
   }
   const ranked = [...totals.entries()].sort((left, right) => right[1] - left[1]);
   const first = ranked[0];

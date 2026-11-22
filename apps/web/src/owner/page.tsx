@@ -4,7 +4,7 @@ import { indiaCivilDate, parseOwnerView } from "@rakazo/contracts";
 import { useEffect, useState } from "react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { setUiLocale } from "../lib/i18n";
-import { OwnerDashboard } from "./dashboard-screen";
+import { DashboardSkeleton, OwnerDashboard, prefetchOwnerDashboard } from "./dashboard-screen";
 import { useDiscardGuard } from "./discard-guard";
 import type { OwnerScreenId } from "./frame";
 import { isOwnerScreen, OwnerFrame } from "./frame";
@@ -88,10 +88,26 @@ export function OwnerPage() {
     };
   }, [restaurantId, screenParam, search, homeTick]);
 
+  useEffect(() => {
+    if (!restaurantId || screenParam !== "dashboard") return;
+    const query = new URLSearchParams(search);
+    const outlet = query.get("outlet") || "all";
+    const raw = query.get("platform");
+    const platform = raw === "zomato" || raw === "swiggy" ? raw : "both";
+    prefetchOwnerDashboard(restaurantId, outlet, platform, today);
+  }, [restaurantId, screenParam, search, today]);
+
   const confirmLeave = useDiscardGuard(dirty, t`Leave without saving?`);
 
   if (failed) {
     return <p className="p-8 text-body">{t`Couldn't open this restaurant.`}</p>;
+  }
+  if (restaurantId && screenParam === "dashboard" && !profile) {
+    return (
+      <div className="ecomnomics min-h-svh bg-muted px-4 py-4" data-theme="light">
+        <DashboardSkeleton />
+      </div>
+    );
   }
   if (!restaurants || (restaurantId && !profile)) {
     return <p className="p-8 text-muted-foreground">{t`Loading`}</p>;

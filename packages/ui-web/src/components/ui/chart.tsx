@@ -51,6 +51,7 @@ export function ChartTooltipContent({
   active,
   payload,
   label,
+  formatValue,
 }: {
   active?: boolean;
   payload?: ReadonlyArray<{
@@ -60,6 +61,8 @@ export function ChartTooltipContent({
     dataKey?: string | number;
   }>;
   label?: string;
+  /** Turns a stored number into the words the tooltip shows. Money uses the shared rupee helper. */
+  formatValue?: (value: number) => string;
 }) {
   if (!active || !payload || payload.length === 0) return null;
   return (
@@ -67,7 +70,8 @@ export function ChartTooltipContent({
       {label ? <p className="text-muted-foreground">{label}</p> : null}
       {payload.map((item) => (
         <p key={String(item.dataKey ?? item.name)}>
-          <span style={{ color: item.color }}>{item.name}</span> {item.value}
+          <span style={{ color: item.color }}>{item.name}</span>{" "}
+          {typeof item.value === "number" && formatValue ? formatValue(item.value) : item.value}
         </p>
       ))}
     </div>

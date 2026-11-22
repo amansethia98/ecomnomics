@@ -14,12 +14,63 @@ import {
   formatPct1,
 } from "@rakazo/contracts";
 import { Skeleton } from "@rakazo/ui-web";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { NumberCard } from "./number-card";
-import { FunnelChart, HeatGrid, SalesChart, SparkLine } from "./owner-charts";
+
+const SalesChart = lazy(() =>
+  import("./owner-charts").then((mod) => ({ default: mod.SalesChart })),
+);
+const HeatGrid = lazy(() => import("./owner-charts").then((mod) => ({ default: mod.HeatGrid })));
+const SparkLine = lazy(() => import("./owner-charts").then((mod) => ({ default: mod.SparkLine })));
+const FunnelChart = lazy(() =>
+  import("./owner-charts").then((mod) => ({ default: mod.FunnelChart })),
+);
 
 const readingsCache = new Map<string, DashReading[]>();
+const readingsInflight = new Map<string, Promise<DashReading[]>>();
+
+/** Starts the dashboard read before the profile returns, so the skeleton is not an empty wait. */
+export function prefetchOwnerDashboard(
+  restaurantId: string,
+  outlet: string,
+  platform: "both" | "zomato" | "swiggy",
+  today: string,
+): void {
+  void loadReadings(restaurantId, outlet, platform, today);
+}
+
+function loadReadings(
+  restaurantId: string,
+  outlet: string,
+  platform: "both" | "zomato" | "swiggy",
+  today: string,
+): Promise<DashReading[]> {
+  const cacheKey = `${restaurantId}|${outlet}|${platform}|${today}`;
+  const cached = readingsCache.get(cacheKey);
+  if (cached) return Promise.resolve(cached);
+  const pending = readingsInflight.get(cacheKey);
+  if (pending) return pending;
+  const platforms = platform === "both" ? (["zomato", "swiggy"] as const) : ([platform] as const);
+  const from = addIsoDays(today, -168);
+  const to = addIsoDays(today, 1);
+  const promise = Promise.all(
+    platforms.flatMap((item) =>
+      (["week", "day"] as const).map((grain) =>
+        loadMetrics(restaurantId, item, from, to, grain, outlet).then((response) =>
+          toReadings(response, item, grain === "week" ? "week" : "day"),
+        ),
+      ),
+    ),
+  ).then((groups) => {
+    const readings = groups.flat();
+    readingsCache.set(cacheKey, readings);
+    readingsInflight.delete(cacheKey);
+    return readings;
+  });
+  readingsInflight.set(cacheKey, promise);
+  return promise;
+}
 
 const KEYS = [
   "ops_sales_paise",
@@ -41,6 +92,11 @@ const KEYS = [
   "cart_builds",
   "placed_orders",
   "swiggy_funnel_orders",
+  "breakfast_orders",
+  "lunch_orders",
+  "snacks_orders",
+  "dinner_orders",
+  "late_night_orders",
 ];
 
 export function OwnerDashboard({
@@ -80,31 +136,10 @@ export function OwnerDashboard({
   };
 
   useEffect(() => {
-    const cacheKey = `${restaurantId}|${view.outlet}|${view.platform}|${today}`;
-    const cached = readingsCache.get(cacheKey);
-    if (cached) {
-      show(cached);
-      return;
-    }
     let live = true;
-    const platforms =
-      view.platform === "both" ? (["zomato", "swiggy"] as const) : ([view.platform] as const);
-    const from = addIsoDays(today, -168);
-    const to = addIsoDays(today, 1);
-    Promise.all(
-      platforms.flatMap((platform) =>
-        (["week", "day"] as const).map((grain) =>
-          loadMetrics(restaurantId, platform, from, to, grain, view.outlet).then((response) =>
-            toReadings(response, platform, grain === "week" ? "week" : "day"),
-          ),
-        ),
-      ),
-    )
-      .then((groups) => {
-        if (!live) return;
-        const readings = groups.flat();
-        readingsCache.set(cacheKey, readings);
-        show(readings);
+    loadReadings(restaurantId, view.outlet, view.platform, today)
+      .then((readings) => {
+        if (live) show(readings);
       })
       .catch(() => {
         if (live) setFailed(true);
@@ -133,7 +168,9 @@ export function OwnerDashboard({
           {t`Dashboard`}
         </button>
         <NumberCard tile={open} onOpen={() => undefined} />
-        <SparkLine values={open.spark} />
+        <Suspense fallback={<Skeleton className="h-40 w-full" />}>
+          <SparkLine values={open.spark} money={open.format === "paise"} />
+        </Suspense>
       </div>
     );
   }
@@ -146,7 +183,9 @@ export function OwnerDashboard({
     <div className="mx-auto flex max-w-5xl flex-col gap-8">
       <Answer model={model} />
       <section className="owner-panel flex flex-col gap-2 p-3">
-        <SalesChart model={model} />
+        <Suspense fallback={<Skeleton className="h-56 w-full" />}>
+          <SalesChart model={model} />
+        </Suspense>
         {model.pins.length > 0 ? (
           <ol className="flex flex-nowrap gap-3 overflow-x-auto text-body-sm whitespace-nowrap text-muted-foreground">
             {model.pins.map((pin) => (
@@ -170,8 +209,10 @@ export function OwnerDashboard({
         <div>
           <h2 className="text-label text-muted-foreground">{t`When you sell`}</h2>
           {model.heatmapLine ? <p className="mt-1 font-medium">{model.heatmapLine}</p> : null}
-          <HeatGrid model={model} />
-          <p className="text-body-sm text-muted-foreground">{t`Fewer ▭ More orders · both apps`}</p>
+          <Suspense fallback={<Skeleton className="h-32 w-full" />}>
+            <HeatGrid model={model} />
+          </Suspense>
+          <p className="text-body-sm text-muted-foreground">{t`Fewer ▭ More sales`}</p>
         </div>
         <div>
           <h2 className="text-label text-muted-foreground">{t`How customers find you`}</h2>
@@ -184,7 +225,9 @@ export function OwnerDashboard({
                   <StepHint step={step} />
                 </span>
               </p>
-              <FunnelChart model={model} step={step} />
+              <Suspense fallback={<Skeleton className="h-24 w-full" />}>
+                <FunnelChart model={model} step={step} />
+              </Suspense>
             </div>
           ))}
         </div>
@@ -315,7 +358,7 @@ export function FunnelLine({ text }: { text: string }) {
   );
 }
 
-function DashboardSkeleton() {
+export function DashboardSkeleton() {
   return (
     <div className="flex flex-col gap-4">
       <Skeleton className="h-8 w-2/3" />

@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { addDays, formatCount } from "./ops/format.js";
+import { addDays, formatCompactRupees, formatCount, formatRupees } from "./ops/format.js";
 import type { DashReading, OwnerDashboardInput } from "./owner-dashboard.js";
 import {
   composeOwnerDashboard,
@@ -357,8 +357,8 @@ it("leaves a pending day out of both sides and says so", () => {
   expect(bands[0]?.data?.[0]).toMatchObject({ x1: "2026-11-16", x2: "2026-11-17" });
   const ticks = (salesPlot?.x?.ticks ?? []) as string[];
   expect(ticks.every((tick) => tick <= "2026-11-16")).toBe(true);
-  expect(dash.heatmap.some((cell) => cell.week === "2026-11-16")).toBe(false);
-  expect(dash.heatmap.some((cell) => cell.week === "2026-11-09")).toBe(true);
+  expect(dash.heatmap).toHaveLength(7 * 24);
+  expect(dash.heatmap.every((cell) => cell.hour >= 0 && cell.hour < 24)).toBe(true);
 });
 
 it("marks a gap and withholds a comparison until a week of history exists", () => {
@@ -504,6 +504,7 @@ it("names the busiest weekdays and the funnel drop from the data", () => {
       const orders = offset >= 4 ? 40 : 10;
       readings.push(day(date, "zomato", "delivered_orders", orders));
       readings.push(day(date, "zomato", "ops_sales_paise", 1000));
+      readings.push(day(date, "zomato", "dinner_orders", offset >= 4 ? 8 : 0));
     }
     readings.push(weekStart(week, "impressions", 1000 - (week === "2026-11-09" ? 0 : 0)));
     readings.push(weekStart(week, "menu_opens", week === "2026-11-02" ? 400 : 200));
@@ -526,7 +527,7 @@ it("names the busiest weekdays and the funnel drop from the data", () => {
   expect(heat?.color?.type).toBe("sqrt");
   expect(heat?.color?.scheme).toBe("purples");
   const orders = dash.heatmap.flatMap((cell) =>
-    cell.orders != null && cell.orders > 0 ? [cell.orders] : [],
+    cell.salesPaise != null && cell.salesPaise > 0 ? [cell.salesPaise] : [],
   );
   const domain = heat?.color?.domain as [number, number] | undefined;
   expect(domain?.[0]).toBeLessThan(Math.min(...orders));
@@ -619,7 +620,7 @@ it("compares the last four weeks with the first four inside twelve weeks", () =>
   expect(dash.periodPhrase).toBe("in 12 weeks");
 });
 
-it("keeps a 7-day window ending on the last day with sales", () => {
+it("keeps a 7-day window on the URL's inclusive days", () => {
   const readings: DashReading[] = [];
   for (let offset = 0; offset < 14; offset += 1) {
     const date = addDays("2026-11-07", offset);
@@ -639,17 +640,17 @@ it("keeps a 7-day window ending on the last day with sales", () => {
     input(readings, { today: "2026-11-22", from: "2026-11-16", to: "2026-11-23" }),
   );
   expect(dash.panels[0]?.points.map((point) => point.week)).toEqual([
-    "2026-11-14",
-    "2026-11-15",
     "2026-11-16",
     "2026-11-17",
     "2026-11-18",
     "2026-11-19",
     "2026-11-20",
+    "2026-11-21",
+    "2026-11-22",
   ]);
   const sales = dash.tiles.find((tile) => tile.id === "sales");
-  expect(sales?.value).toBe(7 * 1_000 + 6 * 500);
-  expect(sales?.changePct).toBeCloseTo(0);
+  expect(sales?.value).toBe(5 * 1_000 + 4 * 500);
+  expect(sales?.value).not.toBe(7 * 1_000 + 6 * 500);
   expect(dash.periodPhrase).toBe("last 7 days vs the same 7 days before");
   const pending = dashboardPlots(dash)
     .find((plot) => plot.id === "sales-swiggy")
@@ -766,6 +767,9 @@ it("resolves a stored rupee axis without keeping a function in the spec", () => 
   const tick = resolveOwnerPlot(stored).y?.tickFormat as (value: number) => string;
   expect(tick(2_700_000)).toBe("₹27k");
   expect(tick(-2_700_000)).toBe("−₹27k");
+  expect(formatRupees(1_358_612)).toBe("₹13,586");
+  expect(formatCompactRupees(14_000_000)).toBe("₹1.4L");
+  expect(formatCompactRupees(2_100_000_000)).toBe("₹2.1Cr");
 });
 
 it("keeps a custom 14 days as days, with one point per day", () => {
@@ -792,7 +796,48 @@ it("keeps a custom 14 days as days, with one point per day", () => {
   expect(dash.panels[0]?.points).toHaveLength(14);
   expect(dash.tiles.find((tile) => tile.id === "sales")?.spark).toHaveLength(14);
   expect(dash.funnel.find((series) => series.step === "menu")?.points).toHaveLength(14);
-  expect(new Set(dash.heatmap.map((cell) => cell.week)).size).toBeLessThanOrEqual(3);
+  expect(dash.heatmap).toHaveLength(7 * 24);
+});
+
+it("keeps a custom 9–21 Nov range on those inclusive days", () => {
+  const readings: DashReading[] = [];
+  for (let offset = 0; offset < 14; offset += 1) {
+    const date = addDays("2026-11-08", offset);
+    readings.push(day(date, "zomato", "ops_sales_paise", date === "2026-11-21" ? null : 100));
+    readings.push(day(date, "zomato", "delivered_orders", 1));
+    readings.push(day(date, "zomato", "dinner_orders", 2));
+  }
+  const dash = composeOwnerDashboard(
+    input(readings, {
+      today: "2026-11-22",
+      range: "custom",
+      from: "2026-11-09",
+      to: "2026-11-22",
+      platform: "zomato",
+    }),
+  );
+  expect(dash.panels[0]?.points.map((point) => point.week)).toEqual([
+    "2026-11-09",
+    "2026-11-10",
+    "2026-11-11",
+    "2026-11-12",
+    "2026-11-13",
+    "2026-11-14",
+    "2026-11-15",
+    "2026-11-16",
+    "2026-11-17",
+    "2026-11-18",
+    "2026-11-19",
+    "2026-11-20",
+    "2026-11-21",
+  ]);
+  expect(dash.tiles.find((tile) => tile.id === "sales")?.value).toBe(1_200);
+  expect(dash.periodPhrase).toBe("last 13 days vs the same 13 days before");
+  const fridayDinner = dash.heatmap.find((cell) => cell.weekday === "Fri" && cell.hour === 19);
+  expect(fridayDinner?.salesPaise).toBeGreaterThan(0);
+  expect(dash.heatmap.find((cell) => cell.weekday === "Fri" && cell.hour === 4)?.salesPaise).toBe(
+    null,
+  );
 });
 
 function weekStart(from: string, key: string, value: number): DashReading {
