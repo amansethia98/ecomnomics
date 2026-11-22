@@ -43,17 +43,17 @@ Native file reads and workspace exports are limited to 8 MiB per file. A larger 
 - **Docker** is the quick-start default for published images and for a source checkout / full local
   Compose stack. Workspace bots share a persistent Team Computer by default; Private computers are
   optional. Keep the supervisor private, as the included Compose files do.
-- **E2B** runs bot computers away from the Rakazo host and is a good choice for public or multi-user
-  production deployments. Rakazo checkpoints the portable workspace and browser-profile directory to
+- **E2B** runs bot computers away from the Ecomnomics host and is a good choice for public or multi-user
+  production deployments. Ecomnomics checkpoints the portable workspace and browser-profile directory to
   `DATA_DIR`; the E2B disk is a runtime cache, not the durable source of truth.
 - **Daytona** provides the same remote-computer contract through Daytona sandboxes. Configure
   `DAYTONA_API_KEY` and optionally `DAYTONA_API_URL` / `DAYTONA_TARGET` / `DAYTONA_SNAPSHOT`.
 - **CreateOS** provides the same remote-computer contract through CreateOS desktop sandboxes.
   Configure `CREATEOS_SANDBOX_API_KEY` and optionally `CREATEOS_SANDBOX_BASE_URL`,
-  `CREATEOS_SANDBOX_SHAPE`, or `CREATEOS_SANDBOX_ROOTFS`. Rakazo defaults to
+  `CREATEOS_SANDBOX_SHAPE`, or `CREATEOS_SANDBOX_ROOTFS`. Ecomnomics defaults to
   `https://api.sb.createos.sh`, `s-2vcpu-2gb`, and `desktop:1`.
 - **Boat** provides a managed Linux desktop through `BOAT_API_KEY` and optionally
-  `BOAT_API_URL`. Rakazo always creates or resumes sandboxes with `noEnv: true`, keeps the portable
+  `BOAT_API_URL`. Ecomnomics always creates or resumes sandboxes with `noEnv: true`, keeps the portable
   workspace under `/home/user/rakazo-home`, and refreshes a two-hour TTL. Boat uses the shared Linux
   desktop runtime and protected port routes for concurrent bot desktops. Each bot has its own
   persistent Chrome profile; logins are not shared between bots.
@@ -230,7 +230,7 @@ instance on a network the host routes to the computers.
 
 ### Restricted project and certificate
 
-Give Rakazo a project and a client certificate that can reach nothing else. A restricted
+Give Ecomnomics a project and a client certificate that can reach nothing else. A restricted
 certificate cannot change its project's restrictions or limits. On the Incus host:
 
 ```bash
@@ -316,17 +316,17 @@ Runs API/web without provisioning bot computers.
 
 Set `SANDBOX_PROVIDER` to exactly one of:
 
-| Value      | Credential                                       | Notes                                                                                                                                                                                                                                                     |
-| ---------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `e2b`      | `E2B_API_KEY`                                    | Hosted sandboxes                                                                                                                                                                                                                                          |
-| `novita`   | `NOVITA_API_KEY`                                 | Build the desktop template first; optional `SANDBOX_TEMPLATE`                                                                                                                                                                                             |
-| `daytona`  | `DAYTONA_API_KEY`                                | Optional `DAYTONA_API_URL`, `DAYTONA_TARGET`, `DAYTONA_SNAPSHOT`                                                                                                                                                                                          |
-| `boat`     | `BOAT_API_KEY`                                   | Optional `BOAT_API_URL` (see `.env.example`)                                                                                                                                                                                                              |
-| `boxd`     | `BOXD_API_KEY`                                   | Optional `BOXD_ORG` to create computers in a boxd organization                                                                                                                                                                                            |
-| `instabox` | `INSTABOX_API_KEY`                               | Computers start in the key's organization; see [instabox computers](#instabox-computers)                                                                                                                                                                  |
-| `createos` | `CREATEOS_SANDBOX_API_KEY`                       | Optional `CREATEOS_SANDBOX_BASE_URL`, `CREATEOS_SANDBOX_SHAPE`, `CREATEOS_SANDBOX_ROOTFS`                                                                                                                                                                 |
-| `railway`  | `RAILWAY_API_TOKEN` and `RAILWAY_ENVIRONMENT_ID` | Optional `RAILWAY_SANDBOX_REGION`; `RAILWAY_MAX_WORKSPACE_FILE_BYTES` (default 64 MiB) caps each workspace file Rakazo reads or saves. Railway supplies the environment ID when Rakazo runs there; see the [Railway template](../infra/railway/README.md) |
-| `wuying`   | `WUYING_*` (below)                               | One existing Wuying cloud computer (Windows)                                                                                                                                                                                                              |
+| Value      | Credential                                       | Notes                                                                                                                                                                                                                                                             |
+| ---------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `e2b`      | `E2B_API_KEY`                                    | Hosted sandboxes                                                                                                                                                                                                                                                  |
+| `novita`   | `NOVITA_API_KEY`                                 | Build the desktop template first; optional `SANDBOX_TEMPLATE`                                                                                                                                                                                                     |
+| `daytona`  | `DAYTONA_API_KEY`                                | Optional `DAYTONA_API_URL`, `DAYTONA_TARGET`, `DAYTONA_SNAPSHOT`                                                                                                                                                                                                  |
+| `boat`     | `BOAT_API_KEY`                                   | Optional `BOAT_API_URL` (see `.env.example`)                                                                                                                                                                                                                      |
+| `boxd`     | `BOXD_API_KEY`                                   | Optional `BOXD_ORG` to create computers in a boxd organization                                                                                                                                                                                                    |
+| `instabox` | `INSTABOX_API_KEY`                               | Computers start in the key's organization; see [instabox computers](#instabox-computers)                                                                                                                                                                          |
+| `createos` | `CREATEOS_SANDBOX_API_KEY`                       | Optional `CREATEOS_SANDBOX_BASE_URL`, `CREATEOS_SANDBOX_SHAPE`, `CREATEOS_SANDBOX_ROOTFS`                                                                                                                                                                         |
+| `railway`  | `RAILWAY_API_TOKEN` and `RAILWAY_ENVIRONMENT_ID` | Optional `RAILWAY_SANDBOX_REGION`; `RAILWAY_MAX_WORKSPACE_FILE_BYTES` (default 64 MiB) caps each workspace file Ecomnomics reads or saves. Railway supplies the environment ID when Ecomnomics runs there; see the [Railway template](../infra/railway/README.md) |
+| `wuying`   | `WUYING_*` (below)                               | One existing Wuying cloud computer (Windows)                                                                                                                                                                                                                      |
 
 Remote paths still need a working API/worker; they do not replace Postgres or
 the web UI. They require egress to the provider. For air-gapped hosts prefer
@@ -356,7 +356,7 @@ computer's owner and space. A run starts when the computer becomes ready (boot t
 counted) and ends when it stops. `endReason` says how: `stopped`, `idle`, `active_limit`,
 `replaced` (update, recovery, or reset), `gone` (the provider had already stopped or lost
 the sandbox), `deleted`, or `reconciled` (the end was never seen; the worker found the
-computer no longer running). For `gone` and `reconciled`, `endedAt` is when Rakazo
+computer no longer running). For `gone` and `reconciled`, `endedAt` is when Ecomnomics
 noticed, so the true end may be earlier. The worker also opens the run of a running
 computer whose start was not recorded. An open run whose computer still reads as running
 is a computer that may be left on. Deleting a user or space keeps their runs with
@@ -495,7 +495,7 @@ the instabox account's vault, so secrets saved on that account never reach a bot
 The desktop is served on the computer's public HTTPS address; every screen and terminal still
 needs its own token, which the desktop gateway checks. Stopping a computer suspends it with its
 memory. instabox also pauses a computer after 30 idle minutes, later than the default
-`SANDBOX_IDLE_MS`, so Rakazo normally stops it first. One key's computers share its account's
+`SANDBOX_IDLE_MS`, so Ecomnomics normally stops it first. One key's computers share its account's
 limits on requests at once (API calls, and connections to screens and terminals), so a
 deployment with many active computers at the same time can see them slow down.
 

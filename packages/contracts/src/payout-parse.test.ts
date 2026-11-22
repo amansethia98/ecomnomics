@@ -523,6 +523,26 @@ describe("payout workbooks", () => {
     expect(order?.netPayoutPaise).toBe(25000);
     expect(check?.pass).toBe(true);
   });
+
+  it("fills Zomato cycle totals from order rows when the breakup leaves them out", async () => {
+    const parsed = await parsePayoutWorkbook(await zomatoOrdersWithoutBreakup(), "zomato", SALT);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const payout = parsed.payout;
+    const listed = payout.orders.find((order) => order.platformOrderId === "9300001");
+    const blank = payout.orders.find((order) => order.platformOrderId === "9300002");
+    expect(listed?.gstDeductionPaise).toBe(150);
+    expect(blank?.gstDeductionPaise).toBeNull();
+    expect(payout.totals.grossSalesPaise).toBe(11_000);
+    expect(payout.totals.discountPaise).toBe(200);
+    expect(payout.totals.commissionPaise).toBe(1_250);
+    expect(payout.totals.platformFeesPaise).toBe(300);
+    expect(payout.totals.taxesPaise).toBe(100);
+    expect(payout.totals.tcsPaise).toBe(50);
+    expect(payout.totals.gstCollectedPaise).toBe(500);
+    expect(payout.totals.tdsPaise).toBeNull();
+    expect(payout.totals.adSpendPaise).toBe(24_000);
+  });
 });
 
 const require = createRequire(import.meta.url);
@@ -583,6 +603,69 @@ function syntheticWorkbook(fill: (book: { addWorksheet(name: string): SyntheticS
   const book = new Workbook();
   fill(book);
   return book.xlsx.writeBuffer().then((buffer) => new Uint8Array(buffer));
+}
+
+function zomatoOrdersWithoutBreakup(): Promise<Uint8Array> {
+  return syntheticWorkbook((book) => {
+    const summary = book.addWorksheet("Summary");
+    summary.addRow(["Restaurant ID", "900004"]);
+    summary.addRow(["Restaurant name", "Test Kitchen"]);
+    summary.addRow(["City", "Testcity"]);
+    summary.addRow(["26 October 2026 - 1 November 2026"]);
+    const orders = book.addWorksheet("Order Level");
+    orders.addRow([
+      "Order ID",
+      "Order Date",
+      "Order status",
+      "Subtotal",
+      "Packaging charge",
+      "Promo discount",
+      "Service fee",
+      "Payment mechanism fee",
+      "Taxes on service fees",
+      "Tax collected at source",
+      "Total GST collected from customers",
+      "GST to be paid by Restaurant partner to Govt.",
+      "Order level payout",
+      "Settlement status",
+    ]);
+    orders.addRow([
+      "9300001",
+      "2026-10-26",
+      "DELIVERED",
+      "100.00",
+      "10.00",
+      "2.00",
+      "12.50",
+      "3.00",
+      "1.00",
+      "0.50",
+      "5.00",
+      "1.50",
+      "80.00",
+      "settled",
+    ]);
+    orders.addRow([
+      "9300002",
+      "2026-10-27",
+      "DELIVERED",
+      "0.00",
+      "0.00",
+      "0.00",
+      "0.00",
+      "0.00",
+      "0.00",
+      "0.00",
+      "0.00",
+      null,
+      "0.00",
+      "settled",
+    ]);
+    const ads = book.addWorksheet("Addition deductions details");
+    ads.addRow(["A) Other deductions"]);
+    ads.addRow(["Type", "Invoice", "Period", "Adjusted"]);
+    ads.addRow(["ADS", "80110201", "26 October 2026 - 1 November 2026", "240.00"]);
+  });
 }
 
 function zomatoGstRows(): Promise<Uint8Array> {

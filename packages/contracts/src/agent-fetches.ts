@@ -15,8 +15,8 @@ import { SWIGGY_DAILY_MAX_DAYS } from "./metric-dictionary.js";
  * contains the plan date. A Swiggy Sunday–Saturday cycle that crosses a month
  * end is returned as one window per part.
  * Missing days in the last 90, outside that daily window, are backfilled in
- * chunks of at most 30 days on Zomato and 7 on Swiggy, and at most 90 days a
- * night across both platforms.
+ * chunks of at most 30 days on Zomato and 7 on Swiggy. Each platform has its
+ * own 90-day budget for the night.
  *
  * Identity mismatches are counted per outlet and platform over a rolling 24
  * hours. The count is `rejected_mismatch` rows this release marked as identity

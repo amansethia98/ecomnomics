@@ -124,7 +124,7 @@ describe("Honcho client boundaries", () => {
   );
 
   it("discards remote error bodies rather than reflecting credentials or unbounded detail", async () => {
-    const response = new Response("hch-test-key" + "x".repeat(100_000), { status: 403 });
+    const response = new Response(`hch-test-key${"x".repeat(100_000)}`, { status: 403 });
     const cancel = vi.spyOn(response.body!, "cancel");
     const fetch = vi.fn(async () => response);
     expect(await honchoPeerChat({ ...config, fetch }, "team", chat)).toEqual({

@@ -3227,7 +3227,7 @@ model OpsAlert {
   @@map("ops_alerts")
 }
 
-/// The owner's answer for one outlet on one civil date: closed or open.
+/// The owner's answer for one outlet on one civil date: closed or not sure (status closed | not_sure).
 model OutletDayAnswer {
   id           String     @id @default(cuid())
   restaurantId String

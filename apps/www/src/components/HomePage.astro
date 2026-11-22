@@ -68,7 +68,7 @@ const [starsLabel, recentChanges] = await Promise.all([
   githubStarsLabel(),
   fetchRecentChanges(5),
 ]);
-const setupAgentPrompt = `Set up Rakazo for me. Follow the setup prompt at ${SETUP_PROMPT_URL}`;
+const setupAgentPrompt = `Set up Ecomnomics for me. Follow the setup prompt at ${SETUP_PROMPT_URL}`;
 const desktopPlatforms = DESKTOP_PLATFORMS;
 const PLATFORM_NAMES = { mac: "macOS", windows: "Windows", linux: "Linux" } as const;
 const PROVIDER_LOGOS: Record<string, string> = {

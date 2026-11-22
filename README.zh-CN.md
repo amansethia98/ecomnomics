@@ -1,4 +1,4 @@
-# Rakazo
+# Ecomnomics
 
 [English](./README.md) | [简体中文](./README.zh-CN.md) | [日本語](./README.ja.md)
 
@@ -7,9 +7,9 @@
 [![在 App Store 下载 iPhone 版](https://img.shields.io/badge/App%20Store-Download%20for%20iPhone-black?labelColor=black&style=for-the-badge&logo=apple&logoColor=white)](https://apps.apple.com/app/rakazo/id6801531099)
 [![在 Google Play 下载 Android 版](https://img.shields.io/badge/Google%20Play-Get%20the%20app-black?labelColor=black&style=for-the-badge&logo=googleplay&logoColor=white)](https://play.google.com/store/apps/details?id=com.rakazo.app)
 
-![Rakazo：由你掌控的 AI 队友](./docs/readme-hero.png)
+![Ecomnomics：由你掌控的 AI 队友](./docs/readme-hero.png)
 
-Rakazo 是 Grok Bot 的开源、自托管替代方案。
+Ecomnomics 是 Grok Bot 的开源、自托管替代方案。
 
 长期在线的 AI 队友，各自拥有记忆、例行任务、应用和计算机。在自己的机器上运行，使用自己的模型。
 
@@ -109,7 +109,7 @@ curl -fsSLO https://raw.githubusercontent.com/elie222/rakazo/main/infra/compose/
 bash install-images.sh
 ```
 
-安装脚本会下载 Compose 文件，生成包含随机密钥的 `.env`，并启动 Rakazo。
+安装脚本会下载 Compose 文件，生成包含随机密钥的 `.env`，并启动 Ecomnomics。
 再次运行时会保留已有的 `.env`。
 
 打开 [http://127.0.0.1:5173](http://127.0.0.1:5173)，创建账号并连接模型。
@@ -234,7 +234,7 @@ Railway 沙箱按用量计费。
 
 ## 桌面端与移动端
 
-Electron 和 Expo 应用都是 Rakazo API 的客户端，与网页版使用同一套 API。
+Electron 和 Expo 应用都是 Ecomnomics API 的客户端，与网页版使用同一套 API。
 
 开发服务启动后，使用以下命令启动 Electron：
 
@@ -242,7 +242,7 @@ Electron 和 Expo 应用都是 Rakazo API 的客户端，与网页版使用同�
 pnpm --filter @rakazo/desktop dev
 ```
 
-首次运行时，桌面应用会询问是在这台电脑上运行 Rakazo，还是连接现有服务器。
+首次运行时，桌面应用会询问是在这台电脑上运行 Ecomnomics，还是连接现有服务器。
 选择 **This computer**（这台电脑）会在应用数据目录中，通过 Docker Compose 安装并启动已发布镜像，
 使用的文件与 `infra/compose/install-images.sh` 相同。
 因此需要先安装 Docker Desktop、OrbStack 或 Docker Engine；未安装时，应用会提供相应链接。
@@ -250,21 +250,21 @@ pnpm --filter @rakazo/desktop dev
 
 运行 `pnpm dev` 的开发者应选择 **Existing instance**（现有实例），地址填写终端打印的地址（默认为 `http://127.0.0.1:5173`）。
 公共服务器必须使用 HTTPS；只有回环地址和局域网私有地址允许 HTTP，不包括链路本地地址。
-应用会在保存地址前检查 Rakazo 的健康检查端点，之后启动时直接连接该实例。
+应用会在保存地址前检查 Ecomnomics 的健康检查端点，之后启动时直接连接该实例。
 退出应用后，服务仍会继续运行；可通过应用菜单中的 **Stop Local Stack**（停止本地服务栈）将其关闭。
 
 在 Linux 上，桌面应用以 AppImage 形式发布，需要 FUSE 2（`libfuse.so.2`）。只包含 FUSE 3 的发行版（例如 Fedora Silverblue 或 Ubuntu 24.04）会报错
 `dlopen(): error loading libfuse.so.2`。请安装 FUSE 2 库（Fedora 上为 `fuse-libs`，Ubuntu 24.04 上为 `libfuse2t64`，较早的 Ubuntu 和 Debian 上为 `libfuse2`），或者不借助 FUSE 运行 AppImage：
 
 ```bash
-chmod +x Rakazo-*.AppImage
-./Rakazo-*.AppImage --appimage-extract-and-run
+chmod +x Ecomnomics-*.AppImage
+./Ecomnomics-*.AppImage --appimage-extract-and-run
 ```
 
 **This computer** 会查找 `docker` CLI，但不会自动识别 Podman。若要尝试另一个支持 `compose` 命令的
 Docker 兼容 CLI，请在启动应用前把 `RAKAZO_DOCKER_BINARY` 设为该 CLI 的路径。
 
-使用应用菜单中的 **Change Rakazo Server…**（更换 Rakazo 服务器）重新选择服务器。
+使用应用菜单中的 **Change Ecomnomics Server…**（更换 Ecomnomics 服务器）重新选择服务器。
 关闭该窗口且不保存时，会返回之前的实例。
 开发自动化中，可以设置 `RAKAZO_WEB_URL`，让桌面应用连接其他地址而不改变已保存的实例；
 也可以设置 `RAKAZO_FORCE_SETUP=1`，再次运行设置流程。
@@ -320,7 +320,7 @@ pnpm test:e2e
 
 ## 与其他产品的比较
 
-Rakazo 启动后，你可以像使用 Grok Bot 一样，通过聊天设置和管理机器人。
+Ecomnomics 启动后，你可以像使用 Grok Bot 一样，通过聊天设置和管理机器人。
 Muse、Dots、Instinct 和 Claude Duet 是托管式助手；OpenClaw 和 Hermes Agent 则同样是可以自行运行的开源智能体。
 后两者的文档介绍了安装器、配置文件和网关。Hermes Desktop 无需命令行即可开始第一次聊天；消息网关则是独立进程。
 
@@ -362,6 +362,6 @@ Muse、Dots、Instinct 和 Claude Duet 是托管式助手；OpenClaw 和 Hermes 
 欢迎贡献。提交 PR 前，请阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 发现安全漏洞时，请按照 [SECURITY.md](./SECURITY.md) 的说明报告，勿提交公开 Issue。
 
-Rakazo 采用 [Apache License 2.0](./LICENSE) 许可证。
+Ecomnomics 采用 [Apache License 2.0](./LICENSE) 许可证。
 
-欢迎在 [Rakazo Discord 社区](https://discord.gg/RWwKa2Sn7h)交流问题与想法。
+欢迎在 [Ecomnomics Discord 社区](https://discord.gg/RWwKa2Sn7h)交流问题与想法。

@@ -692,7 +692,7 @@ export default function Account() {
               }}
               options={[
                 { value: "organic", label: t`Original` },
-                { value: "rakazo", label: t`Rakazo` },
+                { value: "rakazo", label: t`Ecomnomics` },
               ]}
               value={me.botAvatarSet}
             />
