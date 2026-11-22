@@ -177,7 +177,7 @@ it("draws a stored chart's week labels as short dates", () => {
       },
     ],
   });
-  const tick = resolved.x?.tickFormat as ((value: string) => string) | undefined;
+  const tick = (resolved.x as { tickFormat?: (value: string) => string } | undefined)?.tickFormat;
   expect(tick?.("2026-10-05")).toBe("5 Oct");
 });
 
