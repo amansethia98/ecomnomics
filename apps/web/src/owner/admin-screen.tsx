@@ -277,17 +277,27 @@ export function AdminPanelScreen({
         {section === "runs" ? (
           <section className="mt-4">
             <h2 className="text-heading1 font-semibold">
-              {t`${panel.runs.filter((run) => run.state === "done").length} of ${panel.runs.length} downloads OK last night`}
+              {panel.downloads && panel.downloads.total > 0
+                ? t`${panel.downloads.ok} of ${panel.downloads.total} downloads OK last night`
+                : t`${panel.runs.filter((run) => run.state === "done").length} of ${panel.runs.length} downloads OK last night`}
             </h2>
-            {panel.nights.length === 0 ? (
+            {panel.freshness.length === 0 && panel.nights.length === 0 ? (
               <p className="mt-3 text-body-sm text-muted-foreground">{t`No nights are stored.`}</p>
             ) : (
               <Bars
-                items={panel.nights.map((night) => ({
-                  key: night.day,
-                  value: night.runs,
-                  title: formatCivilDay(night.day),
-                }))}
+                items={
+                  panel.freshness.length > 0
+                    ? panel.freshness.map((day) => ({
+                        key: day.day,
+                        value: day.downloads,
+                        title: formatCivilDay(day.day),
+                      }))
+                    : panel.nights.map((night) => ({
+                        key: night.day,
+                        value: night.runs,
+                        title: formatCivilDay(night.day),
+                      }))
+                }
               />
             )}
             {panel.night ? (
@@ -348,9 +358,7 @@ export function AdminPanelScreen({
                   >
                     <span>
                       <span className="font-medium">{row.outlet}</span>
-                      <span className="ml-2 text-body-sm text-muted-foreground">
-                        {row.restaurant}
-                      </span>
+                      <span className="text-body-sm text-muted-foreground">{` · ${row.restaurant}`}</span>
                     </span>
                     <span
                       className={
@@ -445,10 +453,18 @@ function Bars({ items }: { items: Array<{ key: string; value: number; title: str
   return (
     <ul className="mt-4 flex h-16 items-end gap-2">
       {items.map((item) => (
-        <li key={item.key} title={item.title} className="flex w-2 items-end">
+        <li
+          key={item.key}
+          title={item.title}
+          className="flex items-end"
+          style={{ width: 8, flex: "0 0 8px" }}
+        >
           <span
-            className="block w-2 rounded-sm bg-foreground"
-            style={{ height: `${Math.max(4, Math.round((item.value / max) * 48))}px` }}
+            className="block rounded-sm bg-foreground"
+            style={{
+              width: 8,
+              height: Math.max(4, Math.round((item.value / max) * 48)),
+            }}
           />
         </li>
       ))}
