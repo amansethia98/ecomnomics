@@ -27,7 +27,7 @@ export interface AdminRestaurantInput {
   runs: readonly AdminRun[];
   /** Stored downloads. The newest createdAt is the last-download date. */
   fetches?: readonly AdminFetch[];
-  reports?: ReadonlyArray<{ kind: string | null; on: string }>;
+  reports?: ReadonlyArray<{ kind: string | null; on: string; createdAt?: string | null }>;
 }
 
 export interface AdminFetch {
@@ -163,7 +163,7 @@ export function panelFromAdminRows(
     }>;
     jobRuns: ReadonlyArray<AdminRun>;
     fetches?: ReadonlyArray<AdminFetch>;
-    reports?: ReadonlyArray<{ kind: string | null; on: string }>;
+    reports?: ReadonlyArray<{ kind: string | null; on: string; createdAt?: string | null }>;
     quality?: readonly string[];
   }>,
   openFindings: number,
@@ -299,44 +299,63 @@ export function nightlyWindow(
     .filter((row) => row.runId === latest)
     .map((row) => row.createdAt)
     .sort();
-  const startedAt = times[0];
+  const stamped = nightlyStart(latest);
+  const startedAt = stamped ?? times[0];
   if (!startedAt) return null;
   return { startedAt, endedAt: times.at(-1) ?? startedAt };
 }
 
+/** `nightly-YYYYMMDD-HHMM` is an India civil clock. Other ids keep the stored time. */
+function nightlyStart(runId: string): string | null {
+  const match = /^nightly-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})/.exec(runId);
+  if (!match) return null;
+  const utc =
+    Date.UTC(
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3]),
+      Number(match[4]),
+      Number(match[5]),
+    ) -
+    5.5 * 60 * 60 * 1000;
+  return new Date(utc).toISOString();
+}
+
 /** Stored files, one per app and report. A restaurant is not a download. */
 export function downloadTally(fetches: readonly AdminFetch[]): { ok: number; total: number } {
-  const counted = fetches.filter((row) => row.status);
+  const nightly = fetches.filter((row) => row.runId?.startsWith("nightly-"));
+  const latest = nightly
+    .map((row) => row.runId)
+    .sort()
+    .at(-1);
+  const scoped = latest ? fetches.filter((row) => row.runId === latest) : fetches;
+  const counted = scoped.filter((row) => row.status);
   return {
     ok: counted.filter((row) => row.status === "stored").length,
     total: counted.length,
   };
 }
 
-/** Days in the week before `today` with no stored file for that app. */
+/** Yesterday, when that civil day has no stored file for the app. */
 export function pendingApps(
   fetches: readonly AdminFetch[],
   today: string,
 ): { zomato: number; swiggy: number } {
-  const count = (platform: "zomato" | "swiggy") => {
-    let pending = 0;
-    for (let offset = 1; offset <= 7; offset += 1) {
-      const day = addIsoDays(today, -offset);
-      const stored = fetches.some((row) => {
-        if (row.platform !== platform) return false;
-        if (row.status != null && row.status !== "stored") return false;
-        const covered = row.periodStart ?? indiaCivilDate(new Date(row.createdAt));
-        return covered === day;
-      });
-      if (!stored) pending += 1;
-    }
-    return pending;
+  const day = addIsoDays(today, -1);
+  const missing = (platform: "zomato" | "swiggy") => {
+    const stored = fetches.some((row) => {
+      if (row.platform !== platform) return false;
+      if (row.status != null && row.status !== "stored") return false;
+      const covered = row.periodStart ?? indiaCivilDate(new Date(row.createdAt));
+      return covered === day;
+    });
+    return stored ? 0 : 1;
   };
-  return { zomato: count("zomato"), swiggy: count("swiggy") };
+  return { zomato: missing("zomato"), swiggy: missing("swiggy") };
 }
 
 function messageRows(restaurants: readonly AdminRestaurantInput[]): string[] {
-  return restaurants.flatMap((restaurant) =>
+  const lines = restaurants.flatMap((restaurant) =>
     (restaurant.reports ?? []).map((report) => {
       const kind =
         report.kind === "daily_brief"
@@ -344,9 +363,11 @@ function messageRows(restaurants: readonly AdminRestaurantInput[]): string[] {
           : report.kind === "weekly_review"
             ? "Weekly review"
             : "Payout check";
-      return `${kind} · ${formatCivilDay(report.on)} · Sent`;
+      const day = report.createdAt ? indiaCivilDate(new Date(report.createdAt)) : report.on;
+      return `${kind} · ${formatCivilDay(day)} · Sent`;
     }),
   );
+  return [...new Set(lines)];
 }
 
 function attemptTotal(fetches: readonly AdminFetch[]): number | null {

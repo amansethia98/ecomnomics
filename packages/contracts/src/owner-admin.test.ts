@@ -300,4 +300,53 @@ describe("platform admin panel", () => {
     expect(panel.nights.map((night) => night.runs)).toEqual([1, 1]);
     expect(panel.dailyCosts.map((day) => day.costPaise)).toEqual([100, 250]);
   });
+
+  it("reads the nightly id as the start and counts only that night's files", () => {
+    const panel = composeAdminPanel({
+      today: "2026-11-22",
+      openFindings: 0,
+      restaurants: [
+        {
+          restaurantId: "r1",
+          name: "Sample",
+          outlets: [outlet],
+          runs: [],
+          fetches: [
+            {
+              createdAt: "2026-11-22T00:40:08.000Z",
+              platform: "swiggy",
+              status: "stored",
+              runId: "nightly-20261122-0607",
+              periodStart: "2026-11-22",
+            },
+            {
+              createdAt: "2026-11-22T02:32:00.000Z",
+              platform: "zomato",
+              status: "stored",
+              runId: "daytime",
+              periodStart: "2026-11-22",
+            },
+          ],
+          reports: [
+            {
+              kind: "daily_brief",
+              on: "2026-11-15",
+              createdAt: "2026-11-16T03:30:00.000Z",
+            },
+            { kind: "payout_check", on: "2026-11-12" },
+            { kind: "payout_check", on: "2026-11-12" },
+          ],
+        },
+      ],
+    });
+    expect(panel.night?.startedAt).toBe("2026-11-22T00:37:00.000Z");
+    expect(panel.night?.endedAt).toBe("2026-11-22T00:40:08.000Z");
+    expect(panel.downloads).toEqual({ ok: 1, total: 1 });
+    expect(panel.pendingSwiggy).toBe(1);
+    expect(panel.pendingZomato).toBe(1);
+    expect(panel.messageRows).toEqual([
+      "Daily brief · Mon 16 Nov · Sent",
+      "Payout check · Thu 12 Nov · Sent",
+    ]);
+  });
 });

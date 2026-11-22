@@ -43,7 +43,7 @@ export interface PlatformAdminRestaurant {
     attemptCount: number;
     periodStart: string;
   }>;
-  reports: Array<{ kind: string | null; on: string }>;
+  reports: Array<{ kind: string | null; on: string; createdAt?: string }>;
   quality: string[];
   jobRuns: Array<{
     runId: string;
@@ -133,7 +133,8 @@ function present(row: {
     })),
     reports: row.reports.map((report) => ({
       kind: report.kind,
-      on: indiaCivilDate(report.businessDate ?? report.createdAt),
+      on: indiaCivilDate(report.createdAt),
+      createdAt: report.createdAt.toISOString(),
     })),
     quality: row.quality ?? [],
     jobRuns: row.jobRuns.map((job) => ({
