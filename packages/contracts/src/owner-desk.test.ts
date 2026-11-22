@@ -253,9 +253,9 @@ describe("owner payments", () => {
       true,
     );
     expect(periods.map((period) => paymentPeriodLabel(period))).toEqual([
-      "Zomato 16–23 Nov",
-      "Zomato 9–16 Nov",
-      "Swiggy 8–15 Nov",
+      "Zomato 16–22 Nov",
+      "Zomato 9–15 Nov",
+      "Swiggy 8–14 Nov",
     ]);
     const apps = payoutAppFigures(screen.payouts);
     expect(apps.swiggy).toMatchObject({ basis: "paid", paise: 8_067_351, from: "2026-11-08" });
@@ -335,8 +335,8 @@ describe("owner payments", () => {
     ]);
     expect(periods).toHaveLength(2);
     expect(periods.map((period) => paymentPeriodLabel(period))).toEqual([
-      "Zomato 9–16 Nov",
-      "Swiggy 8–15 Nov",
+      "Zomato 9–15 Nov",
+      "Swiggy 8–14 Nov",
     ]);
     expect(periods.every((period) => period.zomato == null || period.swiggy == null)).toBe(true);
     const words = { paid: "Paid", expected: "Expected", missing: "Report not in yet" };
@@ -362,7 +362,7 @@ describe("owner payments", () => {
       payoutAppLine("Zomato", header.zomato, words),
       payoutAppLine("Swiggy", header.swiggy, words),
     ];
-    expect(lines).toEqual(["Zomato 9–16 Nov · Expected ₹80,913", "Swiggy 8–15 Nov · Paid ₹80,674"]);
+    expect(lines).toEqual(["Zomato 9–15 Nov · Expected ₹80,913", "Swiggy 8–14 Nov · Paid ₹80,674"]);
     expect(lines.join(" ")).not.toContain("₹1,61,587");
     const windows = unstoredPayoutWindows(
       [
@@ -392,6 +392,21 @@ describe("owner payments", () => {
       selectedId: "z",
     });
     expect(deduction.breakdown.find((row) => row.id === "gst")?.label).toBe("− GST");
+  });
+
+  it("labels an exclusive cycle end through the day before, and the next open period with no shared day", () => {
+    const stored = { platform: "swiggy" as const, from: "2026-11-08", to: "2026-11-15" };
+    expect(paymentPeriodLabel({ zomato: null, swiggy: stored })).toBe("Swiggy 8–14 Nov");
+    const open = unstoredPayoutWindows([stored], "2026-11-22")[0];
+    expect(open).toEqual({ platform: "swiggy", from: "2026-11-15", to: "2026-11-22" });
+    expect(paymentPeriodLabel({ zomato: null, swiggy: open ?? null })).toBe("Swiggy 15–21 Nov");
+    expect(
+      payoutAppLine(
+        "Swiggy",
+        { basis: "missing", paise: null, from: "2026-11-15", to: "2026-11-22" },
+        { paid: "Paid", expected: "Expected", missing: "Report not in yet" },
+      ),
+    ).toBe("Swiggy 15–21 Nov · Report not in yet");
   });
 
   it("rounds breakdown rupees so they add to the displayed total", () => {

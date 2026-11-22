@@ -142,8 +142,8 @@ it("greets with the current India time and matches a paid payout", () => {
   expect(host.textContent).toContain("Good evening");
   expect(host.textContent).toContain("Sun 22 Nov");
   expect(host.textContent).not.toContain("Sat 21 Nov");
-  expect(host.textContent).toContain("Zomato 9–16 Nov · Expected ₹80,913");
-  expect(host.textContent).toContain("Swiggy 8–15 Nov · Paid ₹80,674");
+  expect(host.textContent).toContain("Zomato 9–15 Nov · Expected ₹80,913");
+  expect(host.textContent).toContain("Swiggy 8–14 Nov · Paid ₹80,674");
   expect(host.textContent).not.toContain("₹1,61,587");
   expect(host.textContent).not.toContain("Swiggy pending, usually in by 11 AM");
 });

@@ -1,5 +1,5 @@
 import * as z from "zod";
-import { addDays, formatInclusiveRange, formatRupees } from "./ops/format.js";
+import { addDays, formatExclusiveRange, formatRupees } from "./ops/format.js";
 import type { OwnerPlot } from "./owner-dashboard.js";
 import { settledPayoutPaise } from "./owner-home.js";
 
@@ -556,7 +556,7 @@ export function payoutAppLine(
       : app.basis === "expected" && app.paise != null
         ? `${words.expected} ${formatRupees(app.paise)}`
         : words.missing;
-  if (app.from && app.to) return `${name} ${formatInclusiveRange(app.from, app.to)} · ${state}`;
+  if (app.from && app.to) return `${name} ${formatExclusiveRange(app.from, app.to)} · ${state}`;
   return `${name} ${state}`;
 }
 
@@ -570,10 +570,10 @@ export function paymentPeriodLabel(
 ): string {
   const parts = [
     period.zomato
-      ? `${names.zomato} ${formatInclusiveRange(period.zomato.from, period.zomato.to)}`
+      ? `${names.zomato} ${formatExclusiveRange(period.zomato.from, period.zomato.to)}`
       : null,
     period.swiggy
-      ? `${names.swiggy} ${formatInclusiveRange(period.swiggy.from, period.swiggy.to)}`
+      ? `${names.swiggy} ${formatExclusiveRange(period.swiggy.from, period.swiggy.to)}`
       : null,
   ].filter((part): part is string => part != null);
   return parts.join(" · ");

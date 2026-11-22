@@ -1,7 +1,7 @@
 import { useLingui } from "@lingui/react/macro";
 import type { OwnerPayments } from "@rakazo/contracts";
 import {
-  formatInclusiveRange,
+  formatExclusiveRange,
   formatRupees,
   largestRemainderRupees,
   paymentPeriodLabel,
@@ -155,7 +155,7 @@ export function PaymentsScreen({
               <PlatformDot platform={payout.platform} />
               <span className="flex-1">
                 <span className="block font-medium">
-                  {formatInclusiveRange(payout.from, payout.to)}
+                  {formatExclusiveRange(payout.from, payout.to)}
                 </span>
                 <span className="block text-body-sm text-muted-foreground">
                   {payout.id === screen.selectedId && !ordersOpen ? `${t`View orders`} · ` : ""}

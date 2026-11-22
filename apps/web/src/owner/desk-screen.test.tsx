@@ -84,17 +84,17 @@ it("shows the Thursday check on a payout and not a match", () => {
   expect(host.textContent).toContain("Not in report");
   const options = [...host.querySelectorAll("option")].map((option) => option.textContent ?? "");
   expect(options).toEqual([
-    "Zomato 16–23 Nov · Report not in yet",
-    "Zomato 9–16 Nov",
-    "Swiggy 9–15 Nov · Report not in yet",
-    "Swiggy 3–9 Nov",
+    "Zomato 16–22 Nov · Report not in yet",
+    "Zomato 9–15 Nov",
+    "Swiggy 9–14 Nov · Report not in yet",
+    "Swiggy 3–8 Nov",
   ]);
   expect(options.some((option) => option.includes("Zomato") && option.includes("Swiggy"))).toBe(
     false,
   );
   const weekLine = host.querySelector("[data-testid='payout-week']")?.textContent ?? "";
-  expect(weekLine).toContain("Zomato 16–23 Nov · Report not in yet");
-  expect(weekLine).toContain("Swiggy 9–15 Nov · Report not in yet");
+  expect(weekLine).toContain("Zomato 16–22 Nov · Report not in yet");
+  expect(weekLine).toContain("Swiggy 9–14 Nov · Report not in yet");
   expect(weekLine).not.toContain("₹1,200");
   expect(weekLine).not.toMatch(/paid · expected/i);
   expect(host.textContent).toContain("Where your money went");
@@ -151,12 +151,12 @@ it("keeps each app's latest period on its own header line", () => {
     />,
   );
   const options = [...host.querySelectorAll("option")].map((option) => option.textContent);
-  expect(options).toEqual(["Zomato 9–16 Nov", "Swiggy 8–15 Nov"]);
+  expect(options).toEqual(["Zomato 9–15 Nov", "Swiggy 8–14 Nov"]);
   const weekLine = host.querySelector("[data-testid='payout-week']")?.textContent ?? "";
-  expect(weekLine).toContain("Zomato 9–16 Nov · Paid ₹80,913");
-  expect(weekLine).toContain("Swiggy 8–15 Nov · Paid ₹80,674");
+  expect(weekLine).toContain("Zomato 9–15 Nov · Paid ₹80,913");
+  expect(weekLine).toContain("Swiggy 8–14 Nov · Paid ₹80,674");
   expect(weekLine).not.toContain("₹1,61,587");
-  expect(host.textContent).not.toContain("Zomato 9–16 Nov · Swiggy");
+  expect(host.textContent).not.toContain("Zomato 9–15 Nov · Swiggy");
 });
 
 it("asks for a licence date and reminds inside seven days", () => {
