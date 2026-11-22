@@ -182,4 +182,43 @@ describe("platform admin panel", () => {
       "zomato payout mark unreadable could not be read",
     ]);
   });
+
+  it("builds the night window, a seven-day download grid, and the stored costs", () => {
+    const panel = composeAdminPanel({
+      openFindings: 0,
+      restaurants: [
+        {
+          restaurantId: "r1",
+          name: "Sample",
+          outlets: [outlet],
+          runs: [
+            {
+              status: "ok",
+              startedAt: "2026-11-10T20:00:00.000Z",
+              endedAt: "2026-11-10T21:00:00.000Z",
+              costPaise: 100,
+            },
+            {
+              status: "ok",
+              startedAt: "2026-11-11T20:00:00.000Z",
+              endedAt: "2026-11-11T22:00:00.000Z",
+              costPaise: 250,
+            },
+          ],
+          fetches: [
+            { createdAt: "2026-11-11T20:00:00.000Z", platform: "zomato" },
+            { createdAt: "2026-11-11T21:00:00.000Z", platform: "swiggy" },
+          ],
+        },
+      ],
+    });
+    expect(panel.night).toEqual({
+      startedAt: "2026-11-11T20:00:00.000Z",
+      endedAt: "2026-11-11T22:00:00.000Z",
+    });
+    expect(panel.freshness).toHaveLength(7);
+    expect(panel.freshness.at(-1)?.downloads).toBe(2);
+    expect(panel.nights.map((night) => night.runs)).toEqual([1, 1]);
+    expect(panel.dailyCosts.map((day) => day.costPaise)).toEqual([100, 250]);
+  });
 });
