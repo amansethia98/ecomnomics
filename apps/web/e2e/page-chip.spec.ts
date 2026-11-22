@@ -48,13 +48,18 @@ test("a page chip in a right-to-left chat keeps its icon gap on the text side", 
         await route.fulfill({ response });
         return;
       }
-      const thread = json.thread as Record<string, unknown> | undefined;
-      if (thread?.threadId) json.thread = withPageChipMessage(thread);
+      // Bootstrap nests the thread. threads/get returns the thread itself, and
+      // that refresh replaces whatever bootstrap painted.
+      const nested = json.thread;
+      if (nested && typeof nested === "object") {
+        json.thread = withPageChipMessage(nested as Record<string, unknown>);
+      } else if (typeof json.threadId === "string") {
+        Object.assign(json, withPageChipMessage(json));
+      }
       await route.fulfill({ contentType: "application/json", body: JSON.stringify({ json }) });
     } catch {
       // Bare /app checks for a restaurant, then the shell opens the bot. Either
-      // move cancels a bootstrap whose body is already being read. The request
-      // that lands on the bot still carries the chip.
+      // move cancels a bootstrap whose body is already being read.
       await route.abort().catch(() => undefined);
     }
   });
