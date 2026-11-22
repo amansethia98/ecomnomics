@@ -263,12 +263,12 @@ export function OwnerPage() {
             restaurantId={restaurantId}
             thread={staff}
             notice={staffNotice}
-            onAsk={(text) => {
+            onAsk={(text, key) => {
               setStaffNotice(null);
               void ownerJson<StaffThread>(`/api/v1/restaurants/${restaurantId}/staff/questions`, {
                 method: "POST",
                 headers: { "content-type": "application/json" },
-                body: JSON.stringify({ text }),
+                body: JSON.stringify({ text, key }),
               })
                 .then((next) => setStaff(next))
                 .catch((error: unknown) =>

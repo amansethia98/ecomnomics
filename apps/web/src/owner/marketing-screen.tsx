@@ -3,10 +3,12 @@ import type { MarketingDisplay, MarketingScreen } from "@rakazo/contracts";
 import { formatRupees } from "@rakazo/contracts";
 import { Button } from "@rakazo/ui-web";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 
 type Stage = "all" | "waiting" | "approved" | "live" | "result";
 
 export function MarketingActionsScreen({
+  restaurantId,
   screen,
   onConfirm,
   onDecide,
@@ -34,6 +36,21 @@ export function MarketingActionsScreen({
       : screen.hero === "result" && screen.resultTitle
         ? screen.resultTitle
         : t`No suggestions are waiting`;
+  if (all.length === 0) {
+    return (
+      <div className="mx-auto flex max-w-3xl flex-col gap-4">
+        <h2 className="owner-title">
+          {t`Your chief of staff will suggest your first action after a week of data`}
+        </h2>
+        <Link className="text-primary" to={`/restaurants/${restaurantId}/chief-of-staff`}>
+          {t`Ask your chief of staff →`}
+        </Link>
+        <p className="text-body-sm text-muted-foreground">
+          {t`You switch offers on in the Zomato or Swiggy app. We spot them in the next report, or you can tap “I've done it”. Results compare the same weekdays before and after, after 2 weeks.`}
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
       <p className="text-body-sm text-muted-foreground">

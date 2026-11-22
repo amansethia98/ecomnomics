@@ -12,15 +12,14 @@ import {
   choiceReply,
   composeStaffThread,
   DEFAULT_OPS_RULES_CONFIG,
-  formatIstClock,
+  formatInclusiveRange,
   indiaCivilDate,
+  lastCompleteWeekChange,
   presentMarketing,
-  refreshBriefClosing,
-  replaceWeekLine,
+  repeatQuestion,
   STAFF_QUESTION_LIMIT,
   utcMidnight,
   weekMonday,
-  weekSales,
 } from "@rakazo/contracts";
 import type { PrismaClient } from "./client.js";
 import type { Prisma } from "./generated/prisma/client.js";
@@ -51,13 +50,14 @@ export async function askStaffForMember(
   userId: string,
   restaurantId: string,
   text: string,
+  key?: string,
 ) {
   const restaurant = await memberRestaurant(db, userId, restaurantId);
   return runAsTenant({ spaceId: restaurant.spaceId, userId }, async () => {
     const today = indiaCivilDate(new Date());
     return db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`staff-quota:${restaurant.restaurantId}:${userId}:${today}`}, 0))::text AS "lock"`;
-      return recordQuestion(tx, restaurant, userId, today, text);
+      return recordQuestion(tx, restaurant, userId, today, text, key);
     });
   });
 }
@@ -68,23 +68,35 @@ async function recordQuestion(
   userId: string,
   today: string,
   text: string,
+  key?: string,
 ) {
   const day = utcMidnight(today);
+  const now = new Date();
   const earlier = await db.ownerStaffTurn.findMany({
     where: {
       restaurantId: restaurant.restaurantId,
       spaceId: restaurant.spaceId,
       userId,
       role: "owner",
-      businessDate: day,
       failed: false,
+      createdAt: { gte: new Date(now.getTime() - 60_000) },
     },
-    select: { body: true },
+    orderBy: { createdAt: "desc" },
+    take: 5,
+    select: { body: true, createdAt: true },
   });
-  const needle = text.trim().toLowerCase();
-  if (earlier.some((turn) => textOf(turn.body).trim().toLowerCase() === needle)) {
-    return loadThread(db, restaurant, userId, today);
-  }
+  const repeat = earlier.some((turn) => {
+    const body = turn.body as { text?: string; key?: string } | null;
+    return repeatQuestion({
+      previousText: textOf(turn.body),
+      previousAt: turn.createdAt.toISOString(),
+      text,
+      now: now.toISOString(),
+      previousKey: body?.key ?? null,
+      key: key ?? null,
+    });
+  });
+  if (repeat) return loadThread(db, restaurant, userId, today);
   const asked = await askedToday(db, restaurant.restaurantId, restaurant.spaceId, userId, today);
   if (asked >= STAFF_QUESTION_LIMIT) {
     throw new RestaurantAgentError(
@@ -102,7 +114,7 @@ async function recordQuestion(
     pendingPlatform: context.pendingPlatform,
     salesPaise: weekQuestion ? context.weekPaise : context.salesPaise,
     changePct: weekQuestion ? context.weekChange : context.changePct,
-    compare: weekQuestion ? "vs the same days last week" : "the same weekday",
+    compare: weekQuestion ? (context.weekPeriod?.split(" vs ")[1] ?? null) : "the same weekday",
     period: weekQuestion ? context.weekPeriod : null,
     points: context.points,
     suggestion: context.suggestion,
@@ -131,7 +143,7 @@ async function recordQuestion(
       userId,
       businessDate: day,
       role: "owner",
-      body: { text },
+      body: { text, ...(key ? { key } : {}) },
       counted: answer.counted,
       failed,
     },
@@ -284,7 +296,7 @@ async function loadThread(
   userId: string,
   today: string,
 ): Promise<StaffThread> {
-  const [turns, brief, asked, history, readings] = await Promise.all([
+  const [turns, brief, asked, history] = await Promise.all([
     db.ownerStaffTurn.findMany({
       where: { restaurantId: restaurant.restaurantId, spaceId: restaurant.spaceId },
       orderBy: { createdAt: "asc" },
@@ -308,10 +320,7 @@ async function loadThread(
       },
       select: { id: true },
     }),
-    dayReadings(db, restaurant, today),
   ]);
-  const week = weekAnswer(readings, today).week;
-  const fresh = await briefFreshness(db, restaurant, today);
   const messages: StaffMessage[] = turns.map((turn) => ({
     id: turn.id,
     role: turn.role === "owner" ? "owner" : "staff",
@@ -328,7 +337,7 @@ async function loadThread(
       brief?.businessDate && brief.summaryMarkdown
         ? {
             date: indiaCivilDate(brief.businessDate),
-            text: refreshBriefClosing(replaceWeekLine(brief.summaryMarkdown, week), fresh),
+            text: brief.summaryMarkdown,
           }
         : null,
     messages,
@@ -393,7 +402,7 @@ async function staffContext(
           ? ((latest.salesPaise - weekAgo.salesPaise) / weekAgo.salesPaise) * 100
           : null,
       ...weekAnswer(readings, today),
-      points: weekPoints(readings),
+      points: weekPoints(readings, today),
       suggestion: open
         ? {
             id: open.id,
@@ -524,56 +533,6 @@ async function dayReadings(
     .sort((left, right) => left.date.localeCompare(right.date));
 }
 
-async function briefFreshness(
-  db: StaffStore,
-  restaurant: { restaurantId: string; spaceId: string },
-  today: string,
-) {
-  const yesterday = addIsoDays(today, -1);
-  const [outlets, rows, latest] = await Promise.all([
-    db.outlet.findMany({
-      where: { restaurantId: restaurant.restaurantId, spaceId: restaurant.spaceId, active: true },
-      select: { zomatoResId: true, swiggyRid: true },
-    }),
-    db.metricValue.findMany({
-      where: {
-        restaurantId: restaurant.restaurantId,
-        spaceId: restaurant.spaceId,
-        supersededAt: null,
-        rowRole: "fact",
-        granularity: "day",
-        state: "ok",
-        key: { in: ["ops_sales_paise", "swiggy_net_sales_paise"] },
-        periodStart: { gte: utcMidnight(yesterday), lt: utcMidnight(today) },
-      },
-      select: { key: true },
-    }),
-    db.metricValue.findFirst({
-      where: {
-        restaurantId: restaurant.restaurantId,
-        spaceId: restaurant.spaceId,
-        supersededAt: null,
-        rowRole: "fact",
-      },
-      orderBy: { capturedAt: "desc" },
-      select: { capturedAt: true },
-    }),
-  ]);
-  const ready = new Set(rows.map((row) => row.key));
-  const missing: Array<{ platform: "zomato" | "swiggy"; date: string }> = [];
-  if (outlets.some((outlet) => outlet.zomatoResId) && !ready.has("ops_sales_paise")) {
-    missing.push({ platform: "zomato", date: yesterday });
-  }
-  if (outlets.some((outlet) => outlet.swiggyRid) && !ready.has("swiggy_net_sales_paise")) {
-    missing.push({ platform: "swiggy", date: yesterday });
-  }
-  return {
-    capturedOn: latest ? indiaCivilDate(latest.capturedAt) : null,
-    dataAsOf: latest ? formatIstClock(latest.capturedAt) : null,
-    missing,
-  };
-}
-
 function weekAnswer(
   readings: ReadonlyArray<{
     date: string;
@@ -581,36 +540,61 @@ function weekAnswer(
   }>,
   today: string,
 ) {
-  const yesterday = addIsoDays(today, -1);
-  const monday = weekMonday(yesterday);
-  const sunday = addIsoDays(monday, 6);
-  const end = yesterday >= sunday ? sunday : addIsoDays(monday, -1);
-  const week = weekSales(
-    end,
+  const change = lastCompleteWeekChange(
     readings.flatMap((reading) =>
       reading.apps.map((app) => ({
-        date: reading.date,
+        from: reading.date,
+        grain: "day" as const,
         platform: app.platform,
-        salesPaise: app.salesPaise,
+        key: app.platform === "zomato" ? "ops_sales_paise" : "swiggy_net_sales_paise",
+        value: app.salesPaise,
+        state: "ok" as const,
       })),
     ),
+    ["zomato", "swiggy"],
+    today,
   );
+  const current = change ? sumRange(readings, change.from, change.to) : null;
   return {
-    weekPaise: week?.currentPaise ?? null,
-    weekChange: week?.changePct ?? null,
-    weekPeriod: week ? `${week.startLabel}–${week.endLabel}` : null,
-    week,
+    weekPaise: current,
+    weekChange: change?.pct ?? null,
+    weekPeriod: change
+      ? `${formatInclusiveRange(change.from, change.to)} vs ${formatInclusiveRange(change.previousFrom, change.previousTo)}`
+      : null,
+    week: null,
   };
+}
+
+function sumRange(
+  readings: ReadonlyArray<{
+    date: string;
+    apps: ReadonlyArray<{ salesPaise: number }>;
+  }>,
+  from: string,
+  to: string,
+): number | null {
+  let total = 0;
+  let any = false;
+  for (const reading of readings) {
+    if (reading.date < from || reading.date > to) continue;
+    for (const app of reading.apps) {
+      any = true;
+      total += app.salesPaise;
+    }
+  }
+  return any ? total : null;
 }
 
 function weekPoints(
   readings: ReadonlyArray<{ date: string; apps: ReadonlyArray<{ salesPaise: number }> }>,
+  today: string,
 ) {
   const weeks = new Map<string, number>();
   for (const reading of readings) {
     if (reading.apps.length === 0) continue;
-    const sales = reading.apps.reduce((sum, app) => sum + app.salesPaise, 0);
     const week = weekMonday(reading.date);
+    if (addIsoDays(week, 7) > today) continue;
+    const sales = reading.apps.reduce((sum, app) => sum + app.salesPaise, 0);
     weeks.set(week, (weeks.get(week) ?? 0) + sales);
   }
   return [...weeks.entries()]
