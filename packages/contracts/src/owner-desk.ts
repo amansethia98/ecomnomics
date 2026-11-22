@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { addDays } from "./ops/format.js";
 import type { OwnerPlot } from "./owner-dashboard.js";
 import { settledPayoutPaise } from "./owner-home.js";
 
@@ -136,6 +137,11 @@ export interface OwnerRatings {
   rating: number | null;
   reviews: OwnerReview[];
   apps: OwnerRatingApp[];
+  /** Inclusive civil dates of the four-week window. Null when neither app has a shared day. */
+  from?: string | null;
+  to?: string | null;
+  /** Complaint counts, each one the sum of the two apps. */
+  totals?: Array<{ id: string; count: number }>;
 }
 
 export interface OwnerReportArchiveItem {
@@ -371,6 +377,62 @@ export function ratingsFromRows(
   return { rating, reviews: [], apps: [app("zomato"), app("swiggy")] };
 }
 
+/** Last civil day both apps have a stored row, then the 28 days ending that day. */
+export function ratingsForWindow(
+  rows: ReadonlyArray<{
+    platform: string;
+    key: string;
+    value: number | null;
+    rowRole: string;
+    date: string;
+  }>,
+  today: string,
+): OwnerRatings {
+  const present = new Map<string, Set<string>>();
+  for (const row of rows) {
+    if (row.value == null || row.date > today) continue;
+    const apps = present.get(row.date) ?? new Set<string>();
+    apps.add(row.platform);
+    present.set(row.date, apps);
+  }
+  const end =
+    [...present.entries()]
+      .filter(([, apps]) => apps.has("zomato") && apps.has("swiggy"))
+      .map(([date]) => date)
+      .sort()
+      .at(-1) ?? null;
+  const from = end ? addDays(end, -27) : null;
+  const inside = from && end ? rows.filter((row) => row.date >= from && row.date <= end) : [];
+  const rating = inside
+    .filter(
+      (row) =>
+        row.key === "rating" &&
+        row.rowRole === "platform_check" &&
+        row.platform === "zomato" &&
+        row.value != null &&
+        row.value !== 0,
+    )
+    .sort((left, right) => right.date.localeCompare(left.date));
+  const summed = ratingsFromRows([
+    ...rating.slice(0, 1),
+    ...inside.filter((row) => row.rowRole === "fact" && row.key !== "rating"),
+  ]);
+  return composeOwnerRatings({ ...summed, from, to: end });
+}
+
+/** Latest payout of each app whose cycle overlaps the picked week. */
+export function paymentsHeroRows<
+  T extends { platform: "zomato" | "swiggy"; from: string; to: string },
+>(payouts: readonly T[], weekFrom: string, weekTo: string): T[] {
+  const overlapping = payouts.filter((payout) => payout.from < weekTo && payout.to > weekFrom);
+  return (["zomato", "swiggy"] as const).flatMap((platform) => {
+    const row =
+      overlapping.find((payout) => payout.platform === platform) ??
+      payouts.find((payout) => payout.platform === platform);
+    return row ? [row] : [];
+  });
+}
+
 /** Null is unreported. A stored zero stays zero. */
 function reportedFigure(value: number | null | undefined): number | null {
   if (value == null) return null;
@@ -380,6 +442,8 @@ function reportedFigure(value: number | null | undefined): number | null {
 export function composeOwnerRatings(input: {
   rating: number | null;
   reviews: readonly OwnerReview[];
+  from?: string | null;
+  to?: string | null;
   apps?: ReadonlyArray<{
     platform: "zomato" | "swiggy";
     rating?: number | null;
@@ -414,6 +478,15 @@ export function composeOwnerRatings(input: {
       (left, right) => right.date.localeCompare(left.date) || left.id.localeCompare(right.id),
     ),
     apps,
+    from: input.from ?? null,
+    to: input.to ?? null,
+    totals: COMPLAINTS.map(([id]) => ({
+      id,
+      count: apps.reduce(
+        (sum, app) => sum + (app.complaints.find((row) => row.id === id)?.count ?? 0),
+        0,
+      ),
+    })),
   };
 }
 
@@ -428,6 +501,7 @@ export function composeOwnerDocuments(input: {
     from: string;
     to: string;
     createdOn: string;
+    createdAt?: string | null;
   }>;
 }): OwnerDocuments {
   return {
@@ -484,34 +558,41 @@ function paymentBreakdown(
           piece(sumPaise(cycle.taxesPaise, cycle.tdsPaise, cycle.tcsPaise)) -
           piece(cycle.complaintsPaise))
       : null;
+  const otherLabel =
+    other == null ? "Other adjustments" : `${other >= 0 ? "+" : "−"} Other adjustments`;
   return [
     { id: "sales", label: "Your sales", paise: cycle.grossSalesPaise, basis: null },
-    { id: "discounts", label: "Discounts you paid for", paise: cycle.discountsPaise, basis: null },
+    {
+      id: "discounts",
+      label: "− Discounts you paid for",
+      paise: cycle.discountsPaise,
+      basis: null,
+    },
     {
       id: "commission",
-      label: "Commission & fees",
+      label: "− Commission & fees",
       paise: sumPaise(cycle.commissionPaise, cycle.feesPaise),
       basis: null,
     },
-    { id: "ads", label: "Ads", paise: ads, basis: null },
+    { id: "ads", label: "− Ads", paise: ads, basis: null },
     {
       id: "tax",
-      label: "GST & TDS",
+      label: "− GST & TDS",
       paise: sumPaise(cycle.taxesPaise, cycle.tdsPaise, cycle.tcsPaise),
       basis: null,
     },
     {
       id: "complaints",
-      label: "Complaints and cancellations",
+      label: "− Complaints and cancellations",
       paise: cycle.complaintsPaise,
       basis: null,
     },
-    { id: "other", label: "Other adjustments", paise: other, basis: null },
+    { id: "other", label: otherLabel, paise: other, basis: null },
     basis === "paid"
-      ? { id: "bank", label: "Paid to your bank", paise: settled, basis: "paid" }
+      ? { id: "bank", label: "= Paid to your bank", paise: settled, basis: "paid" }
       : {
           id: "net",
-          label: "Expected from the file",
+          label: "= Expected from the file",
           paise: settled,
           basis: basis === "net" ? "net" : null,
         },
@@ -531,6 +612,7 @@ function labelledReports(
     from: string;
     to: string;
     createdOn: string;
+    createdAt?: string | null;
   }>,
 ): OwnerReportArchiveItem[] {
   const seen = new Set<string>();
@@ -547,6 +629,7 @@ function labelledReports(
       from: report.from,
       to: report.to,
       createdOn: report.createdOn,
+      createdAt: report.createdAt ?? null,
     });
   }
   return rows;

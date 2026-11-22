@@ -75,7 +75,8 @@ const payments: OwnerPayments = {
 };
 
 it("shows the Thursday check on a payout and not a match", () => {
-  const host = render(<PaymentsScreen screen={payments} onSelect={() => undefined} />);
+  const onSelect = vi.fn();
+  const host = render(<PaymentsScreen screen={payments} onSelect={onSelect} />);
   expect(host.textContent).toContain("Check runs Thursday");
   expect(host.textContent).toContain("Net in file");
   expect(host.textContent).toContain("—");
@@ -94,6 +95,9 @@ it("shows the Thursday check on a payout and not a match", () => {
       ?.click();
   });
   expect(host.textContent).toContain("o-1");
+  expect(onSelect).not.toHaveBeenCalled();
+  expect(host.querySelector(".owner-dot-swiggy")).not.toBeNull();
+  expect(host.querySelector(".owner-dot-zomato")).not.toBeNull();
   expect(host.textContent).not.toContain("Ad credit");
   expect(formatRupees(-500)).not.toBe(formatRupees(500));
 });
@@ -198,6 +202,16 @@ it("says menu editing is coming soon and names a missing app", () => {
   );
   expect(top?.querySelector("[class*='h-1']")).toBeNull();
   expect(host.textContent).toContain("80 / 100");
+  const rounded = render(
+    <MenuScreen
+      screen={{
+        ...menu,
+        swiggy: { ...menu.swiggy!, score: 92.33, scorePoints: [92.33] },
+      }}
+    />,
+  );
+  expect(rounded.textContent).toContain("92 / 100");
+  expect(rounded.querySelector("circle")).not.toBeNull();
   expect(host.textContent).toContain("as of Sat 31 Oct");
   expect(host.textContent).not.toContain("In reports");
   expect(host.textContent).toContain("80%");

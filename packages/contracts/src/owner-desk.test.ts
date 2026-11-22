@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatExclusiveRange } from "./ops/format.js";
+import { formatExclusiveRange, formatRupees } from "./ops/format.js";
 import type { PaymentCycle } from "./owner-desk.js";
 import {
   composeOwnerDocuments,
@@ -9,6 +9,8 @@ import {
   LicencePatchSchema,
   PAYOUT_CHECK,
   parseDisplayDate,
+  paymentsHeroRows,
+  ratingsForWindow,
   ratingsFromRows,
 } from "./owner-desk.js";
 
@@ -168,6 +170,65 @@ describe("owner payments", () => {
     expect(screen.payouts[0]?.paidAmountPaise).toBe(60_000);
     expect(screen.breakdown.find((row) => row.id === "bank")?.paise).toBe(60_000);
     expect(screen.breakdown.some((row) => row.id === "net")).toBe(false);
+    expect(screen.breakdown.find((row) => row.id === "discounts")?.label).toBe(
+      "− Discounts you paid for",
+    );
+    expect(screen.breakdown.find((row) => row.id === "bank")?.label).toBe("= Paid to your bank");
+  });
+
+  it("keeps both apps after ads on every picked week", () => {
+    const screen = composeOwnerPayments({
+      cycles: [
+        cycle("z", "2026-11-16", {
+          from: "2026-11-09",
+          netPayoutPaise: 10_361_477,
+          adsPaise: 2_270_143,
+          paidAmountPaise: null,
+        }),
+        cycle("s", "2026-11-15", {
+          from: "2026-11-08",
+          platform: "swiggy",
+          netPayoutPaise: 9_000_000,
+          paidAmountPaise: 8_067_351,
+        }),
+      ],
+      orders: [],
+      adjustments: [{ cycleId: "z", label: "ADS", amountPaise: 2_270_143 }],
+      selectedId: "s",
+    });
+    expect(screen.payouts.find((payout) => payout.id === "z")?.netPayoutPaise).toBe(8_091_334);
+    const later = paymentsHeroRows(screen.payouts, "2026-11-15", "2026-11-22");
+    const earlier = paymentsHeroRows(screen.payouts, "2026-11-08", "2026-11-15");
+    const due = (rows: typeof later) =>
+      rows.reduce((total, payout) => {
+        const amount = payout.bankBasis === "paid" ? payout.paidAmountPaise : payout.netPayoutPaise;
+        return total + (amount ?? 0);
+      }, 0);
+    expect(formatRupees(due(later))).toBe("₹1,61,587");
+    expect(formatRupees(due(earlier))).toBe("₹1,61,587");
+    expect(formatRupees(10_361_477 + 8_067_351)).toBe("₹1,84,288");
+  });
+
+  it("signs a positive other adjustment as a credit", () => {
+    const screen = composeOwnerPayments({
+      cycles: [
+        cycle("c", "2026-11-16", {
+          paidAmountPaise: 70_800,
+          grossSalesPaise: 100_000,
+          discountsPaise: 20_000,
+          commissionPaise: 10_000,
+          adsPaise: 4_000,
+        }),
+      ],
+      orders: [],
+      adjustments: [],
+      selectedId: null,
+    });
+    expect(screen.breakdown.find((row) => row.id === "other")).toMatchObject({
+      label: "+ Other adjustments",
+      paise: 4_800,
+    });
+    expect(screen.breakdown.find((row) => row.id === "bank")?.label).toBe("= Paid to your bank");
   });
 });
 
@@ -224,10 +285,14 @@ describe("owner documents", () => {
           from: "2026-11-10",
           to: "2026-11-10",
           createdOn: "2026-11-11",
+          createdAt: "2026-11-10T03:30:00.000Z",
         },
       ],
     });
     expect(labelled.reports.map((report) => report.kind)).toEqual(["weekly", "daily"]);
+    expect(labelled.reports.find((report) => report.kind === "daily")?.createdAt).toBe(
+      "2026-11-10T03:30:00.000Z",
+    );
     expect(parseDisplayDate("2 Jan 2027")).toBe("2027-01-02");
     expect(parseDisplayDate("02/01/2027")).toBeNull();
   });
@@ -353,5 +418,106 @@ describe("owner menu and ratings", () => {
     expect(summed.apps.find((app) => app.platform === "zomato")?.complaints[0]?.count).toBe(6);
     expect(summed.apps.find((app) => app.platform === "swiggy")?.complaints[0]?.count).toBe(1);
     expect(summed.apps.find((app) => app.platform === "zomato")?.poorRatedPct).toBe(20);
+  });
+
+  it("sums the four weeks ending on the last day both apps have data", () => {
+    const screen = ratingsForWindow(
+      [
+        {
+          platform: "zomato",
+          key: "ops_sales_paise",
+          value: 1,
+          rowRole: "fact",
+          date: "2026-11-20",
+        },
+        {
+          platform: "swiggy",
+          key: "swiggy_net_sales_paise",
+          value: 1,
+          rowRole: "fact",
+          date: "2026-11-20",
+        },
+        {
+          platform: "zomato",
+          key: "ops_sales_paise",
+          value: 1,
+          rowRole: "fact",
+          date: "2026-11-21",
+        },
+        {
+          platform: "zomato",
+          key: "rating",
+          value: 4.33,
+          rowRole: "platform_check",
+          date: "2026-11-20",
+        },
+        {
+          platform: "zomato",
+          key: "rating",
+          value: 0,
+          rowRole: "fact",
+          date: "2026-11-20",
+        },
+        {
+          platform: "zomato",
+          key: "complaints_missing",
+          value: 9,
+          rowRole: "fact",
+          date: "2026-11-20",
+        },
+        {
+          platform: "swiggy",
+          key: "complaints_missing",
+          value: 7,
+          rowRole: "fact",
+          date: "2026-11-20",
+        },
+        {
+          platform: "zomato",
+          key: "complaints_missing",
+          value: 100,
+          rowRole: "fact",
+          date: "2026-11-21",
+        },
+        {
+          platform: "zomato",
+          key: "complaints_missing",
+          value: 50,
+          rowRole: "fact",
+          date: "2026-10-01",
+        },
+        {
+          platform: "swiggy",
+          key: "complaints_quality",
+          value: 5,
+          rowRole: "fact",
+          date: "2026-11-20",
+        },
+        {
+          platform: "zomato",
+          key: "complaints_quality",
+          value: 8,
+          rowRole: "fact",
+          date: "2026-11-20",
+        },
+      ],
+      "2026-11-22",
+    );
+    expect(screen.from).toBe("2026-10-24");
+    expect(screen.to).toBe("2026-11-20");
+    expect(screen.rating).toBe(4.33);
+    const missing = screen.totals?.find((row) => row.id === "complaints_missing")?.count;
+    const zomato = screen.apps.find((app) => app.platform === "zomato");
+    const swiggy = screen.apps.find((app) => app.platform === "swiggy");
+    const zMissing = zomato?.complaints.find((row) => row.id === "complaints_missing")?.count ?? 0;
+    const sMissing = swiggy?.complaints.find((row) => row.id === "complaints_missing")?.count ?? 0;
+    expect(missing).toBe(16);
+    expect(zMissing + sMissing).toBe(missing);
+    const quality = screen.totals?.find((row) => row.id === "complaints_quality")?.count;
+    expect(quality).toBe(13);
+    expect(
+      (zomato?.complaints.find((row) => row.id === "complaints_quality")?.count ?? 0) +
+        (swiggy?.complaints.find((row) => row.id === "complaints_quality")?.count ?? 0),
+    ).toBe(quality);
   });
 });

@@ -98,7 +98,7 @@ function Fact({
         : percent
           ? `${value}%`
           : score
-            ? `${value} / 100`
+            ? `${Math.round(value)} / 100`
             : String(value);
   const strong = value != null && (percent ? value >= 90 : value >= 80);
   return (
@@ -121,10 +121,17 @@ function Fact({
 }
 
 function Sparkline({ points }: { points?: number[] }) {
-  if (!points || points.length < 2) return null;
+  if (!points || points.length === 0) return null;
   const min = Math.min(...points);
   const max = Math.max(...points);
-  const span = max - min || 1;
+  if (points.length === 1 || min === max) {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 48 16" className="h-4 w-12 text-foreground">
+        <circle cx="24" cy="8" r="2.5" fill="currentColor" />
+      </svg>
+    );
+  }
+  const span = max - min;
   const step = 48 / (points.length - 1);
   const d = points
     .map((point, index) => {
