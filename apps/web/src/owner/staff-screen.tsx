@@ -190,19 +190,8 @@ function Block({
   if (block.kind === "metric") {
     return (
       <div className="mt-3">
-        {block.label.includes("urgent") ? (
-          <p className="flex flex-wrap gap-2">
-            <span className="owner-pill owner-pill-act">{block.label}</span>
-            {block.watch != null ? (
-              <span className="owner-pill owner-pill-watch">
-                {block.watch === 1 ? t`Watch (1)` : t`Watch (${block.watch})`}
-              </span>
-            ) : null}
-          </p>
-        ) : (
-          <p className="text-label text-muted-foreground">{block.label}</p>
-        )}
-        <p className="text-heading3 font-medium">
+        <p className="text-label text-muted-foreground">{block.label}</p>
+        <p className="text-heading1 font-semibold">
           {block.paise != null ? formatRupees(block.paise) : t`Not in yet`}
         </p>
         {block.changePct != null && block.compare ? (
@@ -214,6 +203,20 @@ function Block({
                 : `${formatSignedPct(block.changePct)} vs ${block.compare}`
             }
           />
+        ) : null}
+        {block.urgent != null || block.watch != null ? (
+          <p className="mt-2 flex flex-wrap gap-2">
+            {block.urgent != null ? (
+              <span className="owner-pill owner-pill-act">
+                {block.urgent === 1 ? t`1 urgent` : t`${block.urgent} urgent`}
+              </span>
+            ) : null}
+            {block.watch != null ? (
+              <span className="owner-pill owner-pill-watch">
+                {block.watch === 1 ? t`Watch (1)` : t`Watch (${block.watch})`}
+              </span>
+            ) : null}
+          </p>
         ) : null}
         {block.pending ? (
           <p className="text-body-sm text-muted-foreground">

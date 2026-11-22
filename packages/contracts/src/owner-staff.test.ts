@@ -235,7 +235,8 @@ it("turns a stored brief into an urgent count and the first act-now line", () =>
     askedToday: 0,
   });
   const metric = thread.messages[0]?.blocks.find((block) => block.kind === "metric");
-  expect(metric?.kind === "metric" ? metric.label : null).toBe("1 urgent");
+  expect(metric?.kind === "metric" ? metric.label : null).toBe("Net sales");
+  expect(metric?.kind === "metric" ? metric.urgent : null).toBe(1);
   expect(metric?.kind === "metric" ? metric.paise : null).toBe(120_000);
   const text = thread.messages.flatMap((message) =>
     message.blocks.flatMap((block) => (block.kind === "text" ? [block.text] : [])),
@@ -250,9 +251,9 @@ it("uses the brief's act-now count and drops the raw fix lines", () => {
     brief: {
       date: "2026-11-16",
       text: [
-        "1 urgent",
+        "*Good morning · Kesar Kitchen*",
         "Mon 16 Nov vs Mon 9 Nov · Act now (3) · Watch (3)",
-        "Net sales ₹2,000 (−5.0%)",
+        "Net sales ₹2,000 (−5.0%, excl. a closed outlet)",
         "Swiggy pending",
         "🔴 Packing was late. Fix: pack the top dish first.",
         "🔴 The rider waited. Fix: start the next order sooner.",
@@ -264,9 +265,13 @@ it("uses the brief's act-now count and drops the raw fix lines", () => {
   });
   const blocks = thread.messages[0]?.blocks ?? [];
   const metric = blocks.find((block) => block.kind === "metric");
-  expect(metric?.kind === "metric" ? metric.label : null).toBe("3 urgent");
+  expect(metric?.kind === "metric" ? metric.label : null).toBe("Net sales");
+  expect(metric?.kind === "metric" ? metric.paise : null).toBe(200_000);
+  expect(metric?.kind === "metric" ? metric.changePct : null).toBeCloseTo(-5);
+  expect(metric?.kind === "metric" ? metric.urgent : null).toBe(3);
   expect(metric?.kind === "metric" ? metric.watch : null).toBe(3);
   const text = blocks.flatMap((block) => (block.kind === "text" ? [block.text] : []));
+  expect(text.join(" ")).toContain("Good morning · Kesar Kitchen");
   expect(text.join(" ")).not.toContain("Fix:");
   expect(text.join(" ")).not.toContain("Act now (3)");
   expect(text.join(" ")).not.toContain("1 urgent");
