@@ -98,42 +98,42 @@ export function StaffScreen({
         </p>
       ) : null}
       {readOnly ? null : (
-      <form
-        className="flex items-center gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          ask(text.trim());
-        }}
-      >
-        <input
-          aria-label={t`Question`}
-          className="h-11 min-w-0 flex-1 rounded-full border border-border bg-background px-4 text-body"
-          disabled={disabled}
-          value={text}
-          placeholder={
-            disabled && thread.quota.inputDisabled
-              ? t`You've used today's 30 questions. Resets at midnight.`
-              : t`Ask anything about your business…`
-          }
-          onChange={(event) => setText(event.target.value)}
-        />
-        <button
-          type="button"
-          aria-label={t`Voice`}
-          className="flex size-11 items-center justify-center rounded-full border border-border"
-          disabled={disabled}
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            ask(text.trim());
+          }}
         >
-          <Mic aria-hidden="true" className="size-4" />
-        </button>
-        <Button
-          type="submit"
-          className="size-11 rounded-full px-0"
-          disabled={disabled || text.trim().length === 0}
-          aria-label={t`Send`}
-        >
-          {t`Send`}
-        </Button>
-      </form>
+          <input
+            aria-label={t`Question`}
+            className="h-11 min-w-0 flex-1 rounded-full border border-border bg-background px-4 text-body"
+            disabled={disabled}
+            value={text}
+            placeholder={
+              disabled && thread.quota.inputDisabled
+                ? t`You've used today's 30 questions. Resets at midnight.`
+                : t`Ask anything about your business…`
+            }
+            onChange={(event) => setText(event.target.value)}
+          />
+          <button
+            type="button"
+            aria-label={t`Voice`}
+            className="flex size-11 items-center justify-center rounded-full border border-border"
+            disabled={disabled}
+          >
+            <Mic aria-hidden="true" className="size-4" />
+          </button>
+          <Button
+            type="submit"
+            className="size-11 rounded-full px-0"
+            disabled={disabled || text.trim().length === 0}
+            aria-label={t`Send`}
+          >
+            {t`Send`}
+          </Button>
+        </form>
       )}
       {notice ? <p className="text-body-sm text-destructive">{notice}</p> : null}
     </div>
