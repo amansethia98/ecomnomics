@@ -34,38 +34,22 @@ export function RatingsScreen({ screen }: { screen: OwnerRatings }) {
           {t`Soon you'll read every review here, with a reply drafted for you to approve. Until then, here is what the ratings and complaints already say.`}
         </p>
       </div>
-      <div className="grid grid-cols-3 gap-3">
-        {(screen.apps ?? []).map((app) => (
-          <p key={app.platform} className="flex flex-col gap-1">
-            <span className="flex items-center gap-2 font-medium">
-              <PlatformDot platform={app.platform} />
-              {app.platform === "zomato" ? t`Zomato` : t`Swiggy`}
-            </span>
-            {app.ratingState === "not_in_report" || app.rating == null ? (
-              <span className="text-body-sm text-muted-foreground">
-                {app.platform === "swiggy" ? t`Not in Swiggy's reports yet` : "—"}
-              </span>
-            ) : (
-              <span>★ {app.rating.toFixed(2)}</span>
-            )}
-          </p>
-        ))}
-      </div>
       <TopComplaint apps={screen.apps ?? []} />
       {(screen.apps ?? []).map((app) => (
-        <section key={app.platform}>
-          <p className="text-body-sm text-muted-foreground">
-            {t`Poorly rated orders`}{" "}
-            {app.poorRatedPct != null ? (
-              `${app.poorRatedPct}%`
-            ) : reportedPoor(app) == null ? (
-              <>
-                — <span>{t`Not in reports`}</span>
-              </>
+        <section
+          key={app.platform}
+          className="grid grid-cols-3 items-start gap-3 border-t border-border py-3"
+        >
+          <div>
+            <PlatformDot platform={app.platform} />
+            {app.ratingState === "not_in_report" || app.rating == null ? (
+              <p className="text-body-sm text-muted-foreground">
+                {app.platform === "swiggy" ? t`Not in Swiggy's reports yet` : "—"}
+              </p>
             ) : (
-              String(reportedPoor(app))
+              <p>★ {app.rating.toFixed(2)}</p>
             )}
-          </p>
+          </div>
           <ul>
             {app.complaints.map((row) => {
               const max = Math.max(
@@ -75,18 +59,16 @@ export function RatingsScreen({ screen }: { screen: OwnerRatings }) {
               return (
                 <li
                   key={row.id}
-                  className="flex items-center justify-between gap-3 border-t border-border py-1 text-body-sm"
+                  className="flex items-center justify-between gap-2 py-0.5 text-body-sm"
                 >
                   <span>{row.label}</span>
                   {row.count == null ? (
-                    <span>
-                      — <span className="text-muted-foreground">{t`Not in reports`}</span>
-                    </span>
+                    <span className="text-muted-foreground">{t`Not in reports`}</span>
                   ) : (
                     <span className="flex items-center gap-2">
                       {row.count > 0 ? (
                         <span
-                          className={`block h-1.5 ${row.id === "complaints_missing" ? "bg-destructive" : "bg-warning"}`}
+                          className={`block h-1.5 ${row.id === "complaints_missing" || row.id === "complaints_wrong" ? "bg-destructive" : "bg-warning"}`}
                           style={{ width: `${Math.max(8, (row.count / max) * 64)}px` }}
                         />
                       ) : null}
@@ -97,6 +79,14 @@ export function RatingsScreen({ screen }: { screen: OwnerRatings }) {
               );
             })}
           </ul>
+          <p className="text-body-sm text-muted-foreground">
+            {t`Poorly rated orders`}{" "}
+            {app.poorRatedPct != null
+              ? `${app.poorRatedPct}%`
+              : reportedPoor(app) == null
+                ? t`Not in reports`
+                : String(reportedPoor(app))}
+          </p>
         </section>
       ))}
       {screen.reviews.length === 0 ? null : (

@@ -49,6 +49,19 @@ const payments: OwnerPayments = {
       bankBasis: "net",
       status: "pending_check",
     },
+    {
+      id: "cycle-z",
+      outletId: "outlet-1",
+      platform: "zomato",
+      from: "2026-11-09",
+      to: "2026-11-16",
+      orderCount: 2,
+      netPayoutPaise: 40_000,
+      paidAmountPaise: null,
+      outletName: "Indiranagar",
+      bankBasis: "net",
+      status: "pending_check",
+    },
   ],
   selectedId: "cycle-1",
   breakdown: [
@@ -71,6 +84,15 @@ it("shows the Thursday check on a payout and not a match", () => {
   expect(host.textContent).toContain("Where your money went");
   expect(host.textContent).toContain("₹800");
   expect(host.textContent).not.toContain("Matches");
+  expect(host.textContent).toContain("₹800");
+  expect(host.textContent).toContain("₹400");
+  expect(host.textContent).toContain("View orders");
+  expect(host.textContent).not.toContain("o-1");
+  act(() => {
+    [...host.querySelectorAll("button")]
+      .find((item) => item.textContent?.includes("View orders"))
+      ?.click();
+  });
   expect(host.textContent).toContain("o-1");
   expect(host.textContent).not.toContain("Ad credit");
   expect(formatRupees(-500)).not.toBe(formatRupees(500));
@@ -158,8 +180,10 @@ it("says menu editing is coming soon and names a missing app", () => {
     rows: [{ name: "Soup", platforms: ["zomato"], revenuePaise: 5_000, missingApp: true }],
     swiggy: {
       score: 80,
+      scoreAsOf: "2026-10-31",
       photoPct: 80,
       descriptionPct: 0,
+      top5SharePct: 40,
       top5RevenuePaise: 12_000,
       scorePoints: [70, 80],
     },
@@ -170,10 +194,12 @@ it("says menu editing is coming soon and names a missing app", () => {
   expect(host.textContent).toContain("Keep & promote");
   expect(host.querySelector("input")).toBeNull();
   const top = [...host.querySelectorAll("li")].find((item) =>
-    item.textContent?.includes("Top dishes"),
+    item.textContent?.includes("Top 5 dishes' share of Swiggy sales"),
   );
   expect(top?.querySelector("[class*='h-1']")).toBeNull();
-  expect(host.textContent).toContain("In reports");
+  expect(host.textContent).toContain("80 / 100");
+  expect(host.textContent).toContain("as of Sat 31 Oct");
+  expect(host.textContent).not.toContain("In reports");
   expect(host.textContent).toContain("80%");
   expect(host.textContent).toContain("0%");
   expect(host.textContent).toContain("Zomato doesn't share menu scores in its reports.");

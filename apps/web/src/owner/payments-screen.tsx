@@ -14,6 +14,7 @@ export function PaymentsScreen({
   const { t } = useLingui();
   const selected = screen.payouts.find((payout) => payout.id === screen.selectedId) ?? null;
   const [week, setWeek] = useState(selected ? `${selected.from}|${selected.to}` : "");
+  const [ordersOpen, setOrdersOpen] = useState(false);
   if (screen.payouts.length === 0) {
     return <p>{t`This week's payout file isn't out yet (usually Thursday morning).`}</p>;
   }
@@ -21,9 +22,12 @@ export function PaymentsScreen({
     ...new Map(screen.payouts.map((payout) => [`${payout.from}|${payout.to}`, payout])).values(),
   ];
   const shown = screen.payouts.filter((payout) => `${payout.from}|${payout.to}` === week);
-  const heroRows = shown.length > 0 ? shown : selected ? [selected] : [];
+  const heroRows = (["zomato", "swiggy"] as const).flatMap((platform) => {
+    const latest = screen.payouts.find((payout) => payout.platform === platform);
+    return latest ? [latest] : [];
+  });
   const heroPaise = heroRows.reduce((total, payout) => {
-    const amount = payout.bankBasis === "paid" ? payout.paidAmountPaise : payout.netPayoutPaise;
+    const amount = payoutAmount(payout);
     return amount == null ? total : total + amount;
   }, 0);
   return (
@@ -36,14 +40,13 @@ export function PaymentsScreen({
             <p className="text-body-sm text-muted-foreground">
               {heroRows
                 .map((payout) => {
-                  const amount =
-                    payout.bankBasis === "paid" ? payout.paidAmountPaise : payout.netPayoutPaise;
+                  const amount = payoutAmount(payout);
                   const name = payout.platform === "zomato" ? t`Zomato` : t`Swiggy`;
                   const when = formatExclusiveRange(payout.from, payout.to);
                   const how = payout.bankBasis === "paid" ? t`paid` : t`expected`;
                   return amount == null
-                    ? `${name} · ${when}`
-                    : `${name} · ${when} · ${formatRupees(amount)} ${how}`;
+                    ? `● ${name} ${when}`
+                    : `● ${name} ${formatRupees(amount)} ${how} ${when}`;
                 })
                 .join(" · ")}
             </p>
@@ -90,12 +93,16 @@ export function PaymentsScreen({
               type="button"
               className={`flex w-full items-center gap-3 py-3 text-left ${payout.id === screen.selectedId ? "text-primary" : ""}`}
               aria-pressed={payout.id === screen.selectedId}
-              onClick={() => onSelect(payout.id)}
+              onClick={() => {
+                onSelect(payout.id);
+                setOrdersOpen((open) => (payout.id === screen.selectedId ? !open : true));
+              }}
             >
               <PlatformDot platform={payout.platform} />
               <span className="flex-1">
                 <span className="block font-medium">{payout.outletName ?? t`Outlet`}</span>
                 <span className="block text-body-sm text-muted-foreground">
+                  {payout.id === screen.selectedId && !ordersOpen ? `${t`View orders`} · ` : ""}
                   {payout.bankBasis === "paid"
                     ? t`Paid to bank`
                     : payout.bankBasis === "net"
@@ -111,12 +118,18 @@ export function PaymentsScreen({
               <span className="owner-pill bg-muted text-muted-foreground">{t`Check runs Thursday`}</span>
               <span aria-hidden="true">›</span>
             </button>
-            {payout.id === screen.selectedId ? <PayoutOrders screen={screen} /> : null}
+            {payout.id === screen.selectedId && ordersOpen ? (
+              <PayoutOrders screen={screen} />
+            ) : null}
           </li>
         ))}
       </ul>
     </div>
   );
+}
+
+function payoutAmount(payout: OwnerPayments["payouts"][number]): number | null {
+  return payout.bankBasis === "paid" ? payout.paidAmountPaise : payout.netPayoutPaise;
 }
 
 function PayoutOrders({ screen }: { screen: OwnerPayments }) {

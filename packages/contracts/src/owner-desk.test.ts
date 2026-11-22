@@ -9,6 +9,7 @@ import {
   LicencePatchSchema,
   PAYOUT_CHECK,
   parseDisplayDate,
+  ratingsFromRows,
 } from "./owner-desk.js";
 
 function cycle(id: string, to: string, extra: Partial<PaymentCycle> = {}): PaymentCycle {
@@ -107,6 +108,41 @@ describe("owner payments", () => {
       signed("complaints") +
       signed("other");
     expect(Math.abs(reached - 11_600)).toBeLessThanOrEqual(100);
+  });
+
+  it("counts ads once and leaves other as the remainder", () => {
+    const screen = composeOwnerPayments({
+      cycles: [
+        cycle("c", "2026-11-16", {
+          paidAmountPaise: 50_000,
+          grossSalesPaise: 80_000,
+          discountsPaise: 5_000,
+          commissionPaise: 10_000,
+          feesPaise: 0,
+          adsPaise: 4_000,
+          taxesPaise: 1_000,
+          complaintsPaise: 500,
+        }),
+      ],
+      orders: [],
+      adjustments: [
+        { cycleId: "c", label: "Ads", amountPaise: 4_000 },
+        { cycleId: "c", label: "Credit", amountPaise: -1_000 },
+      ],
+      selectedId: null,
+    });
+    expect(screen.breakdown.find((row) => row.id === "ads")?.paise).toBe(4_000);
+    expect(screen.breakdown.find((row) => row.id === "other")?.paise).toBe(-9_500);
+    const signed = (id: string) => screen.breakdown.find((row) => row.id === id)?.paise ?? 0;
+    expect(
+      signed("sales") -
+        signed("discounts") -
+        signed("commission") -
+        signed("ads") -
+        signed("tax") -
+        signed("complaints") +
+        signed("other"),
+    ).toBe(50_000);
   });
 
   it("is empty when no payout has arrived", () => {
@@ -300,5 +336,22 @@ describe("owner menu and ratings", () => {
       apps: [{ platform: "zomato", poorRatedOrders: 2, complaints: {} }],
     });
     expect(missing.apps.find((app) => app.platform === "zomato")?.poorRatedPct).toBeNull();
+    const summed = composeOwnerRatings(
+      ratingsFromRows([
+        { platform: "zomato", key: "rating", value: 4.1, rowRole: "platform_check" },
+        { platform: "zomato", key: "rating", value: 0, rowRole: "fact" },
+        { platform: "zomato", key: "complaints_missing", value: 4, rowRole: "fact" },
+        { platform: "zomato", key: "complaints_missing", value: 2, rowRole: "fact" },
+        { platform: "swiggy", key: "complaints_missing", value: 1, rowRole: "fact" },
+        { platform: "zomato", key: "poor_rated_orders", value: 3, rowRole: "fact" },
+        { platform: "zomato", key: "poor_rated_orders", value: 1, rowRole: "fact" },
+        { platform: "zomato", key: "rated_orders", value: 10, rowRole: "fact" },
+        { platform: "zomato", key: "rated_orders", value: 10, rowRole: "fact" },
+      ]),
+    );
+    expect(summed.rating).toBe(4.1);
+    expect(summed.apps.find((app) => app.platform === "zomato")?.complaints[0]?.count).toBe(6);
+    expect(summed.apps.find((app) => app.platform === "swiggy")?.complaints[0]?.count).toBe(1);
+    expect(summed.apps.find((app) => app.platform === "zomato")?.poorRatedPct).toBe(20);
   });
 });
