@@ -2,6 +2,7 @@
 import type { MarketingScreen } from "@rakazo/contracts";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 
 vi.mock("@lingui/react/macro", () => ({
@@ -22,11 +23,11 @@ afterEach(() => {
 
 it("shows the suggestion flow and an empty table when nothing is waiting", () => {
   const host = render(empty);
-  expect(host.textContent).toContain("you approve");
-  expect(host.textContent).toContain("No suggestions are waiting");
-  expect(host.textContent).toContain("All (0)");
-  expect(host.textContent).toContain("Waiting (0)");
-  expect(host.textContent).toContain("No suggestions yet.");
+  expect(host.textContent).toContain(
+    "Your chief of staff will suggest your first action after a week of data",
+  );
+  expect(host.textContent).toContain("Ask your chief of staff");
+  expect(host.textContent).not.toContain("All (0)");
   expect(host.textContent).toContain("You switch offers on");
 });
 
@@ -76,12 +77,14 @@ function render(
   document.body.append(host);
   act(() => {
     createRoot(host).render(
-      <MarketingActionsScreen
-        restaurantId="sample"
-        screen={screen}
-        onConfirm={() => undefined}
-        onDecide={onDecide}
-      />,
+      <MemoryRouter>
+        <MarketingActionsScreen
+          restaurantId="sample"
+          screen={screen}
+          onConfirm={() => undefined}
+          onDecide={onDecide}
+        />
+      </MemoryRouter>,
     );
   });
   return host;
