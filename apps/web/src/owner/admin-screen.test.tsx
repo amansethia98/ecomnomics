@@ -54,6 +54,7 @@ const panel: AdminPanel = {
   messages: "No messages are in this view.",
   costsPaise: null,
   rules: "No rule placeholders left.",
+  quality: [],
 };
 
 function render(node: React.ReactNode) {
@@ -129,7 +130,8 @@ it("keeps each admin section on its own view and filters the restaurant table", 
 
 it("styles a denied admin as a closed panel", () => {
   const host = render(<AdminAccessDenied />);
-  expect(host.textContent).toContain("You don't have access.");
+  expect(host.textContent).toContain("You don't have admin access");
+  expect(host.textContent).toContain("Back to the owner app");
   expect(host.querySelector(".owner-panel")).not.toBeNull();
   expect(host.querySelector("input")).toBeNull();
 });

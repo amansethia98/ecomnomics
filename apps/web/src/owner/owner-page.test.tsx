@@ -152,7 +152,7 @@ it("opens a restaurant read-only and does not offer a save", async () => {
     expect(host.textContent).toContain("Add your FSSAI licence expiry");
   });
   expect(host.querySelector("input")).toBeNull();
-  expect(host.textContent).toContain("Read only");
+  expect(host.textContent).toContain("read only");
 });
 
 function Page({ path }: { path: string }): ReactNode {

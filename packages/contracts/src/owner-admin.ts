@@ -1,5 +1,9 @@
 /** Read-only platform admin. Nothing here is a login, a token, or a secret. */
 
+import { indiaCivilDate } from "./metric-dates.js";
+import type { DashReading } from "./owner-dashboard.js";
+import { incomparableFunnelDays } from "./owner-dashboard.js";
+
 export interface AdminOutlet {
   name: string;
   city: string;
@@ -20,6 +24,13 @@ export interface AdminRestaurantInput {
   name: string;
   outlets: readonly AdminOutlet[];
   runs: readonly AdminRun[];
+  /** Stored downloads. The newest createdAt is the last-download date. */
+  fetches?: readonly AdminFetch[];
+}
+
+export interface AdminFetch {
+  createdAt: string;
+  platform?: string | null;
 }
 
 export interface AdminRestaurantRow {
@@ -85,6 +96,8 @@ export interface AdminPanel {
   messages: string;
   costsPaise: number | null;
   rules: string;
+  /** Days a rate cannot be computed, plus payout rows a parser could not read. */
+  quality: string[];
 }
 
 export function ownerViewFromRestaurant(row: {
@@ -124,6 +137,7 @@ export function panelFromAdminRows(
       swiggy: { rid: string } | null;
     }>;
     jobRuns: ReadonlyArray<AdminRun>;
+    fetches?: ReadonlyArray<AdminFetch>;
   }>,
   openFindings: number,
 ): AdminPanel {
@@ -131,6 +145,7 @@ export function panelFromAdminRows(
     openFindings,
     restaurants: rows.map((row) => ({
       restaurantId: row.restaurantId,
+      fetches: row.fetches,
       name: row.name,
       outlets: ownerViewFromRestaurant(row).outlets,
       runs: row.jobRuns,
@@ -141,6 +156,7 @@ export function panelFromAdminRows(
 export function composeAdminPanel(input: {
   restaurants: readonly AdminRestaurantInput[];
   openFindings: number;
+  quality?: readonly string[];
 }): AdminPanel {
   const restaurants = [...input.restaurants].sort((left, right) =>
     left.name.localeCompare(right.name),
@@ -155,6 +171,7 @@ export function composeAdminPanel(input: {
       messages: "No messages are in this view.",
       costsPaise: null,
       rules: rulesLine(input.openFindings),
+      quality: [],
     };
   }
   const rows = restaurants.map((restaurant) => ({
@@ -171,7 +188,9 @@ export function composeAdminPanel(input: {
       ? `Run in progress, ${done} of ${active.length} done`
       : notStarted.length > 0
         ? "Last night's run didn't start"
-        : `All ${active.length} restaurants updated`;
+        : active.length === 1
+          ? "1 restaurant updated"
+          : `All ${active.length} restaurants updated`;
   const costs = active.flatMap((row) =>
     row.restaurant.runs.flatMap((run) => (run.costPaise == null ? [] : [run.costPaise])),
   );
@@ -191,7 +210,7 @@ export function composeAdminPanel(input: {
       zomato: platformState(row.restaurant.outlets, "zomato"),
       swiggy: platformState(row.restaurant.outlets, "swiggy"),
       run: runState(row.latest, paused(row.restaurant)),
-      lastDownload: lastDownload(row.restaurant.runs),
+      lastDownload: lastDownload(row.restaurant.runs, row.restaurant.fetches ?? []),
       costPaise: runCost(row.restaurant.runs),
     })),
     connections: rows.flatMap((row) =>
@@ -207,6 +226,7 @@ export function composeAdminPanel(input: {
     messages: "No messages are in this view.",
     costsPaise: costs.length === 0 ? null : costs.reduce((sum, value) => sum + value, 0),
     rules: rulesLine(input.openFindings),
+    quality: [...(input.quality ?? [])],
   };
 }
 
@@ -223,11 +243,18 @@ function platformState(
     : "not_connected";
 }
 
-function lastDownload(runs: readonly AdminRun[]): string | null {
+function lastDownload(runs: readonly AdminRun[], fetches: readonly AdminFetch[]): string | null {
+  const fetched = fetches
+    .map((row) => indiaCivilDate(new Date(row.createdAt)))
+    .filter((day) => day.length === 10)
+    .sort();
+  const newestFetch = fetched[fetched.length - 1];
+  if (newestFetch) return newestFetch;
   const finished = [...runs]
     .filter((run) => run.endedAt != null)
     .sort((left, right) => (right.endedAt ?? "").localeCompare(left.endedAt ?? ""));
-  return finished[0]?.endedAt?.slice(0, 10) ?? null;
+  const ended = finished[0]?.endedAt;
+  return ended ? indiaCivilDate(new Date(ended)) : null;
 }
 
 function runCost(runs: readonly AdminRun[]): number | null {
@@ -242,6 +269,20 @@ function paused(restaurant: AdminRestaurantInput): boolean {
 
 function latestRun(runs: readonly AdminRun[]): AdminRun | null {
   return [...runs].sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0] ?? null;
+}
+
+/** Funnel days that are not a rate, plus payout rows whose mark could not be read. */
+export function adminQualityNotes(input: {
+  readings: readonly DashReading[];
+  badPayouts: readonly { platform: string; mark: string }[];
+}): string[] {
+  const notes = incomparableFunnelDays(input.readings).map(
+    (day) => `Carts and orders do not match on ${day}`,
+  );
+  for (const payout of input.badPayouts) {
+    notes.push(`${payout.platform} payout mark ${payout.mark} could not be read`);
+  }
+  return notes;
 }
 
 function runState(
