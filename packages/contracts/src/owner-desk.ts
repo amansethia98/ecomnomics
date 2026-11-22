@@ -1,5 +1,5 @@
 import * as z from "zod";
-import { addDays } from "./ops/format.js";
+import { addDays, formatExclusiveRange, formatRupees } from "./ops/format.js";
 import type { OwnerPlot } from "./owner-dashboard.js";
 import { settledPayoutPaise } from "./owner-home.js";
 
@@ -38,6 +38,8 @@ export interface PaymentCycle {
   adsPaise: number | null;
   discountsPaise: number | null;
   gstPaise: number | null;
+  /** Collected GST is not a deduction. A deduction is the amount taken off the payout. */
+  gstKind?: "collected" | "deduction";
   complaintsPaise: number | null;
 }
 
@@ -451,46 +453,23 @@ export interface PaymentPeriod<T extends { from: string; to: string }> {
   swiggy: T | null;
 }
 
-function rangesOverlap(
-  left: { from: string; to: string },
-  right: { from: string; to: string },
-): boolean {
-  return left.from < right.to && right.from < left.to;
-}
-
-/** Real settlement periods, newest first. An app joins a period only when its cycle overlaps. */
+/** One entry per app per settlement. Periods are never paired, newest first. */
 export function paymentPeriods<
   T extends { platform: "zomato" | "swiggy"; from: string; to: string },
 >(payouts: readonly T[]): PaymentPeriod<T>[] {
-  const sorted = [...payouts].sort(
-    (left, right) =>
-      right.from.localeCompare(left.from) ||
-      left.platform.localeCompare(right.platform) ||
-      right.to.localeCompare(left.to),
-  );
-  const periods: PaymentPeriod<T>[] = [];
-  for (const payout of sorted) {
-    const match = periods.find((period) => {
-      if (period[payout.platform]) return false;
-      const held = [period.zomato, period.swiggy].filter((row): row is T => row != null);
-      return held.some((row) => rangesOverlap(row, payout));
-    });
-    if (match) {
-      match[payout.platform] = payout;
-      if (payout.from < match.from) match.from = payout.from;
-      if (payout.to > match.to) match.to = payout.to;
-      continue;
-    }
-    periods.push({
+  return [...payouts]
+    .sort(
+      (left, right) =>
+        right.from.localeCompare(left.from) ||
+        (left.platform === "zomato" ? 0 : 1) - (right.platform === "zomato" ? 0 : 1) ||
+        right.to.localeCompare(left.to),
+    )
+    .map((payout) => ({
       from: payout.from,
       to: payout.to,
       zomato: payout.platform === "zomato" ? payout : null,
       swiggy: payout.platform === "swiggy" ? payout : null,
-    });
-  }
-  return periods.sort(
-    (left, right) => right.from.localeCompare(left.from) || right.to.localeCompare(left.to),
-  );
+    }));
 }
 
 /** Paid is the bank figure. Pending is the computed net of a payout with no bank figure. They are not added. */
@@ -523,6 +502,147 @@ export function labeledPayoutTotals(
     paidPaise: paidAny ? paid : null,
     pendingPaise: pendingAny ? pending : null,
   };
+}
+
+export interface PayoutAppFigure {
+  basis: "paid" | "expected" | "missing";
+  paise: number | null;
+  from: string | null;
+  to: string | null;
+}
+
+/** Each app's own newest period. The two figures are never added together. */
+export function payoutAppFigures<
+  T extends {
+    platform: "zomato" | "swiggy";
+    from: string;
+    to: string;
+    bankBasis: "paid" | "net" | "missing";
+    paidAmountPaise: number | null;
+    expectedPaise: number | null;
+    netPayoutPaise?: number | null;
+  },
+>(rows: readonly T[]): { zomato: PayoutAppFigure; swiggy: PayoutAppFigure } {
+  const newest = (platform: "zomato" | "swiggy"): T | null =>
+    rows
+      .filter((row) => row.platform === platform)
+      .sort(
+        (left, right) => right.from.localeCompare(left.from) || right.to.localeCompare(left.to),
+      )[0] ?? null;
+  const figure = (row: T | null): PayoutAppFigure => {
+    if (!row) return { basis: "missing", paise: null, from: null, to: null };
+    const span = { from: row.from, to: row.to };
+    if (row.bankBasis === "paid" && row.paidAmountPaise != null) {
+      return { basis: "paid", paise: row.paidAmountPaise, ...span };
+    }
+    const expected =
+      row.expectedPaise ?? (row.bankBasis === "net" ? (row.netPayoutPaise ?? null) : null);
+    if (expected != null) return { basis: "expected", paise: expected, ...span };
+    return { basis: "missing", paise: null, ...span };
+  };
+  return { zomato: figure(newest("zomato")), swiggy: figure(newest("swiggy")) };
+}
+
+/** One app, its own dates, and its own state. No second app and no summed figure. */
+export function payoutAppLine(
+  name: string,
+  app: PayoutAppFigure | null | undefined,
+  words: { paid: string; expected: string; missing: string },
+): string {
+  if (!app) return `${name} ${words.missing}`;
+  const state =
+    app.basis === "paid" && app.paise != null
+      ? `${words.paid} ${formatRupees(app.paise)}`
+      : app.basis === "expected" && app.paise != null
+        ? `${words.expected} ${formatRupees(app.paise)}`
+        : words.missing;
+  if (app.from && app.to) return `${name} ${formatExclusiveRange(app.from, app.to)} · ${state}`;
+  return `${name} ${state}`;
+}
+
+/** Each app's own dates. A missing app is left out so two weeks are not written as one range. */
+export function paymentPeriodLabel(
+  period: {
+    zomato: { from: string; to: string } | null;
+    swiggy: { from: string; to: string } | null;
+  },
+  names: { zomato: string; swiggy: string } = { zomato: "Zomato", swiggy: "Swiggy" },
+): string {
+  const parts = [
+    period.zomato
+      ? `${names.zomato} ${formatExclusiveRange(period.zomato.from, period.zomato.to)}`
+      : null,
+    period.swiggy
+      ? `${names.swiggy} ${formatExclusiveRange(period.swiggy.from, period.swiggy.to)}`
+      : null,
+  ].filter((part): part is string => part != null);
+  return parts.join(" · ");
+}
+
+/**
+ * The next settlement window after each app's latest stored cycle, when that window has
+ * already started and no report is stored. Cadence is the gap between the last two ends.
+ */
+export function unstoredPayoutWindows(
+  payouts: ReadonlyArray<{ platform: "zomato" | "swiggy"; from: string; to: string }>,
+  today: string,
+): Array<{ platform: "zomato" | "swiggy"; from: string; to: string }> {
+  const windows: Array<{ platform: "zomato" | "swiggy"; from: string; to: string }> = [];
+  for (const platform of ["zomato", "swiggy"] as const) {
+    const rows = payouts
+      .filter((row) => row.platform === platform)
+      .sort((left, right) => left.to.localeCompare(right.to));
+    const last = rows[rows.length - 1];
+    if (!last || last.to > today) continue;
+    const previous = rows[rows.length - 2];
+    const cadence = previous ? isoSpan(previous.to, last.to) : isoSpan(last.from, last.to);
+    if (cadence <= 0) continue;
+    const from = last.to;
+    if (from > today || rows.some((row) => row.from === from)) continue;
+    windows.push({ platform, from, to: addDays(from, cadence) });
+  }
+  return windows;
+}
+
+function isoSpan(from: string, to: string): number {
+  const start = Date.parse(`${from}T00:00:00Z`);
+  const end = Date.parse(`${to}T00:00:00Z`);
+  if (Number.isNaN(start) || Number.isNaN(end)) return 0;
+  return Math.round((end - start) / 86_400_000);
+}
+
+/**
+ * Integer rupees for signed paise parts that already sum to `totalPaise`.
+ * The returned paise are multiples of 100 and their rupees add to the rounded total.
+ */
+export function largestRemainderRupees(
+  parts: ReadonlyArray<{ id: string; paise: number }>,
+  totalPaise: number,
+): Record<string, number> {
+  const target = Math.round(totalPaise / 100);
+  const exact = parts.map((part) => part.paise / 100);
+  const base = exact.map((value) => Math.floor(value));
+  let left = target - base.reduce((sum, value) => sum + value, 0);
+  const order = exact
+    .map((value, index) => ({ index, frac: value - Math.floor(value) }))
+    .sort(
+      (leftPart, rightPart) => rightPart.frac - leftPart.frac || leftPart.index - rightPart.index,
+    );
+  const rupees = [...base];
+  if (left > 0) {
+    for (const item of order) {
+      if (left <= 0) break;
+      rupees[item.index] = (rupees[item.index] ?? 0) + 1;
+      left -= 1;
+    }
+  } else {
+    for (const item of [...order].reverse()) {
+      if (left >= 0) break;
+      rupees[item.index] = (rupees[item.index] ?? 0) - 1;
+      left += 1;
+    }
+  }
+  return Object.fromEntries(parts.map((part, index) => [part.id, (rupees[index] ?? 0) * 100]));
 }
 
 /** Null is unreported. A stored zero stays zero. */
@@ -647,6 +767,13 @@ function summedAmounts(rows: readonly PaymentAdjustment[]): number | null {
   return rows.reduce((total, row) => total + row.amountPaise, 0);
 }
 
+/** Collected GST is not inside the tax line and is not a deduction. A stored deduction is a minus. */
+function gstLineLabel(cycle: PaymentCycle): string {
+  if (cycle.gstKind === "deduction") return "− GST";
+  if (cycle.gstKind === "collected") return "GST collected";
+  return "GST";
+}
+
 function paymentBreakdown(
   cycle: PaymentCycle,
   adjustments: readonly PaymentAdjustment[],
@@ -701,7 +828,12 @@ function paymentBreakdown(
       paise: sumPaise(cycle.taxesPaise, cycle.tdsPaise, cycle.tcsPaise),
       basis: null,
     },
-    { id: "gst", label: "GST", paise: cycle.gstPaise, basis: null },
+    {
+      id: "gst",
+      label: gstLineLabel(cycle),
+      paise: cycle.gstPaise,
+      basis: null,
+    },
     {
       id: "complaints",
       label: "− Complaints and cancellations",
@@ -775,11 +907,21 @@ export function fillCycleFromOrders(
     return any ? total : null;
   };
   const ads = storedAdsPaise(adjustments);
-  const gst = sum((order) =>
-    order.gstCollectedPaise != null ? order.gstCollectedPaise : order.gstDeductionPaise,
+  const usedCollected = orders.some((order) => order.gstCollectedPaise != null);
+  const usedDeduction = orders.some(
+    (order) => order.gstCollectedPaise == null && order.gstDeductionPaise != null,
   );
+  const gstKind =
+    cycle.gstPaise != null
+      ? (cycle.gstKind ?? "collected")
+      : usedCollected
+        ? "collected"
+        : usedDeduction
+          ? "deduction"
+          : cycle.gstKind;
   return {
     ...cycle,
+    gstKind,
     grossSalesPaise: cycle.grossSalesPaise ?? sum((order) => order.grossSalesPaise),
     discountsPaise: cycle.discountsPaise ?? sum((order) => order.discountPaise),
     commissionPaise: cycle.commissionPaise ?? sum((order) => order.commissionPaise),
@@ -787,7 +929,11 @@ export function fillCycleFromOrders(
     taxesPaise: cycle.taxesPaise ?? sum((order) => order.taxesPaise),
     tdsPaise: cycle.tdsPaise ?? sum((order) => order.tdsPaise),
     tcsPaise: cycle.tcsPaise ?? sum((order) => order.tcsPaise),
-    gstPaise: cycle.gstPaise ?? gst,
+    gstPaise:
+      cycle.gstPaise ??
+      sum((order) =>
+        order.gstCollectedPaise != null ? order.gstCollectedPaise : order.gstDeductionPaise,
+      ),
     complaintsPaise: cycle.complaintsPaise ?? sum((order) => order.complaintsPaise),
     adsPaise: cycle.adsPaise ?? ads,
   };

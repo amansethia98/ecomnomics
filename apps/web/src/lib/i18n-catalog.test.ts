@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { i18n, setupI18n } from "@lingui/core";
 import { formatter } from "@lingui/format-po";
@@ -45,7 +46,7 @@ describe("lingui catalogs", () => {
       "utf8",
     );
     for (const message of [
-      "Allow Rakazo to use Speech Recognition and the microphone in System Settings.",
+      "Allow Ecomnomics to use Speech Recognition and the microphone in System Settings.",
       "This browser can't detect when you stop talking. Use Chrome, the desktop app, or hold-to-talk in the composer.",
       "Dictation failed: {code}",
       "Transcription request timed out.",
@@ -74,7 +75,7 @@ describe("lingui catalogs", () => {
       "Your model provider",
       "The model provider returned an error.",
       "Connect a model in Settings before running bots.",
-      "Connect your own API key in Models or choose Rakazo credits in Billing.",
+      "Connect your own API key in Models or choose Ecomnomics credits in Billing.",
       "{provider} is rate limiting requests. Try again shortly.",
       "{summary} Resets {date}.",
       "{provider} rejected the API key. Check your connection settings.",
@@ -413,3 +414,31 @@ it.each(["zh-CN", "zh-TW", "pl"])(
     }
   },
 );
+
+it("keeps Rakazo out of catalogs and built web assets", () => {
+  const root = fileURLToPath(new URL("../../../../", import.meta.url));
+  const hits: string[] = [];
+  const skip = new Set(["node_modules", "NOTICE", "LICENSE"]);
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (skip.has(entry.name)) continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      const catalog =
+        entry.name.endsWith(".po") || entry.name.endsWith(".mjs") || entry.name.endsWith(".js");
+      const asset = full.includes("/dist/") && /\.(js|mjs|css|html)$/.test(entry.name);
+      if (!catalog && !asset) continue;
+      const text = readFileSync(full, "utf8");
+      if (/Rakazo/.test(text) && !full.endsWith("LICENSE") && !full.includes("NOTICE")) {
+        hits.push(full);
+      }
+    }
+  };
+  walk(join(root, "packages/i18n/locales"));
+  const dist = join(root, "apps/web/dist");
+  if (existsSync(dist)) walk(dist);
+  expect(hits).toEqual([]);
+});

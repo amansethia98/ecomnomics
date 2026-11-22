@@ -3,6 +3,14 @@ import { dailyCheckCount } from "./ops/rules.js";
 import type { OpsAlertSeverity, OpsPlatform, OpsScopePlatform } from "./ops/types.js";
 
 const AVAILABILITY = new Set(["d_online", "d_sales_drop", "d_zero_orders"]);
+
+/** One app's latest settlement. Dates stay on that app and are not shared. */
+export interface PayoutAppSpan {
+  basis: "paid" | "expected" | "missing";
+  paise: number | null;
+  from: string | null;
+  to: string | null;
+}
 const FOLD = 3;
 
 export interface OwnerHomeAlert {
@@ -91,6 +99,11 @@ export interface OwnerHomeInput {
   /** Computed nets in that period that have no bank payment yet. */
   payoutPendingPaise?: number | null;
   payoutToCheck: number;
+  /** Each app's own latest period. The two are not added together. */
+  payoutApps?: {
+    zomato: PayoutAppSpan;
+    swiggy: PayoutAppSpan;
+  };
   /** Each app's own fetch clock (`05:42`), when that app's file is in. */
   fetched?: { zomato: string | null; swiggy: string | null };
 }
@@ -154,6 +167,12 @@ export interface OwnerHomeModel {
   };
   checksPassed: number;
   updated: { zomato: string | null; swiggy: string | null };
+  /** Clock used for the greeting. The data date stays on `date`. */
+  now?: string;
+  payoutApps?: {
+    zomato: PayoutAppSpan;
+    swiggy: PayoutAppSpan;
+  };
   askChief: boolean;
 }
 
@@ -190,6 +209,19 @@ export function alertImpactPaise(alert: {
 /** 09:00 Asia/Kolkata on a civil date, as UTC. */
 export function istMorning(date: string): string {
   return `${date}T03:30:00.000Z`;
+}
+
+/** Greeting and civil date for an instant, in Asia/Kolkata. */
+export function istGreeting(now: Date): {
+  part: "morning" | "afternoon" | "evening";
+  date: string;
+} {
+  const shifted = new Date(now.getTime() + 5.5 * 60 * 60 * 1000);
+  const hour = shifted.getUTCHours();
+  return {
+    part: hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening",
+    date: shifted.toISOString().slice(0, 10),
+  };
 }
 
 export function nextThursday(today: string): string {
@@ -279,6 +311,8 @@ export function composeOwnerHome(input: OwnerHomeInput): OwnerHomeModel {
       nextDate: nextThursday(input.today),
     },
     checksPassed: dailyCheckCount(input.connected),
+    now: input.now,
+    payoutApps: input.payoutApps,
     updated: {
       zomato: input.fetched?.zomato ?? brief?.dataAsOf ?? null,
       swiggy:

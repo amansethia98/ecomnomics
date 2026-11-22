@@ -41,15 +41,7 @@ export function NumberCard({ tile, onOpen }: { tile: DashTile; onOpen: () => voi
         <p className="text-body-sm text-muted-foreground">{t`Not in reports`}</p>
       ) : null}
       {tile.changePct != null && tile.format !== "rating" ? (
-        Math.abs(tile.changePct) < 0.05 ? (
-          <p className="text-body-sm text-muted-foreground">{t`no change`}</p>
-        ) : (
-          <ChangeBadge
-            direction={tile.changePct < 0 ? "down" : "up"}
-            good={tile.good}
-            label={formatSignedPct(tile.changePct)}
-          />
-        )
+        <TileJudgement tile={tile} word={word} />
       ) : null}
       {tile.format === "rating" && tile.changePct != null ? (
         <p className="text-body-sm text-muted-foreground">
@@ -59,20 +51,6 @@ export function NumberCard({ tile, onOpen }: { tile: DashTile; onOpen: () => voi
         </p>
       ) : null}
       <Spark values={tile.spark} />
-      {word ? (
-        <p
-          className={
-            tile.good === false
-              ? "owner-pill owner-pill-act mt-1"
-              : tile.good
-                ? "owner-pill owner-pill-good mt-1"
-                : "owner-pill mt-1 bg-muted text-muted-foreground"
-          }
-        >
-          {tile.good === false ? "▼ " : tile.good ? "▲ " : "— "}
-          {word}
-        </p>
-      ) : null}
       {tile.id === "rating" && tile.splits.some((split) => split.platform === "swiggy") ? (
         <p className="mt-1 text-body-sm text-muted-foreground">{t`Zomato only · Swiggy not in reports`}</p>
       ) : tile.splits.length > 1 ? (
@@ -101,6 +79,20 @@ export function NumberCard({ tile, onOpen }: { tile: DashTile; onOpen: () => voi
         </p>
       ) : null}
     </button>
+  );
+}
+
+function TileJudgement({ tile, word }: { tile: DashTile; word: string | null }) {
+  const { t } = useLingui();
+  const delta = tile.changePct ?? 0;
+  const flat = Math.abs(delta) < 3;
+  if (flat) return <p className="text-body-sm text-muted-foreground">{t`Steady`}</p>;
+  return (
+    <ChangeBadge
+      direction={delta < 0 ? "down" : "up"}
+      good={tile.good}
+      label={word ? `${formatSignedPct(delta)} ${word}` : formatSignedPct(delta)}
+    />
   );
 }
 

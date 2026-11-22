@@ -128,6 +128,43 @@
   max-width: 100%;
 }
 
+[data-testid="admin-page"] table,
+[data-testid="admin-page"] thead,
+[data-testid="admin-page"] tbody,
+[data-testid="admin-page"] tr,
+[data-testid="admin-page"] th,
+[data-testid="admin-page"] td {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 767px) {
+  [data-testid="admin-page"] table,
+  [data-testid="admin-page"] thead,
+  [data-testid="admin-page"] tbody,
+  [data-testid="admin-page"] tr,
+  [data-testid="admin-page"] th,
+  [data-testid="admin-page"] td {
+    display: block;
+    width: 100%;
+  }
+
+  [data-testid="admin-page"] thead {
+    display: none;
+  }
+}
+
+.ecomnomics .owner-page {
+  overflow-x: clip;
+  padding-bottom: calc(6.75rem + env(safe-area-inset-bottom, 0px));
+}
+
+@media (min-width: 768px) {
+  .ecomnomics .owner-page {
+    padding-bottom: 2.5rem;
+  }
+}
+
 .ecomnomics .owner-tabbar {
   position: fixed;
   right: 0;

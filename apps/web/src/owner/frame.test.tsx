@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { OwnerProfile } from "@rakazo/contracts";
+import type { AdminPanel, OwnerProfile } from "@rakazo/contracts";
 import type { ReactNode } from "react";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -17,6 +17,7 @@ vi.mock("@lingui/react/macro", () => ({
   }),
 }));
 
+import { AdminPanelScreen } from "./admin-screen";
 import { OWNER_SCREENS, OwnerFrame } from "./frame";
 import { SettingsProfile } from "./settings";
 
@@ -53,6 +54,39 @@ const view = {
   outlet: "all",
   from: "2026-11-09",
   to: "2026-11-16",
+};
+
+const adminPanel: AdminPanel = {
+  health: "All 1 restaurants updated",
+  needsYou: false,
+  runs: [{ restaurant: "Sample", state: "done", tries: 1, rows: 12, minutes: 3, costPaise: 1200 }],
+  restaurants: [
+    {
+      restaurantId: "r1",
+      name: "Sample",
+      paused: false,
+      outlets: 1,
+      zomato: "connected",
+      swiggy: "connected",
+      run: "done",
+      lastDownload: "2026-11-21",
+      costPaise: 1200,
+    },
+  ],
+  connections: [
+    { restaurant: "Sample", outlet: "Indiranagar", zomato: "connected", swiggy: "connected" },
+  ],
+  messages: "No briefs yet",
+  costsPaise: 1200,
+  rules: "Confirmed",
+  quality: [],
+  night: { startedAt: "2026-11-22T00:37:00.000Z", endedAt: "2026-11-22T00:40:00.000Z" },
+  freshness: Array.from({ length: 7 }, (_, index) => ({
+    day: `2026-11-${String(15 + index).padStart(2, "0")}`,
+    downloads: 1,
+  })),
+  nights: [],
+  dailyCosts: [{ day: "2026-11-21", costPaise: 1200 }],
 };
 
 let root: Root | null = null;
@@ -393,6 +427,7 @@ it("keeps every owner page inside a 390px frame", () => {
     expect(shell?.className).toContain("max-w-full");
     expect(host.querySelector("main")?.className).toContain("min-w-0");
     const bar = host.querySelector(".owner-tabbar");
+    expect(bar?.className).toContain("z-50");
     expect(bar?.children.length).toBe(5);
     for (const item of bar?.children ?? []) expect(item.className).toContain("min-w-0");
     for (const node of host.querySelectorAll<HTMLElement>("[style]")) {
@@ -403,6 +438,46 @@ it("keeps every owner page inside a 390px frame", () => {
     root = null;
     document.body.replaceChildren();
   }
+});
+
+it("keeps every admin page inside a 390px frame", () => {
+  const host = render(
+    <div style={{ width: "390px" }}>
+      <AdminPanelScreen panel={adminPanel} onView={() => undefined} />
+    </div>,
+  );
+  host.style.width = "390px";
+  const page = host.querySelector("[data-testid='admin-page']");
+  expect(page?.className).toContain("overflow-x-clip");
+  expect(page?.className).toContain("max-w-full");
+  expect(page?.className).toContain("flex-col");
+  for (const label of [
+    "Platform health",
+    "Restaurants",
+    "Nightly runs",
+    "Logins & connections",
+    "Messages sent",
+    "Costs & usage",
+    "Rules & data quality",
+  ]) {
+    const button = [...host.querySelectorAll("button")].find((item) => item.textContent === label);
+    expect(button, label).toBeTruthy();
+    act(() => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(host.querySelector("main")?.className).toContain("min-w-0");
+    for (const node of host.querySelectorAll<HTMLElement>("[style]")) {
+      const min = Number.parseFloat(node.style.minWidth);
+      if (Number.isFinite(min)) expect(min).toBeLessThanOrEqual(390);
+      const width = Number.parseFloat(node.style.width);
+      if (Number.isFinite(width) && node.style.width.endsWith("px")) {
+        expect(width).toBeLessThanOrEqual(390);
+      }
+    }
+  }
+  act(() => root?.unmount());
+  root = null;
+  document.body.replaceChildren();
 });
 
 it("keeps 4W selected when that range is chosen", () => {

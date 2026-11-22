@@ -120,6 +120,41 @@ it("opens payments, documents, menu, and ratings from their routes", async () =>
   expect(seen.some((url) => url.includes("/ratings"))).toBe(true);
 });
 
+it("opens a restaurant read-only and does not offer a save", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL) =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(payload(String(input))),
+      }),
+    ),
+  );
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(<Page path="/restaurants/r1/settings?readonly=1" />);
+  });
+  await vi.waitFor(() => {
+    expect(host.textContent).toContain("Read only. This view cannot change the restaurant.");
+  });
+  expect(host.textContent).not.toContain("Save");
+  expect(host.querySelector("input")).toBeNull();
+  await act(async () => {
+    root.unmount();
+  });
+  const documents = createRoot(host);
+  await act(async () => {
+    documents.render(<Page path="/restaurants/r1/documents?readonly=1" />);
+  });
+  await vi.waitFor(() => {
+    expect(host.textContent).toContain("Add your FSSAI licence expiry");
+  });
+  expect(host.querySelector("input")).toBeNull();
+  expect(host.textContent).toContain("read only");
+});
+
 function Page({ path }: { path: string }): ReactNode {
   return (
     <MemoryRouter initialEntries={[path]}>

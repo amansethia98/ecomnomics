@@ -7,12 +7,16 @@ import {
   composeOwnerPayments,
   composeOwnerRatings,
   LicencePatchSchema,
-  labeledPayoutTotals,
+  largestRemainderRupees,
   PAYOUT_CHECK,
   parseDisplayDate,
+  paymentPeriodLabel,
   paymentPeriods,
+  payoutAppFigures,
+  payoutAppLine,
   ratingsForWindow,
   ratingsFromRows,
+  unstoredPayoutWindows,
 } from "./owner-desk.js";
 
 function cycle(id: string, to: string, extra: Partial<PaymentCycle> = {}): PaymentCycle {
@@ -213,7 +217,7 @@ describe("owner payments", () => {
     expect(screen.breakdown.find((row) => row.id === "bank")?.label).toBe("= Paid to your bank");
   });
 
-  it("pairs offset settlement weeks and leaves a missing app out", () => {
+  it("keeps offset settlement weeks on separate rows", () => {
     const screen = composeOwnerPayments({
       cycles: [
         cycle("z-new", "2026-11-23", {
@@ -240,20 +244,23 @@ describe("owner payments", () => {
     });
     expect(screen.payouts.find((payout) => payout.id === "z")?.expectedPaise).toBe(8_091_334);
     const periods = paymentPeriods(screen.payouts);
-    expect(periods.map((period) => [period.zomato?.id ?? null, period.swiggy?.id ?? null])).toEqual(
-      [
-        ["z-new", null],
-        ["z", "s"],
-      ],
+    expect(periods.map((period) => period.zomato?.id ?? period.swiggy?.id)).toEqual([
+      "z-new",
+      "z",
+      "s",
+    ]);
+    expect(periods.every((period) => (period.zomato == null) !== (period.swiggy == null))).toBe(
+      true,
     );
-    expect(formatExclusiveRange(periods[1]?.from ?? "", periods[1]?.to ?? "")).toBe("8–15 Nov");
-    const paired = [periods[1]?.zomato, periods[1]?.swiggy].filter((row) => row != null);
-    const totals = labeledPayoutTotals(paired);
-    expect(formatRupees(totals.paidPaise ?? 0)).toBe("₹80,674");
-    expect(formatRupees(totals.pendingPaise ?? 0)).toBe("₹80,913");
-    expect(totals.paidPaise).not.toBe((totals.paidPaise ?? 0) + (totals.pendingPaise ?? 0));
-    expect((totals.paidPaise ?? 0) + (totals.pendingPaise ?? 0)).toBe(16_158_685);
-    expect(periods[0]?.swiggy).toBeNull();
+    expect(periods.map((period) => paymentPeriodLabel(period))).toEqual([
+      "Zomato 16–22 Nov",
+      "Zomato 9–15 Nov",
+      "Swiggy 8–14 Nov",
+    ]);
+    const apps = payoutAppFigures(screen.payouts);
+    expect(apps.swiggy).toMatchObject({ basis: "paid", paise: 8_067_351, from: "2026-11-08" });
+    expect(apps.zomato.paise).not.toBe((apps.zomato.paise ?? 0) + (apps.swiggy.paise ?? 0));
+    expect(apps.swiggy.paise).not.toBe((apps.zomato.paise ?? 0) + (apps.swiggy.paise ?? 0));
   });
 
   it("sums a null Zomato total from order rows and leaves an absent field null", () => {
@@ -318,6 +325,101 @@ describe("owner payments", () => {
       expect(paise(id)).not.toBe(0);
       expect(paise(id)).not.toBeNull();
     }
+    expect(screen.breakdown.find((row) => row.id === "gst")?.label).toBe("GST collected");
+  });
+
+  it("labels each app's own dates and adds the open period that has no report", () => {
+    const periods = paymentPeriods([
+      { platform: "zomato" as const, from: "2026-11-09", to: "2026-11-16" },
+      { platform: "swiggy" as const, from: "2026-11-08", to: "2026-11-15" },
+    ]);
+    expect(periods).toHaveLength(2);
+    expect(periods.map((period) => paymentPeriodLabel(period))).toEqual([
+      "Zomato 9–15 Nov",
+      "Swiggy 8–14 Nov",
+    ]);
+    expect(periods.every((period) => period.zomato == null || period.swiggy == null)).toBe(true);
+    const words = { paid: "Paid", expected: "Expected", missing: "Report not in yet" };
+    const header = payoutAppFigures([
+      {
+        platform: "zomato" as const,
+        from: "2026-11-09",
+        to: "2026-11-16",
+        bankBasis: "net" as const,
+        paidAmountPaise: null,
+        expectedPaise: 8_091_300,
+      },
+      {
+        platform: "swiggy" as const,
+        from: "2026-11-08",
+        to: "2026-11-15",
+        bankBasis: "paid" as const,
+        paidAmountPaise: 8_067_400,
+        expectedPaise: 8_067_400,
+      },
+    ]);
+    const lines = [
+      payoutAppLine("Zomato", header.zomato, words),
+      payoutAppLine("Swiggy", header.swiggy, words),
+    ];
+    expect(lines).toEqual(["Zomato 9–15 Nov · Expected ₹80,913", "Swiggy 8–14 Nov · Paid ₹80,674"]);
+    expect(lines.join(" ")).not.toContain("₹1,61,587");
+    const windows = unstoredPayoutWindows(
+      [
+        { platform: "zomato", from: "2026-11-02", to: "2026-11-09" },
+        { platform: "zomato", from: "2026-11-09", to: "2026-11-16" },
+        { platform: "swiggy", from: "2026-11-08", to: "2026-11-15" },
+      ],
+      "2026-11-22",
+    );
+    expect(windows).toEqual([
+      { platform: "zomato", from: "2026-11-16", to: "2026-11-23" },
+      { platform: "swiggy", from: "2026-11-15", to: "2026-11-22" },
+    ]);
+    const deduction = composeOwnerPayments({
+      cycles: [cycle("z", "2026-11-16", { gstPaise: null, gstKind: undefined })],
+      orders: [
+        {
+          cycleId: "z",
+          orderId: "o",
+          date: "2026-11-10",
+          netPayoutPaise: 1,
+          gstCollectedPaise: null,
+          gstDeductionPaise: 718_500,
+        },
+      ],
+      adjustments: [],
+      selectedId: "z",
+    });
+    expect(deduction.breakdown.find((row) => row.id === "gst")?.label).toBe("− GST");
+  });
+
+  it("labels an exclusive cycle end through the day before, and the next open period with no shared day", () => {
+    const stored = { platform: "swiggy" as const, from: "2026-11-08", to: "2026-11-15" };
+    expect(paymentPeriodLabel({ zomato: null, swiggy: stored })).toBe("Swiggy 8–14 Nov");
+    const open = unstoredPayoutWindows([stored], "2026-11-22")[0];
+    expect(open).toEqual({ platform: "swiggy", from: "2026-11-15", to: "2026-11-22" });
+    expect(paymentPeriodLabel({ zomato: null, swiggy: open ?? null })).toBe("Swiggy 15–21 Nov");
+    expect(
+      payoutAppLine(
+        "Swiggy",
+        { basis: "missing", paise: null, from: "2026-11-15", to: "2026-11-22" },
+        { paid: "Paid", expected: "Expected", missing: "Report not in yet" },
+      ),
+    ).toBe("Swiggy 15–21 Nov · Report not in yet");
+  });
+
+  it("rounds breakdown rupees so they add to the displayed total", () => {
+    const parts = [
+      { id: "a", paise: 33_350 },
+      { id: "b", paise: 33_350 },
+      { id: "c", paise: 33_300 },
+    ];
+    const shown = largestRemainderRupees(parts, 100_000);
+    const rupees = Object.values(shown).reduce((sum, paise) => sum + Math.round(paise / 100), 0);
+    expect(rupees).toBe(1_000);
+    const naive = parts.reduce((sum, part) => sum + Math.round(part.paise / 100), 0);
+    expect(naive).toBe(1_001);
   });
 
   it("signs a positive other adjustment as a credit", () => {

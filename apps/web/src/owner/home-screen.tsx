@@ -1,5 +1,10 @@
 import { useLingui } from "@lingui/react/macro";
-import type { OwnerHomeItem, OwnerHomeModel, OwnerHomeQuestion } from "@rakazo/contracts";
+import type {
+  OwnerHomeItem,
+  OwnerHomeModel,
+  OwnerHomeQuestion,
+  PayoutAppFigure,
+} from "@rakazo/contracts";
 import {
   formatCivilDay,
   formatCount,
@@ -8,6 +13,8 @@ import {
   formatVersusDay,
   formatWeekdayName,
   groupedHomeRows,
+  istGreeting,
+  payoutAppLine,
 } from "@rakazo/contracts";
 import { Button } from "@rakazo/ui-web";
 import { Eye } from "lucide-react";
@@ -21,12 +28,14 @@ export function OwnerHomeScreen({
   home,
   onSnooze,
   onAnswer,
+  readOnly = false,
 }: {
   restaurantId: string;
   restaurantName: string;
   home: OwnerHomeModel;
   onSnooze: (ids: string[], days: 1 | 3 | 7) => void;
   onAnswer: (question: OwnerHomeQuestion, status: "closed" | "not_sure") => void;
+  readOnly?: boolean;
 }) {
   const { t } = useLingui();
   const [open, setOpen] = useState(false);
@@ -44,12 +53,14 @@ export function OwnerHomeScreen({
         </p>
       ))}
       <div>
-        {home.date ? (
+        {home.date || home.now ? (
           <p className="text-body-sm text-muted-foreground">
-            {t`Good morning`}
-            {weekday
-              ? ` · ${formatCivilDay(home.date)} ${t`compared with last`} ${weekday}`
-              : ` · ${formatCivilDay(home.date)}`}
+            <HomeGreeting now={home.now} />
+            {home.now
+              ? ` · ${formatCivilDay(istGreeting(new Date(home.now)).date)}`
+              : weekday
+                ? ` · ${formatCivilDay(home.date ?? "")} ${t`compared with last`} ${weekday}`
+                : ` · ${formatCivilDay(home.date ?? "")}`}
           </p>
         ) : null}
         <h2 className="owner-title mt-1">
@@ -115,7 +126,9 @@ export function OwnerHomeScreen({
             >
               {t`Ask chief of staff`}
             </Link>
-            {home.card.canSnooze ? <Snooze ids={home.card.ids} onSnooze={onSnooze} /> : null}
+            {home.card.canSnooze && !readOnly ? (
+              <Snooze ids={home.card.ids} onSnooze={onSnooze} />
+            ) : null}
           </div>
           {fix ? <p className="mt-3 text-body-sm">{home.card.fix}</p> : null}
         </article>
@@ -157,17 +170,27 @@ export function OwnerHomeScreen({
             <div>
               <p className="text-label text-muted-foreground">{t`Last week's payout`}</p>
               <p className="mt-1 text-heading1 font-semibold">
-                {home.payout.paidPaise != null ? (
+                {home.payoutApps ? (
+                  (["zomato", "swiggy"] as const).map((platform) => (
+                    <span key={platform} className="block text-heading3">
+                      {payoutAppLine(
+                        platform === "zomato" ? t`Zomato` : t`Swiggy`,
+                        home.payoutApps?.[platform],
+                        { paid: t`Paid`, expected: t`Expected`, missing: t`Report not in yet` },
+                      )}
+                    </span>
+                  ))
+                ) : home.payout.paidPaise != null ? (
                   <span className="block">
                     {t`Paid`} {formatRupees(home.payout.paidPaise)}
                   </span>
-                ) : null}
-                {home.payout.pendingPaise != null ? (
+                ) : home.payout.pendingPaise != null ? (
                   <span className="block">
                     {t`Pending`} {formatRupees(home.payout.pendingPaise)}
                   </span>
-                ) : null}
-                {home.payout.paidPaise == null && home.payout.pendingPaise == null ? "—" : null}
+                ) : (
+                  "—"
+                )}
               </p>
               <p className="text-body-sm text-muted-foreground">{t`Check runs Thursday`}</p>
               {home.payout.toCheck > 0 ? (
@@ -191,7 +214,7 @@ export function OwnerHomeScreen({
                 ? groupedHomeRows([...home.rows, ...home.overflow]).flatMap((group) => group.items)
                 : home.rows
               ).map((item) => (
-                <Row key={item.ids.join("-")} item={item} onSnooze={onSnooze} />
+                <Row key={item.ids.join("-")} item={item} onSnooze={onSnooze} readOnly={readOnly} />
               ))}
             </ul>
             <div className="flex items-center justify-between gap-3 border-t border-border py-3">
@@ -228,22 +251,24 @@ export function OwnerHomeScreen({
                     {t`If not, the app may not have updated yet. We'll check again for 2 days.`}
                   </p>
                 </div>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => onAnswer(question, "closed")}
-                  >
-                    {t`Yes, closed`}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => onAnswer(question, "not_sure")}
-                  >
-                    {t`Not sure`}
-                  </Button>
-                </div>
+                {readOnly ? null : (
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => onAnswer(question, "closed")}
+                    >
+                      {t`Yes, closed`}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => onAnswer(question, "not_sure")}
+                    >
+                      {t`Not sure`}
+                    </Button>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
@@ -252,13 +277,17 @@ export function OwnerHomeScreen({
       {home.kind !== "welcome" ? (
         <div className="flex flex-wrap items-center justify-between gap-3 text-body-sm text-muted-foreground">
           <p>
-            {home.updated.zomato
-              ? t`Zomato updated ${clockLabel(home.updated.zomato)}`
-              : t`Zomato pending, usually in by 11 AM`}
+            <FooterApp
+              name={t`Zomato`}
+              updated={home.updated.zomato}
+              app={home.payoutApps?.zomato}
+            />
             {" · "}
-            {home.updated.swiggy
-              ? t`Swiggy updated ${clockLabel(home.updated.swiggy)}`
-              : t`Swiggy pending, usually in by 11 AM`}
+            <FooterApp
+              name={t`Swiggy`}
+              updated={home.updated.swiggy}
+              app={home.payoutApps?.swiggy}
+            />
           </p>
           <Link className="text-primary" to={`/restaurants/${restaurantId}/dashboard`}>
             {t`Open full dashboard`}
@@ -267,6 +296,36 @@ export function OwnerHomeScreen({
       ) : null}
     </div>
   );
+}
+
+function HomeGreeting({ now }: { now: string | undefined }) {
+  const { t } = useLingui();
+  const part = now ? istGreeting(new Date(now)).part : "morning";
+  if (part === "afternoon") return t`Good afternoon`;
+  if (part === "evening") return t`Good evening`;
+  return t`Good morning`;
+}
+
+function FooterApp({
+  name,
+  updated,
+  app,
+}: {
+  name: string;
+  updated: string | null;
+  app: PayoutAppFigure | undefined;
+}) {
+  const { t } = useLingui();
+  if (app) {
+    return payoutAppLine(name, app, {
+      paid: t`Paid`,
+      expected: t`Expected`,
+      missing: t`Report not in yet`,
+    });
+  }
+  return updated
+    ? t`${name} updated ${clockLabel(updated)}`
+    : t`${name} pending, usually in by 11 AM`;
 }
 
 function HomeHeadline({ home, restaurantName }: { home: OwnerHomeModel; restaurantName: string }) {
@@ -364,9 +423,11 @@ function HeadlineNumber({
 function Row({
   item,
   onSnooze,
+  readOnly = false,
 }: {
   item: OwnerHomeItem;
   onSnooze: (ids: string[], days: 1 | 3 | 7) => void;
+  readOnly?: boolean;
 }) {
   return (
     <li className="flex items-center gap-3 py-3">
@@ -386,7 +447,7 @@ function Row({
           <span className="block text-body-sm text-muted-foreground">{item.detail}</span>
         ) : null}
       </span>
-      {item.canSnooze ? <Snooze ids={item.ids} onSnooze={onSnooze} /> : null}
+      {item.canSnooze && !readOnly ? <Snooze ids={item.ids} onSnooze={onSnooze} /> : null}
       <span className="text-muted-foreground" aria-hidden="true">
         ›
       </span>

@@ -1291,8 +1291,8 @@ msgid "Allow once"
 msgstr "Bir kez izin ver"
 
 #: apps/web/src/lib/dictation.ts
-msgid "Allow Rakazo to use Speech Recognition and the microphone in System Settings."
-msgstr "Rakazo'nun Konuşma Tanıma ve mikrofonu kullanmasına Sistem Ayarları'ndan izin ver."
+msgid "Allow Ecomnomics to use Speech Recognition and the microphone in System Settings."
+msgstr "Ecomnomics'nun Konuşma Tanıma ve mikrofonu kullanmasına Sistem Ayarları'ndan izin ver."
 
 #: apps/mobile/lib/call-session.ts
 #: apps/mobile/lib/composer-dictation.ts
@@ -2307,8 +2307,8 @@ msgstr "Klasör seç"
 
 #: apps/web/src/components/ModelCredits.tsx
 #: apps/web/src/components/SubscriptionGate.tsx
-msgid "Choose how to use Rakazo"
-msgstr "Rakazo'yu nasıl kullanacağını seç"
+msgid "Choose how to use Ecomnomics"
+msgstr "Ecomnomics'yu nasıl kullanacağını seç"
 
 #: apps/mobile/components/vault-item-editor.tsx
 #: apps/mobile/components/vault-item-sheet.tsx
@@ -2743,8 +2743,8 @@ msgstr "Yapay zekânı bağla"
 
 #. js-lingui-explicit-id
 #: packages/i18n/src/run-error.ts
-msgid "Connect your own API key in Models or choose Rakazo credits in Billing."
-msgstr "Modeller bölümünde kendi API anahtarınızı bağlayın veya Faturalandırma'da Rakazo kredilerini seçin."
+msgid "Connect your own API key in Models or choose Ecomnomics credits in Billing."
+msgstr "Modeller bölümünde kendi API anahtarınızı bağlayın veya Faturalandırma'da Ecomnomics kredilerini seçin."
 
 #: apps/mobile/app/(settings)/bot-template.tsx
 #: apps/mobile/app/(settings)/integrations.tsx
@@ -4076,8 +4076,8 @@ msgid "Create space"
 msgstr "Alan oluştur"
 
 #: apps/web/src/pages/Auth.tsx
-msgid "Create your Rakazo"
-msgstr "Rakazo hesabını oluştur"
+msgid "Create your Ecomnomics"
+msgstr "Ecomnomics hesabını oluştur"
 
 #: apps/mobile/components/thread/message-bubble.tsx
 #: apps/web/src/components/AskCard.tsx
@@ -4801,8 +4801,8 @@ msgid "Ends {day}"
 msgstr "{day} tarihinde sona eriyor"
 
 #: apps/web/src/components/GitHubStarPrompt.tsx
-msgid "Enjoying Rakazo?"
-msgstr "Rakazo'yu beğendin mi?"
+msgid "Enjoying Ecomnomics?"
+msgstr "Ecomnomics'yu beğendin mi?"
 
 #: apps/mobile/lib/user-error.ts
 #: apps/web/src/lib/user-error.ts
@@ -5561,8 +5561,8 @@ msgstr "Nasıl kontrol edilir"
 
 #: apps/mobile/app/(settings)/signup-survey.tsx
 #: apps/web/src/components/SignupSurvey.tsx
-msgid "How will you use Rakazo?"
-msgstr "Rakazo'yu nasıl kullanacaksın?"
+msgid "How will you use Ecomnomics?"
+msgstr "Ecomnomics'yu nasıl kullanacaksın?"
 
 #: apps/mobile/components/compatible-endpoint-form.tsx
 msgid "http://127.0.0.1:8000/v1"
@@ -7041,8 +7041,8 @@ msgid "Not imported"
 msgstr "İçe aktarılmadı"
 
 #: apps/web/src/pages/shell/import-status.ts
-msgid "Not in Rakazo's catalog"
-msgstr "Rakazo kataloğunda yok"
+msgid "Not in Ecomnomics's catalog"
+msgstr "Ecomnomics kataloğunda yok"
 
 #: apps/mobile/app/(settings)/integrations.tsx
 #: apps/web/src/pages/plugins/plugin-browse.tsx
@@ -7081,12 +7081,12 @@ msgstr "Gönderilmedi. Tekrar denemek için dokun"
 
 #: apps/web/src/pages/shell/agent-import-plan.tsx
 #: apps/web/src/pages/shell/import-status.ts
-msgid "Not supported in Rakazo"
-msgstr "Rakazo'da desteklenmiyor"
+msgid "Not supported in Ecomnomics"
+msgstr "Ecomnomics'da desteklenmiyor"
 
 #: apps/web/src/pages/shell/agent-import-plan.tsx
-msgid "Not used by Rakazo"
-msgstr "Rakazo tarafından kullanılmıyor"
+msgid "Not used by Ecomnomics"
+msgstr "Ecomnomics tarafından kullanılmıyor"
 
 #: apps/mobile/app/(settings)/integrations.tsx
 #: apps/web/src/components/McpServerHealthLine.tsx
@@ -7309,8 +7309,8 @@ msgstr "Gezinmeyi aç"
 #: apps/web/src/components/pages/PublicPageShell.tsx
 #: apps/web/src/pages/Invite.tsx
 #: apps/web/src/pages/SharedPage.tsx
-msgid "Open Rakazo"
-msgstr "Rakazo'yu aç"
+msgid "Open Ecomnomics"
+msgstr "Ecomnomics'yu aç"
 
 #: apps/mobile/lib/composer-dictation.ts
 #: apps/mobile/lib/thread-voice.ts
@@ -7553,8 +7553,8 @@ msgstr "Yeni bir anahtar yapıştır"
 
 #: apps/mobile/components/compatible-endpoint-form.tsx
 #: apps/web/src/pages/model-settings/compatible-model-fields.tsx
-msgid "Paste the OpenAI-compatible address from your server. Rakazo adds /v1 if needed."
-msgstr "Sunucundaki OpenAI uyumlu adresi yapıştır. Gerekirse Rakazo /v1 ekler."
+msgid "Paste the OpenAI-compatible address from your server. Ecomnomics adds /v1 if needed."
+msgstr "Sunucundaki OpenAI uyumlu adresi yapıştır. Gerekirse Ecomnomics /v1 ekler."
 
 #: apps/web/src/pages/shell/agent-import.tsx
 msgid "Paste the reply"
@@ -7847,17 +7847,17 @@ msgstr "Alıntıla"
 #: apps/mobile/app/bot-settings.tsx
 #: apps/web/src/pages/AccountSettingsOverlay.tsx
 #: apps/web/src/pages/shell/avatar-studio-popover.tsx
-msgid "Rakazo"
-msgstr "Rakazo"
+msgid "Ecomnomics"
+msgstr "Ecomnomics"
 
 #: apps/mobile/app/(settings)/billing.tsx
 #: apps/web/src/pages/onboarding/use-onboarding-model.ts
-msgid "Rakazo credits"
-msgstr "Rakazo kredileri"
+msgid "Ecomnomics credits"
+msgstr "Ecomnomics kredileri"
 
 #: apps/web/src/pages/memory-providers/HonchoSettingsForm.tsx
-msgid "rakazo-shared and IDs starting with bot- are reserved for Rakazo."
-msgstr "rakazo-shared ve bot- ile başlayan kimlikler Rakazo için ayrılmıştır."
+msgid "rakazo-shared and IDs starting with bot- are reserved for Ecomnomics."
+msgstr "rakazo-shared ve bot- ile başlayan kimlikler Ecomnomics için ayrılmıştır."
 
 #: apps/mobile/components/thread/message-row.tsx
 #: apps/web/src/pages/shell/message-hover-actions.tsx
@@ -7897,8 +7897,8 @@ msgid "Recall and write"
 msgstr "Hatırla ve yaz"
 
 #: apps/web/src/pages/memory-providers/HonchoSettingsForm.tsx
-msgid "Recall from this peer; save to Rakazo’s own peers."
-msgstr "Bu eşten hatırla; Rakazo’nun kendi eşlerine kaydet."
+msgid "Recall from this peer; save to Ecomnomics’s own peers."
+msgstr "Bu eşten hatırla; Ecomnomics’nun kendi eşlerine kaydet."
 
 #: apps/web/src/pages/memory-providers/SerenitySettingsForm.tsx
 msgid "Recall only"
@@ -8478,8 +8478,8 @@ msgstr "Gelen kutusuna dön"
 
 #: apps/web/src/pages/McpOAuthCallback.tsx
 #: apps/web/src/pages/SlackInstallCallback.tsx
-msgid "Return to Rakazo"
-msgstr "Rakazo'ya dön"
+msgid "Return to Ecomnomics"
+msgstr "Ecomnomics'ya dön"
 
 #: apps/web/src/lib/model-connection-preflight.ts
 msgid "Review provider settings and test again."
@@ -9200,8 +9200,8 @@ msgstr "<0>{0}</0> adresinde oturum açın, ardından kodu buraya yapıştırın
 
 #: apps/mobile/app/sign-in.tsx
 #: apps/web/src/pages/Auth.tsx
-msgid "Sign in to Rakazo"
-msgstr "Rakazo'da oturum aç"
+msgid "Sign in to Ecomnomics"
+msgstr "Ecomnomics'da oturum aç"
 
 #: apps/mobile/lib/user-error.ts
 #: apps/web/src/lib/user-error.ts
@@ -9232,8 +9232,8 @@ msgid "Sign up"
 msgstr "Kaydol"
 
 #: apps/mobile/app/sign-in.tsx
-msgid "Sign up for Rakazo"
-msgstr "Rakazo'ya kaydol"
+msgid "Sign up for Ecomnomics"
+msgstr "Ecomnomics'ya kaydol"
 
 #: apps/web/src/components/integrations/plugin-marketplace.tsx
 msgid "Sign-in cancelled. Try again."
@@ -9515,8 +9515,8 @@ msgid "Start recording"
 msgstr "Kaydı başlat"
 
 #: apps/mobile/app/paywall.tsx
-msgid "Start using Rakazo"
-msgstr "Rakazo'yu kullanmaya başla"
+msgid "Start using Ecomnomics"
+msgstr "Ecomnomics'yu kullanmaya başla"
 
 #: apps/mobile/app/(settings)/billing.tsx
 #: apps/web/src/components/ModelCredits.tsx
@@ -9827,8 +9827,8 @@ msgid "That doesn’t look like a URL"
 msgstr "Bu bir URL'ye benzemiyor"
 
 #: apps/mobile/lib/endpoint.ts
-msgid "That URL did not look like a Rakazo server"
-msgstr "Bu URL bir Rakazo sunucusuna benzemiyor"
+msgid "That URL did not look like a Ecomnomics server"
+msgstr "Bu URL bir Ecomnomics sunucusuna benzemiyor"
 
 #: apps/mobile/lib/endpoint.ts
 msgid "That URL is missing a host"
@@ -10222,8 +10222,8 @@ msgstr "Bu sunucunun araç sonucu modele sığmıyor. O sunucu için \"Araç son
 
 #: apps/mobile/app/(settings)/model-connection.tsx
 #: apps/web/src/pages/model-settings/connection-controls.tsx
-msgid "This subscription sign-in is not available in Rakazo yet. Use a deployment credential or choose another provider."
-msgstr "Bu abonelik girişi Rakazo'da henüz kullanılamıyor. Bir dağıtım kimlik bilgisi kullan veya başka bir sağlayıcı seç."
+msgid "This subscription sign-in is not available in Ecomnomics yet. Use a deployment credential or choose another provider."
+msgstr "Bu abonelik girişi Ecomnomics'da henüz kullanılamıyor. Bir dağıtım kimlik bilgisi kullan veya başka bir sağlayıcı seç."
 
 #: apps/mobile/app/(settings)/bot-template.tsx
 #: apps/web/src/components/bot-templates/bot-templates-dialog.tsx
@@ -10743,8 +10743,8 @@ msgstr "Parolalar için Korumalı giriş'i kullan."
 
 #: apps/mobile/app/(settings)/billing.tsx
 #: apps/web/src/components/ModelCredits.tsx
-msgid "Use Rakazo credits"
-msgstr "Rakazo kredilerini kullan"
+msgid "Use Ecomnomics credits"
+msgstr "Ecomnomics kredilerini kullan"
 
 #: apps/mobile/components/space-bots-model.tsx
 msgid "Use space default"
@@ -10958,8 +10958,8 @@ msgstr "Haftalık"
 
 #: apps/mobile/app/(settings)/_layout.tsx
 #: apps/web/src/components/SignupSurvey.tsx
-msgid "Welcome to Rakazo"
-msgstr "Rakazo'ya hoş geldin"
+msgid "Welcome to Ecomnomics"
+msgstr "Ecomnomics'ya hoş geldin"
 
 #: apps/web/src/pages/shell/dialogs.tsx
 msgid "What about its memories?"
@@ -10971,8 +10971,8 @@ msgstr "Bu alan neleri kullanabilir?"
 
 #: apps/mobile/app/(settings)/signup-survey.tsx
 #: apps/web/src/components/SignupSurvey.tsx
-msgid "What do you most want Rakazo to help with?"
-msgstr "Rakazo'nun en çok neye yardım etmesini istiyorsun?"
+msgid "What do you most want Ecomnomics to help with?"
+msgstr "Ecomnomics'nun en çok neye yardım etmesini istiyorsun?"
 
 #: apps/web/src/pages/shell/message-cards.tsx
 msgid "What do you want me on first?"

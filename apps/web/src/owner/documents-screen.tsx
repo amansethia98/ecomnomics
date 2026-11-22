@@ -10,6 +10,7 @@ export function DocumentsScreen({
   saving,
   onSave,
   onDirty,
+  readOnly = false,
 }: {
   screen: OwnerDocuments;
   saving: boolean;
@@ -19,6 +20,7 @@ export function DocumentsScreen({
     gstin: string | null;
   }) => void;
   onDirty: (dirty: boolean) => void;
+  readOnly?: boolean;
 }) {
   const { t } = useLingui();
   const [editing, setEditing] = useState(false);
@@ -106,7 +108,7 @@ export function DocumentsScreen({
           </button>
         </div>
       )}
-      {editing ? (
+      {editing && !readOnly ? (
         <form
           className="flex flex-col gap-3"
           onSubmit={(event) => {
@@ -155,7 +157,12 @@ export function DocumentsScreen({
         <h2 className="text-label text-muted-foreground">{t`Business documents`}</h2>
         <ul>
           <li className="flex items-center justify-between gap-3 border-t border-border py-2">
-            <button type="button" className="text-left" onClick={() => setEditing(true)}>
+            <button
+              type="button"
+              className="text-left"
+              disabled={readOnly}
+              onClick={() => setEditing(true)}
+            >
               <span className="block font-medium">{t`FSSAI licence`}</span>
               <span className="block text-body-sm text-muted-foreground">
                 {screen.expiresOn ? formatCivilDay(screen.expiresOn) : t`No expiry typed`}
