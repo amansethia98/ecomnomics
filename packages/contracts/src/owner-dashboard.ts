@@ -535,12 +535,31 @@ function festivalLabel(dates: readonly string[]): string {
 
 function pinsFor(input: OwnerDashboardInput, weeks: string[], platforms: OpsPlatform[]): DashPin[] {
   const pins: Array<Omit<DashPin, "n">> = [];
+  const navratri = input.holidays.filter((date) => FESTIVAL_NAMES[date] === "Navratri").sort();
+  const lastNavratri = navratri.at(-1) ?? null;
+  const navratriEnd =
+    input.holidays.find(
+      (date) =>
+        FESTIVAL_NAMES[date] === "Dussehra" &&
+        lastNavratri != null &&
+        date >= lastNavratri &&
+        date <= addDays(lastNavratri, 7),
+    ) ?? lastNavratri;
+  let navratriPinned = false;
   for (const week of weeks) {
     const through = addDays(week, 7);
     const holidays = input.holidays.filter((date) => date >= week && date < through);
-    if (holidays.length > 0) {
-      pins.push({ week, kind: "festival", label: festivalLabel(holidays) });
+    const hasNavratri = holidays.some((date) => FESTIVAL_NAMES[date] === "Navratri");
+    if (hasNavratri && !navratriPinned && navratri[0] && navratriEnd) {
+      pins.push({
+        week,
+        kind: "festival",
+        label: `Navratri · ${formatInclusiveRange(navratri[0], navratriEnd)}`,
+      });
+      navratriPinned = true;
     }
+    const other = holidays.filter((date) => FESTIVAL_NAMES[date] !== "Navratri");
+    if (other.length > 0) pins.push({ week, kind: "festival", label: festivalLabel(other) });
     if (discountEnded(input.readings, week, platforms)) {
       pins.push({ week, kind: "discount", label: "Discount ended" });
     }
@@ -1660,7 +1679,14 @@ export function dashboardPlots(model: OwnerDashboardModel): OwnerPlot[] {
   ].sort();
   const axis = ownerDateAxis(ticks.length > 0 ? ticks : dated);
   const span = model.answer.unit === "week" ? 7 : 1;
-  if (dated[0] && dated.at(-1)) axis.domain = [dated[0], addDays(dated.at(-1) ?? dated[0], span)];
+  if (dated[0] && dated.at(-1)) {
+    const end = addDays(dated.at(-1) ?? dated[0], span);
+    axis.domain = [dated[0], end];
+    if (model.answer.unit === "week") {
+      const marks = Array.isArray(axis.ticks) ? (axis.ticks as string[]) : [];
+      if (!marks.includes(end)) axis.ticks = [...marks, end];
+    }
+  }
   const plots: OwnerPlot[] = model.panels.map((panel) => salesPlotFor(model, panel, axis));
   const heatWeeks = [...new Set(model.heatmap.map((cell) => cell.week))].sort();
   const cell = 30;
@@ -1760,7 +1786,10 @@ function salesPlotFor(
       options: { x1: "x1", x2: "x2", y1: "y1", y2: "y2", fill: "var(--muted)" },
     });
   }
-  const rows = panel.points.map((point) => ({ at: point.week, y: point.sales }));
+  const rows = panel.points.map((point) => ({
+    at: model.answer.unit === "week" ? addDays(point.week, 3) : point.week,
+    y: point.sales,
+  }));
   const known = rows.filter((row) => row.y != null);
   const stroke = PLATFORM_STROKE[panel.platform];
   if (known.length > 0) {
@@ -1827,12 +1856,13 @@ function salesPlotFor(
       },
     );
   }
+  const phone = model.answer.unit === "day";
   return {
     id: `sales-${panel.platform}`,
-    width: 960,
+    width: phone ? 390 : 960,
     height: 200,
-    marginLeft: 56,
-    marginRight: 16,
+    marginLeft: phone ? 40 : 56,
+    marginRight: phone ? 8 : 16,
     x: axis,
     y,
     marks,

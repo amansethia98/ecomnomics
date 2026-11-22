@@ -133,7 +133,10 @@ it("draws two sales panels, each with its own trend line, and shades the last we
   expect(swiggyPlot?.marks.some((mark) => mark.options?.stroke === "var(--owner-swiggy)")).toBe(
     true,
   );
-  expect(salesPlot?.x?.ticks).toHaveLength(4);
+  expect(salesPlot?.x?.ticks).toContain("2026-11-16");
+  const line = salesPlot?.marks.find((mark) => mark.type === "lineY");
+  const lastAt = (line?.data as Array<{ at?: string }> | undefined)?.at(-1)?.at ?? "";
+  expect(lastAt > "2026-11-09" && lastAt < "2026-11-16").toBe(true);
   expect(JSON.stringify(salesPlot)).not.toContain("tickFormat");
   const rupees = resolveOwnerPlot(salesPlot ?? plots[0]!).y?.tickFormat as
     | ((value: number) => string)
@@ -176,6 +179,31 @@ it("numbers festival, discount, and offline weeks", () => {
     ),
   );
   expect(marked).toEqual(expect.arrayContaining(["1", "2", "3"]));
+});
+
+it("merges Navratri into one range pin and keeps Dussehra", () => {
+  const dash = composeOwnerDashboard(
+    input([...salesWeeks("zomato", [100]), ...salesWeeks("swiggy", [50])], {
+      range: "12w",
+      from: "2026-08-26",
+      to: "2026-11-17",
+      holidays: [
+        "2026-10-11",
+        "2026-10-12",
+        "2026-10-19",
+        "2026-10-20",
+        "2026-11-08",
+        "2026-09-14",
+      ],
+    }),
+  );
+  const festivals = dash.pins.filter((pin) => pin.kind === "festival").map((pin) => pin.label);
+  expect(festivals.filter((label) => label.startsWith("Navratri"))).toEqual([
+    "Navratri · 11–20 Oct",
+  ]);
+  expect(festivals).toContain("Dussehra");
+  expect(festivals).toContain("Diwali");
+  expect(festivals).toContain("Ganesh Chaturthi");
 });
 
 it("combines both apps for the last day's dip", () => {

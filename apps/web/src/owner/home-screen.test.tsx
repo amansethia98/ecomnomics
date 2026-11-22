@@ -99,9 +99,46 @@ it("shows the act-now card without a snooze, and snooze only on a watch row", ()
   expect(host.textContent).toContain("Zomato updated 5:42 AM");
   expect(host.textContent).toContain("Swiggy pending, usually in by 11 AM");
   expect(host.textContent).toContain("Open full dashboard");
+  expect(host.textContent).toContain("▼ −6.0% vs Sun 8");
   expect(host.textContent).not.toContain("Act now (");
   const snooze = [...host.querySelectorAll("summary")].map((node) => node.textContent);
   expect(snooze).toEqual(["···"]);
+});
+
+it("labels each app against the same weekday last week", () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  act(() => {
+    createRoot(host).render(
+      <MemoryRouter>
+        <OwnerHomeScreen
+          restaurantId="r1"
+          restaurantName="Kesar Kitchen"
+          home={{
+            ...home,
+            baselineDate: "2026-11-13",
+            sales: {
+              ...home.sales,
+              pendingPlatform: null,
+              splits: [
+                { platform: "zomato", value: 1600000, changePct: -22.6 },
+                { platform: "swiggy", value: 600000, changePct: -47 },
+              ],
+            },
+          }}
+          onSnooze={() => undefined}
+          onAnswer={() => undefined}
+        />
+      </MemoryRouter>,
+    );
+  });
+  expect(host.textContent).toContain("▼ −6.0% vs Fri 13");
+  expect(host.textContent).toContain("▼ −22.6% vs Fri 13");
+  expect(host.textContent).toContain("▼ −47.0% vs Fri 13");
+  const down = [...host.querySelectorAll(".owner-change-down")].map(
+    (node) => node.textContent ?? "",
+  );
+  expect(down.some((text) => text.includes("▼"))).toBe(true);
 });
 
 it("names the day a fallback figure comes from", () => {
