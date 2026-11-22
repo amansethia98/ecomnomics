@@ -15,7 +15,7 @@ vi.mock("@lingui/react/macro", () => ({
 }));
 
 import type { DashTile } from "@rakazo/contracts";
-import { Answer } from "./dashboard-screen";
+import { Answer, FunnelLine } from "./dashboard-screen";
 import { NumberCard } from "./number-card";
 
 afterEach(() => {
@@ -89,6 +89,25 @@ function answer(over: Partial<OwnerDashboardModel["answer"]>): OwnerDashboardMod
     onePlatform: false,
   };
 }
+
+it("keeps the funnel headline dark, with wine only on the dot and the decline", () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  act(() => {
+    createRoot(host).render(
+      <FunnelLine text="Zomato: fewer people who see you open your menu, down 4 weeks in a row" />,
+    );
+  });
+  const line = host.querySelector("p");
+  expect(line?.className).toContain("text-foreground");
+  expect(line?.className).not.toContain("text-destructive");
+  const wine = [...host.querySelectorAll(".text-destructive")].map(
+    (node) => node.textContent ?? "",
+  );
+  expect(wine.some((text) => text.includes("●"))).toBe(true);
+  expect(wine).toContain("down 4 weeks in a row");
+  expect(host.textContent).toContain("Zomato: fewer people who see you open your menu, ");
+});
 
 it("says festival week once, beside the comparison", () => {
   const host = render(answer({ festival: true, dipped: null }));

@@ -87,6 +87,68 @@ function draw(plot: OwnerPlot): string {
   return renderPlotSpecToSvg(resolveOwnerPlot(plot), undefined, document);
 }
 
+function placedX(node: Element): number {
+  let x = Number(node.getAttribute("x") ?? 0);
+  let current: Element | null = node;
+  while (current) {
+    const transform = current.getAttribute("transform") ?? "";
+    const match = /translate\(\s*(-?\d+(?:\.\d+)?)/.exec(transform);
+    if (match?.[1]) x += Number(match[1]);
+    current = current.parentElement;
+  }
+  return x;
+}
+
+it("fits 14–20 Nov inside a phone width", () => {
+  const rows: DashReading[] = [];
+  for (let day = 14; day <= 20; day += 1) {
+    const date = iso(2026, 11, day);
+    rows.push({
+      from: date,
+      grain: "day",
+      platform: "zomato",
+      key: "ops_sales_paise",
+      value: 1000 + day,
+      state: "ok",
+    });
+    rows.push({
+      from: date,
+      grain: "day",
+      platform: "swiggy",
+      key: "swiggy_net_sales_paise",
+      value: 500 + day,
+      state: "ok",
+    });
+  }
+  const plots = dashboardPlots(
+    composeOwnerDashboard(
+      view({
+        today: "2026-11-21",
+        range: "7d",
+        from: "2026-11-14",
+        to: "2026-11-21",
+        readings: rows,
+      }),
+    ),
+  );
+  const sales = plots.find((plot) => plot.id === "sales-zomato");
+  expect(sales?.width).toBeLessThanOrEqual(390);
+  const svg = draw(sales!);
+  const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+  const width = Number(doc.documentElement.getAttribute("width"));
+  expect(width).toBeLessThanOrEqual(390);
+  const labels = [...doc.querySelectorAll("text")].map((node) => ({
+    label: node.textContent ?? "",
+    x: placedX(node),
+  }));
+  const start = labels.find((item) => item.label.includes("14"));
+  const end = labels.find((item) => item.label.includes("20"));
+  expect(start).toBeTruthy();
+  expect(end).toBeTruthy();
+  expect(start!.x).toBeGreaterThanOrEqual(0);
+  expect(end!.x).toBeLessThanOrEqual(width);
+});
+
 it("draws the sales lines and the weekday heatmap when one platform lags a day", () => {
   for (const input of [view({}), view({ range: "custom", from: "2026-10-18", to: "2026-11-17" })]) {
     const plots = dashboardPlots(composeOwnerDashboard(input));

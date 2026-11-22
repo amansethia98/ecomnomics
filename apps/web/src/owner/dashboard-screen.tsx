@@ -173,8 +173,8 @@ export function OwnerDashboard({
           {(["menu", "cart", "order"] as const).map((step) => (
             <div key={step}>
               <p className="text-body-sm">
-                <StepLabel step={step} />
-                <span className="ml-2 text-muted-foreground">
+                <StepLabel step={step} />{" "}
+                <span className="text-muted-foreground">
                   <StepHint step={step} />
                 </span>
               </p>
@@ -321,7 +321,7 @@ function sparkPlot(tile: OwnerDashboardModel["tiles"][number]): OwnerPlot {
   };
 }
 
-function FunnelLine({ text }: { text: string }) {
+export function FunnelLine({ text }: { text: string }) {
   const match = /^(.*?)(down \d+ weeks in a row)$/.exec(text);
   return (
     <p className="mt-1 font-medium text-foreground">
@@ -360,8 +360,8 @@ function PlotFigure({ plot }: { plot: OwnerPlot }) {
           return;
         }
         svg.setAttribute("font-size", "12");
-        const drawn = svg.getAttribute("width");
-        if (drawn) svg.style.minWidth = `${drawn}px`;
+        const drawn = Number(svg.getAttribute("width") ?? plot.width ?? 0);
+        if (drawn > 400) svg.style.minWidth = `${drawn}px`;
         host.current.append(svg);
         setFailed(false);
       } catch (error) {
@@ -376,7 +376,10 @@ function PlotFigure({ plot }: { plot: OwnerPlot }) {
   }, [key, plot]);
   return (
     <div>
-      <div ref={host} className="owner-plot" />
+      <div
+        ref={host}
+        className={(plot.width ?? 960) <= 400 ? "owner-plot owner-plot-fit" : "owner-plot"}
+      />
       {failed ? <PlotFallback plot={plot} /> : null}
     </div>
   );

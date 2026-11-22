@@ -72,6 +72,11 @@ export function formatWeekdayShort(iso: string): string {
   return WEEKDAYS[isoWeekday(iso)] ?? "day";
 }
 
+/** `vs Fri 13` — the same weekday a week earlier. */
+export function formatVersusDay(iso: string): string {
+  return `vs ${formatWeekdayShort(iso)} ${Number(iso.slice(8, 10))}`;
+}
+
 /** ₹27k, ₹1.2L. `paise` is the stored unit. */
 export function formatCompactRupees(paise: number): string {
   const rupees = paise / 100;

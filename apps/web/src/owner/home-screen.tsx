@@ -5,6 +5,7 @@ import {
   formatCount,
   formatRupees,
   formatSignedPct,
+  formatVersusDay,
   formatWeekdayName,
   groupedHomeRows,
 } from "@rakazo/contracts";
@@ -12,7 +13,7 @@ import { Button } from "@rakazo/ui-web";
 import { Eye } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ChangeBadge, PlatformDot, StatusPill } from "./marks";
+import { PlatformDot, StatusPill } from "./marks";
 
 export function OwnerHomeScreen({
   restaurantId,
@@ -31,6 +32,7 @@ export function OwnerHomeScreen({
   const [open, setOpen] = useState(false);
   const [fix, setFix] = useState(false);
   const weekday = home.baselineDate ? formatWeekdayName(home.baselineDate) : null;
+  const versus = home.baselineDate ? formatVersusDay(home.baselineDate) : null;
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-8">
       {home.staleNote ? (
@@ -131,7 +133,7 @@ export function OwnerHomeScreen({
               value={home.sales.paise != null ? formatRupees(home.sales.paise) : t`Not in yet`}
               change={home.sales.changePct}
               pending={home.sales.pendingPlatform}
-              compare={weekday}
+              compare={versus}
               splits={(home.sales.splits ?? []).map((split) => ({
                 platform: split.platform,
                 value: split.value != null ? formatRupees(split.value) : "—",
@@ -145,7 +147,7 @@ export function OwnerHomeScreen({
               }
               change={home.delivered.changePct}
               pending={home.delivered.pendingPlatform}
-              compare={weekday}
+              compare={versus}
               splits={(home.delivered.splits ?? []).map((split) => ({
                 platform: split.platform,
                 value: split.value != null ? formatCount(split.value) : "—",
@@ -314,10 +316,13 @@ function HeadlineNumber({
       <div className="text-right sm:text-left">
         <p className="mt-1 text-heading1 font-semibold">{value}</p>
         {change != null && compare ? (
-          <ChangeBadge
-            direction={change < 0 ? "down" : "up"}
-            label={`${formatSignedPct(change)} ${t`vs last`} ${compare}`}
-          />
+          <p
+            className={
+              change < 0 ? "owner-change-down text-body-sm" : "owner-change-up text-body-sm"
+            }
+          >
+            {`${change < 0 ? "▼" : "▲"} ${formatSignedPct(change)} ${compare}`}
+          </p>
         ) : null}
         {splits.length > 1 ? (
           <p className="mt-1 flex flex-col gap-0.5 text-body-sm text-muted-foreground">
@@ -332,7 +337,11 @@ function HeadlineNumber({
                   aria-hidden="true"
                 />
                 {split.value}
-                {split.change != null ? ` ${formatSignedPct(split.change)}` : ""}
+                {split.change != null ? (
+                  <span className={split.change < 0 ? "owner-change-down" : "owner-change-up"}>
+                    {`${split.change < 0 ? "▼" : "▲"} ${formatSignedPct(split.change)}${compare ? ` ${compare}` : ""}`}
+                  </span>
+                ) : null}
               </span>
             ))}
           </p>
