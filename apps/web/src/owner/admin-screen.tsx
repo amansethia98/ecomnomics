@@ -10,6 +10,7 @@ import {
 import { Activity, IndianRupee, Link2, Mail, Moon, Shield, Store } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import "./owner.css";
 
 const SECTIONS = [
   "health",
@@ -78,9 +79,12 @@ export function AdminPanelScreen({
     ["paused", t`Paused (${panel.restaurants.filter((row) => row.paused).length})`],
   ];
   return (
-    <div className="flex min-h-screen">
-      <nav className="flex w-56 shrink-0 flex-col gap-1 border-r border-border bg-card px-3 py-6">
-        <p className="px-2 py-2 text-body font-medium">{t`Ecomnomics · Admin`}</p>
+    <div
+      className="flex min-h-screen min-w-0 max-w-full flex-col overflow-x-clip md:flex-row"
+      data-testid="admin-page"
+    >
+      <nav className="flex w-full min-w-0 flex-row flex-wrap gap-1 border-b border-border bg-card px-3 py-3 md:w-56 md:shrink-0 md:flex-col md:border-r md:border-b-0 md:py-6">
+        <p className="w-full px-2 py-2 text-body font-medium">{t`Ecomnomics · Admin`}</p>
         {SECTIONS.map((id) => (
           <button
             key={id}
@@ -88,8 +92,8 @@ export function AdminPanelScreen({
             aria-current={section === id ? "page" : undefined}
             className={
               section === id
-                ? "flex items-center gap-2 rounded-lg bg-muted px-2 py-2 text-left text-body-sm"
-                : "flex items-center gap-2 rounded-lg px-2 py-2 text-left text-body-sm text-muted-foreground"
+                ? "flex max-w-full items-center gap-2 rounded-lg bg-muted px-2 py-2 text-left text-body-sm"
+                : "flex max-w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-body-sm text-muted-foreground"
             }
             onClick={() => setSection(id)}
           >
@@ -97,11 +101,11 @@ export function AdminPanelScreen({
             {labels[id]}
           </button>
         ))}
-        <p className="mt-auto px-2 text-body-sm text-muted-foreground">
+        <p className="w-full px-2 text-body-sm text-muted-foreground md:mt-auto">
           {t`Admin access · never shows passwords`}
         </p>
       </nav>
-      <main className="min-w-0 flex-1 px-6 py-6">
+      <main className="min-w-0 max-w-full flex-1 px-4 py-6 md:px-6">
         <p className="text-label text-muted-foreground">{labels[section]}</p>
         {section === "health" ? (
           <section className="mt-4 flex flex-col gap-6">
@@ -126,9 +130,9 @@ export function AdminPanelScreen({
             {panel.freshness.length === 0 ? (
               <p className="text-body-sm text-muted-foreground">{t`No downloads in this view.`}</p>
             ) : (
-              <ol className="grid grid-cols-7 gap-2">
+              <ol className="grid grid-cols-4 gap-2 sm:grid-cols-7">
                 {panel.freshness.map((day) => (
-                  <li key={day.day} className="text-center text-body-sm">
+                  <li key={day.day} className="min-w-0 break-words text-center text-body-sm">
                     <span className="block text-muted-foreground">{formatCivilDay(day.day)}</span>
                     <span className={day.downloads > 0 ? "font-medium" : "text-muted-foreground"}>
                       {day.downloads}
@@ -229,7 +233,7 @@ export function AdminPanelScreen({
             {panel.restaurants.length > 0 && rows.length === 0 ? (
               <p>{t`No restaurants match.`}</p>
             ) : null}
-            <table className="w-full text-body-sm">
+            <table className="block w-full min-w-0 text-body-sm md:table">
               <thead>
                 <tr className="text-left text-label text-muted-foreground">
                   <th className="py-2 font-medium">{t`Restaurant`}</th>
@@ -317,7 +321,7 @@ export function AdminPanelScreen({
                 </p>
               </div>
             ) : null}
-            <table className="mt-4 w-full text-body-sm">
+            <table className="mt-4 block w-full min-w-0 text-body-sm md:table">
               <thead>
                 <tr className="text-left text-label text-muted-foreground">
                   <th className="py-2 font-medium">{t`Restaurant`}</th>
@@ -357,7 +361,7 @@ export function AdminPanelScreen({
                 (["zomato", "swiggy"] as const).map((platform) => (
                   <li
                     key={`${row.restaurant}-${row.outlet}-${platform}`}
-                    className="flex items-center justify-between gap-3 border-t border-border py-2"
+                    className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-t border-border py-2"
                   >
                     <span>
                       <span className="font-medium">{row.outlet}</span>
@@ -414,7 +418,7 @@ export function AdminPanelScreen({
               />
             )}
             <p className="text-body-sm text-muted-foreground">{t`Cap not shown here yet.`}</p>
-            <table className="w-full text-body-sm">
+            <table className="block w-full min-w-0 text-body-sm md:table">
               <tbody>
                 {panel.restaurants.map((row) => (
                   <tr key={row.restaurantId} className="border-t border-border">
