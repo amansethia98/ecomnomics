@@ -1,7 +1,13 @@
 import { useLingui } from "@lingui/react/macro";
-import type { OwnerProfile, OwnerView } from "@rakazo/contracts";
-import { customRange, ownerRangeBounds, rangeThrough } from "@rakazo/contracts";
-import { Button } from "@rakazo/ui-web";
+import type { OwnerProfile, OwnerRange, OwnerView } from "@rakazo/contracts";
+import {
+  addIsoDays,
+  customRange,
+  formatCivilDay,
+  ownerRangeBounds,
+  rangeThrough,
+} from "@rakazo/contracts";
+import { Button, Calendar, Popover, PopoverContent, PopoverTrigger } from "@rakazo/ui-web";
 import {
   FileText,
   Home,
@@ -14,7 +20,8 @@ import {
   Wallet,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { NavLink } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { NavLink, useNavigate } from "react-router-dom";
 import { PlatformDot } from "./marks";
 
 export const OWNER_SCREENS = [
@@ -84,13 +91,18 @@ export function OwnerFrame({
   const showRange = screen !== "settings";
   const base = `/restaurants/${restaurantId}`;
 
+  const navigate = useNavigate();
+  const [moreOpen, setMoreOpen] = useState(false);
   const go = (next: OwnerView) => {
     if (!confirmLeave()) return;
     onView(next);
   };
 
   return (
-    <div className="ecomnomics flex min-h-svh bg-muted text-foreground" data-theme="light">
+    <div
+      className="ecomnomics flex min-h-svh max-w-full overflow-x-clip bg-muted text-foreground"
+      data-theme="light"
+    >
       <aside className="hidden w-56 shrink-0 flex-col gap-1 border-r border-border bg-background p-3 md:flex">
         <p className="px-2 py-3 text-body-lg font-medium">{t`Ecomnomics`}</p>
         {OWNER_SCREENS.map((item) => (
@@ -132,7 +144,7 @@ export function OwnerFrame({
                 </select>
               ) : null}
               <div className="flex rounded-lg bg-background p-0.5">
-                {(["7d", "4w", "12w", "custom"] as const).map((range) => (
+                {(["7d", "4w", "12w"] as const).map((range) => (
                   <Button
                     key={range}
                     type="button"
@@ -140,23 +152,12 @@ export function OwnerFrame({
                     variant="ghost"
                     aria-pressed={view.range === range}
                     className={view.range === range ? "bg-primary/10 text-primary" : undefined}
-                    onClick={() =>
-                      go(
-                        range === "custom"
-                          ? { ...view, range }
-                          : { ...view, range, ...ownerRangeBounds(range, today) },
-                      )
-                    }
+                    onClick={() => go({ ...view, range, ...ownerRangeBounds(range, today) })}
                   >
-                    {range === "7d"
-                      ? t`7D`
-                      : range === "4w"
-                        ? t`4W`
-                        : range === "12w"
-                          ? t`12W`
-                          : t`Custom`}
+                    {range === "7d" ? t`7D` : range === "4w" ? t`4W` : t`12W`}
                   </Button>
                 ))}
+                <CustomRange view={view} today={today} onView={go} />
               </div>
               {showPlatform ? (
                 <div className="flex rounded-lg bg-background p-0.5">
@@ -180,39 +181,11 @@ export function OwnerFrame({
             </div>
           ) : null}
         </header>
-        {showRange && view.range === "custom" ? (
-          <div className="flex gap-3 px-4 pb-2 md:px-8">
-            <label className="flex items-center gap-2 text-body-sm">
-              {t`From`}
-              <input
-                type="date"
-                className="h-8 rounded-lg border border-border bg-background px-2"
-                value={view.from}
-                onChange={(event) =>
-                  go({
-                    ...view,
-                    range: "custom",
-                    ...customRange(event.target.value, rangeThrough(view.to)),
-                  })
-                }
-              />
-            </label>
-            <label className="flex items-center gap-2 text-body-sm">
-              {t`To`}
-              <input
-                type="date"
-                className="h-8 rounded-lg border border-border bg-background px-2"
-                value={rangeThrough(view.to)}
-                onChange={(event) =>
-                  go({ ...view, range: "custom", ...customRange(view.from, event.target.value) })
-                }
-              />
-            </label>
-          </div>
-        ) : null}
-        <main className="flex-1 px-4 pb-24 md:px-8 md:pb-10">{children}</main>
+        <main className="min-w-0 flex-1 overflow-x-clip px-4 pb-24 md:px-8 md:pb-10">
+          {children}
+        </main>
       </div>
-      <nav className="fixed inset-x-0 bottom-0 flex border-t border-border bg-background md:hidden">
+      <nav className="owner-tabbar fixed inset-x-0 bottom-0 z-30 flex w-full max-w-full border-t border-border bg-background md:hidden">
         {PHONE_TABS.map((id) => {
           const item = OWNER_SCREENS.find((screen) => screen.id === id);
           if (!item) return null;
@@ -225,7 +198,7 @@ export function OwnerFrame({
                 if (!confirmLeave()) event.preventDefault();
               }}
               className={({ isActive }) =>
-                `flex flex-1 flex-col items-center gap-1 py-2 text-label ${isActive ? "text-primary" : "text-muted-foreground"}`
+                `flex min-w-0 flex-1 flex-col items-center gap-1 px-0.5 py-2 text-center text-label leading-tight whitespace-normal ${isActive ? "text-primary" : "text-muted-foreground"}`
               }
             >
               <Icon aria-hidden="true" className="size-5" />
@@ -233,31 +206,152 @@ export function OwnerFrame({
             </NavLink>
           );
         })}
-        <details className="relative flex flex-1 flex-col items-center py-2 text-label text-muted-foreground">
-          <summary className="flex cursor-pointer list-none flex-col items-center gap-1">
+        <div className="relative flex min-w-0 flex-1 flex-col items-center py-2 text-center text-label leading-tight text-muted-foreground">
+          <button
+            type="button"
+            data-testid="owner-more"
+            aria-expanded={moreOpen}
+            className="flex flex-col items-center gap-1"
+            onClick={() => setMoreOpen((open) => !open)}
+          >
             <span aria-hidden="true" className="flex size-5 items-center justify-center">
               •••
             </span>
             {t`More`}
-          </summary>
-          <div className="absolute bottom-12 right-2 flex w-48 flex-col rounded-lg border border-border bg-background p-1 shadow-sm">
-            {OWNER_SCREENS.filter((item) => !PHONE_TABS.includes(item.id)).map((item) => (
-              <NavLink
-                key={item.id}
-                to={`${base}/${item.id}${windowSearch(view)}`}
-                onClick={(event) => {
-                  if (!confirmLeave()) event.preventDefault();
-                }}
-                className="rounded-md px-2 py-2 text-body-sm text-foreground"
-              >
-                {labels[item.id]}
-              </NavLink>
-            ))}
-          </div>
-        </details>
+          </button>
+          {moreOpen ? (
+            <div className="absolute bottom-12 right-2 flex w-48 flex-col rounded-lg border border-border bg-background p-1 shadow-sm">
+              {OWNER_SCREENS.filter((item) => !PHONE_TABS.includes(item.id)).map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className="rounded-md px-2 py-2 text-left text-body-sm text-foreground"
+                  onClick={() => {
+                    if (!confirmLeave()) return;
+                    const path = `${base}/${item.id}${windowSearch(view)}`;
+                    queueMicrotask(() => {
+                      setMoreOpen(false);
+                      queueMicrotask(() => navigate(path));
+                    });
+                  }}
+                >
+                  {labels[item.id]}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
       </nav>
     </div>
   );
+}
+
+function CustomRange({
+  view,
+  today,
+  onView,
+}: {
+  view: OwnerView;
+  today: string;
+  onView: (next: OwnerView) => void;
+}) {
+  const { t } = useLingui();
+  const [open, setOpen] = useState(false);
+  const months = useTwoMonths() ? 2 : 1;
+  const end = rangeThrough(view.to);
+  const apply = (next: OwnerView) => {
+    onView(next);
+    setOpen(false);
+  };
+  const presets: Array<{ label: string; range: OwnerRange; from: string; to: string }> = [
+    { label: t`Last 7 days`, range: "7d", ...ownerRangeBounds("7d", today) },
+    {
+      label: t`Last 14 days`,
+      range: "custom",
+      ...customRange(addIsoDays(today, -13), addIsoDays(today, -1)),
+    },
+    { label: t`Last 4 weeks`, range: "4w", ...ownerRangeBounds("4w", today) },
+    { label: t`Last 12 weeks`, range: "12w", ...ownerRangeBounds("12w", today) },
+  ];
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        render={
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            aria-pressed={view.range === "custom"}
+            className={view.range === "custom" ? "bg-primary/10 text-primary" : undefined}
+          />
+        }
+      >
+        {t`Custom`}
+      </PopoverTrigger>
+      {open ? (
+        <PopoverContent align="end" className="w-auto p-0">
+          <div className="flex flex-col md:flex-row">
+            <div className="flex flex-col gap-1 border-b border-border p-2 md:border-r md:border-b-0">
+              {presets.map((preset) => (
+                <Button
+                  key={preset.label}
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    apply({ ...view, range: preset.range, from: preset.from, to: preset.to })
+                  }
+                >
+                  {preset.label}
+                </Button>
+              ))}
+              <p className="px-2 pt-1 text-body-sm text-muted-foreground" data-testid="range-end">
+                {t`To`} {formatCivilDay(end)}
+              </p>
+            </div>
+            <Calendar
+              mode="range"
+              numberOfMonths={months}
+              defaultMonth={civilDate(view.from)}
+              selected={{ from: civilDate(view.from), to: civilDate(end) }}
+              onSelect={(range) => {
+                if (!range?.from || !range.to) return;
+                apply({
+                  ...view,
+                  range: "custom",
+                  ...customRange(civilIso(range.from), civilIso(range.to)),
+                });
+              }}
+            />
+          </div>
+        </PopoverContent>
+      ) : null}
+    </Popover>
+  );
+}
+
+function useTwoMonths(): boolean {
+  const [two, setTwo] = useState(false);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia("(min-width: 768px)");
+    const apply = () => setTwo(query.matches);
+    apply();
+    query.addEventListener("change", apply);
+    return () => query.removeEventListener("change", apply);
+  }, []);
+  return two;
+}
+
+function civilDate(iso: string): Date {
+  const [year, month, day] = iso.split("-").map(Number);
+  return new Date(year ?? 2026, (month ?? 1) - 1, day ?? 1);
+}
+
+function civilIso(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
 }
 
 function windowSearch(view: OwnerView): string {

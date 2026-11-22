@@ -2,6 +2,7 @@
 import type { OwnerProfile } from "@rakazo/contracts";
 import type { ReactNode } from "react";
 import { act } from "react";
+import type { Root } from "react-dom/client";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
@@ -52,17 +53,21 @@ const view = {
   to: "2026-11-16",
 };
 
+let root: Root | null = null;
+
 function render(node: ReactNode) {
   const host = document.createElement("div");
   document.body.append(host);
-  const root = createRoot(host);
+  root = createRoot(host);
   act(() => {
-    root.render(<MemoryRouter>{node}</MemoryRouter>);
+    root?.render(<MemoryRouter>{node}</MemoryRouter>);
   });
   return host;
 }
 
 afterEach(() => {
+  act(() => root?.unmount());
+  root = null;
   document.body.replaceChildren();
 });
 
@@ -96,8 +101,8 @@ it("lists the nine owner screens", () => {
   expect(host.textContent).toContain("Ratings & reviews");
   expect(host.textContent).toContain("All outlets");
   expect(host.querySelector("select")?.textContent).toContain("Indiranagar");
-  expect(host.querySelector("summary")?.textContent).toContain("•••");
-  expect(host.querySelector("summary")?.textContent).toContain("More");
+  expect(host.querySelector("[data-testid='owner-more']")?.textContent).toContain("•••");
+  expect(host.querySelector("[data-testid='owner-more']")?.textContent).toContain("More");
 });
 
 it("hides the outlet picker when the restaurant has one outlet", () => {
@@ -200,4 +205,79 @@ it("hides the platform toggle when only one app is connected", () => {
     </OwnerFrame>,
   );
   expect(host.textContent).not.toContain("Both");
+});
+
+it("opens a calendar for Custom and leaves the current range in place", () => {
+  const onView = vi.fn();
+  const host = render(
+    <OwnerFrame
+      restaurantId="r1"
+      profile={profile}
+      screen="home"
+      view={{ ...view, range: "12w", from: "2026-08-24", to: "2026-11-16" }}
+      today="2026-11-15"
+      onView={onView}
+      confirmLeave={() => true}
+    >
+      <p>Home</p>
+    </OwnerFrame>,
+  );
+  const custom = [...host.querySelectorAll("button")].find((item) => item.textContent === "Custom");
+  act(() => {
+    custom?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  expect(onView).not.toHaveBeenCalled();
+  expect(document.body.textContent).toContain("Last 14 days");
+  expect(document.querySelector("[data-testid='range-end']")?.textContent).toBe("To Sun 15 Nov");
+  expect(document.body.textContent).not.toContain("Sat 14 Nov");
+});
+
+it("closes More after a screen is chosen", async () => {
+  const host = render(
+    <OwnerFrame
+      restaurantId="r1"
+      profile={profile}
+      screen="home"
+      view={view}
+      today="2026-11-15"
+      onView={() => undefined}
+      confirmLeave={() => true}
+    >
+      <p>Home</p>
+    </OwnerFrame>,
+  );
+  const more = host.querySelector("[data-testid='owner-more']");
+  act(() => {
+    more?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  const menu = [...host.querySelectorAll("button")].find((item) => item.textContent === "Menu");
+  expect(menu).toBeTruthy();
+  await act(async () => {
+    menu?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await Promise.resolve();
+  });
+  expect([...host.querySelectorAll("button")].some((item) => item.textContent === "Menu")).toBe(
+    false,
+  );
+});
+
+it("keeps every phone tab inside the bar", () => {
+  const host = render(
+    <OwnerFrame
+      restaurantId="r1"
+      profile={profile}
+      screen="dashboard"
+      view={view}
+      today="2026-11-15"
+      onView={() => undefined}
+      confirmLeave={() => true}
+    >
+      <p>Dashboard</p>
+    </OwnerFrame>,
+  );
+  const bar = host.querySelector(".owner-tabbar");
+  expect(bar).not.toBeNull();
+  const items = [...(bar?.children ?? [])];
+  expect(items.length).toBe(5);
+  for (const item of items) expect(item.className).toContain("min-w-0");
 });

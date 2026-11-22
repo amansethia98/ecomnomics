@@ -3,14 +3,7 @@ import type { LinkFavicons } from "@rakazo/chat-ui/web";
 import { LinkFaviconsContext, RemoteImagesContext } from "@rakazo/chat-ui/web";
 import { analyticsScreen } from "@rakazo/core";
 import { Button } from "@rakazo/ui-web";
-import {
-  Suspense,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
 import { LoadingState } from "./components/ai/primitives";
 import { CallLayout } from "./components/call/CallLayout";
@@ -19,7 +12,6 @@ import { MarkdownLinkPrompt } from "./components/markdown-link-prompt";
 import { PageLoading } from "./components/PageLoading";
 import { SubscriptionGate } from "./components/SubscriptionGate";
 import { authClient } from "./lib/auth";
-import { getTicketBoardEnabled, subscribeTicketBoardEnabled } from "./lib/bootstrap";
 import { syncCallIdentity } from "./lib/call-session";
 import { desktopBridge } from "./lib/desktop";
 import { syncWebLogoAvatarIdentity } from "./lib/logo-avatar-activity";
@@ -40,6 +32,7 @@ import {
 import {
   MCP_OAUTH_CALLBACK_PATH,
   newAccountDestination,
+  ownerEntry,
   SLACK_INSTALL_CALLBACK_PATH,
   signInNext,
 } from "./lib/sign-in-next";
@@ -50,7 +43,6 @@ import { IntegrationCallbackPage } from "./pages/IntegrationCallback";
 import { IntegrationSetupPage } from "./pages/IntegrationSetup";
 import { McpOAuthCallbackPage } from "./pages/McpOAuthCallback";
 import { SharedPagePage } from "./pages/SharedPage";
-import { ShellPage } from "./pages/Shell";
 import { SlackInstallCallbackPage } from "./pages/SlackInstallCallback";
 
 const AuthPage = lazyComponent(() => import("./pages/Auth").then((module) => module.AuthPage));
@@ -63,18 +55,11 @@ const OnboardingPage = lazyComponent(() =>
 const NotFoundPage = lazyComponent(() =>
   import("./pages/NotFound").then((module) => module.NotFoundPage),
 );
-const ArtifactsPage = lazyComponent(() =>
-  import("./pages/Artifacts").then((module) => module.ArtifactsPage),
-);
-const BoardPage = lazyComponent(() => import("./pages/Board").then((module) => module.BoardPage));
 const AdminPluginsPage = lazyComponent(() =>
   import("./pages/AdminPluginsPage").then((module) => module.AdminPluginsPage),
 );
 const AdminAccessPage = lazyComponent(() =>
   import("./pages/AdminAccessPage").then((module) => module.AdminAccessPage),
-);
-const NavLinkPage = lazyComponent(() =>
-  import("./pages/NavLinkPage").then((module) => module.NavLinkPage),
 );
 const InvitePage = lazyComponent(() =>
   import("./pages/Invite").then((module) => module.InvitePage),
@@ -114,11 +99,6 @@ export function App() {
 function SessionApp() {
   const [searchParams] = useSearchParams();
   const next = signInNext(searchParams.get("next"));
-  const ticketBoardEnabled = useSyncExternalStore(
-    subscribeTicketBoardEnabled,
-    getTicketBoardEnabled,
-    () => false,
-  );
   const session = authClient.useSession();
   const { pathname, search } = useLocation();
   const screen = analyticsScreen(pathname);
@@ -184,7 +164,7 @@ function SessionApp() {
                 path="/"
                 element={
                   <Navigate
-                    to={user ? "/app" : hasSignedInBefore() ? "/sign-in" : "/sign-up"}
+                    to={user ? "/restaurants" : hasSignedInBefore() ? "/sign-in" : "/sign-up"}
                     replace
                   />
                 }
@@ -192,7 +172,11 @@ function SessionApp() {
               <Route
                 path="/sign-in"
                 element={
-                  user ? <Navigate to={next ?? "/app"} replace /> : <AuthPage key="in" mode="in" />
+                  user ? (
+                    <Navigate to={ownerEntry(next)} replace />
+                  ) : (
+                    <AuthPage key="in" mode="in" />
+                  )
                 }
               />
               <Route
@@ -208,7 +192,11 @@ function SessionApp() {
               <Route
                 path="/forgot-password"
                 element={
-                  user ? <Navigate to="/app" replace /> : <AuthPage key="forgot" mode="forgot" />
+                  user ? (
+                    <Navigate to="/restaurants" replace />
+                  ) : (
+                    <AuthPage key="forgot" mode="forgot" />
+                  )
                 }
               />
               <Route path="/reset-password" element={<PasswordResetPage />} />
@@ -296,15 +284,10 @@ function SessionApp() {
                   )
                 }
               >
-                <Route path="/app" element={<ShellPage />} />
-                <Route path="/app/g/:groupId" element={<ShellPage />} />
-                <Route path="/app/:botId" element={<ShellPage />} />
+                <Route path="/app" element={<Navigate to="/restaurants" replace />} />
+                <Route path="/app/*" element={<Navigate to="/restaurants" replace />} />
                 <Route element={<CallLayout />}>
                   <Route path="/onboarding/:step?" element={<OnboardingPage />} />
-                  <Route path="/app/artifacts" element={<ArtifactsPage />} />
-                  <Route path="/app/artifacts/:artifactId" element={<ArtifactsPage />} />
-                  {ticketBoardEnabled ? <Route path="/app/board" element={<BoardPage />} /> : null}
-                  <Route path="/app/x/:linkId" element={<NavLinkPage />} />
                 </Route>
               </Route>
               <Route path="*" element={<NotFoundPage />} />

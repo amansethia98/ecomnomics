@@ -24,3 +24,17 @@ export function signInNext(next: string | null): string | null {
 export function newAccountDestination(next: string | null): string {
   return next && INVITE_PATH.test(next) ? next : "/onboarding";
 }
+
+/** Where a signed-in person lands. The agent shell is not an owner screen. */
+export function ownerEntry(next: string | null): string {
+  if (
+    !next ||
+    next === "/" ||
+    next === "/app" ||
+    next.startsWith("/app/") ||
+    next.startsWith("/app?")
+  ) {
+    return "/restaurants";
+  }
+  return next;
+}
