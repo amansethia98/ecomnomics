@@ -1,11 +1,8 @@
 import { useLingui } from "@lingui/react/macro";
 import type { OwnerPayments } from "@rakazo/contracts";
-import { formatCivilDay, formatRupees } from "@rakazo/contracts";
+import { formatExclusiveRange, formatRupees } from "@rakazo/contracts";
 import { useState } from "react";
 import { PlatformDot } from "./marks";
-import { PlotFigure } from "./plot-figure";
-
-const ORDER_FOLD = 8;
 
 export function PaymentsScreen({
   screen,
@@ -15,7 +12,6 @@ export function PaymentsScreen({
   onSelect: (id: string) => void;
 }) {
   const { t } = useLingui();
-  const [open, setOpen] = useState(false);
   const selected = screen.payouts.find((payout) => payout.id === screen.selectedId) ?? null;
   const [week, setWeek] = useState(selected ? `${selected.from}|${selected.to}` : "");
   if (screen.payouts.length === 0) {
@@ -25,29 +21,51 @@ export function PaymentsScreen({
     ...new Map(screen.payouts.map((payout) => [`${payout.from}|${payout.to}`, payout])).values(),
   ];
   const shown = screen.payouts.filter((payout) => `${payout.from}|${payout.to}` === week);
-  const visible = open ? screen.orders : screen.orders.slice(0, ORDER_FOLD);
-  const hidden = Math.max(0, screen.orders.length - ORDER_FOLD);
-  const heroPaise =
-    selected?.bankBasis === "paid"
-      ? selected.paidAmountPaise
-      : selected?.bankBasis === "net"
-        ? selected.netPayoutPaise
-        : null;
+  const heroRows = shown.length > 0 ? shown : selected ? [selected] : [];
+  const heroPaise = heroRows.reduce((total, payout) => {
+    const amount = payout.bankBasis === "paid" ? payout.paidAmountPaise : payout.netPayoutPaise;
+    return amount == null ? total : total + amount;
+  }, 0);
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-8">
-      {selected && heroPaise != null ? (
-        <div>
-          <h2 className="owner-title">
-            {selected.bankBasis === "paid"
-              ? selected.platform === "zomato"
-                ? t`${formatRupees(heroPaise)} paid to your bank (per Zomato)`
-                : t`${formatRupees(heroPaise)} paid to your bank (per Swiggy)`
-              : t`${formatRupees(heroPaise)} net in the payout file`}
-          </h2>
-          {selected.bankBasis === "net" ? (
+      {heroRows.length > 0 ? (
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-label text-muted-foreground">{t`Latest payouts · Zomato and Swiggy`}</p>
+            <h2 className="owner-title">{formatRupees(heroPaise)}</h2>
             <p className="text-body-sm text-muted-foreground">
-              {t`The bank amount isn't in this file.`}
+              {heroRows
+                .map((payout) => {
+                  const amount =
+                    payout.bankBasis === "paid" ? payout.paidAmountPaise : payout.netPayoutPaise;
+                  const name = payout.platform === "zomato" ? t`Zomato` : t`Swiggy`;
+                  const when = formatExclusiveRange(payout.from, payout.to);
+                  const how = payout.bankBasis === "paid" ? t`paid` : t`expected`;
+                  return amount == null
+                    ? `${name} · ${when}`
+                    : `${name} · ${when} · ${formatRupees(amount)} ${how}`;
+                })
+                .join(" · ")}
             </p>
+          </div>
+          {weeks.length > 0 ? (
+            <select
+              aria-label={t`Week`}
+              className="h-8 shrink-0 rounded-full border border-border bg-background px-3"
+              value={week}
+              onChange={(event) => {
+                const next = event.target.value;
+                setWeek(next);
+                const payout = screen.payouts.find((item) => `${item.from}|${item.to}` === next);
+                if (payout) onSelect(payout.id);
+              }}
+            >
+              {weeks.map((payout) => (
+                <option key={`${payout.from}|${payout.to}`} value={`${payout.from}|${payout.to}`}>
+                  {formatExclusiveRange(payout.from, payout.to)}
+                </option>
+              ))}
+            </select>
           ) : null}
         </div>
       ) : null}
@@ -62,29 +80,8 @@ export function PaymentsScreen({
               </li>
             ))}
           </ul>
+          <Reach screen={screen} />
         </section>
-      ) : null}
-      {weeks.length > 0 ? (
-        <label className="flex items-center gap-2 text-body-sm">
-          {t`Week`}
-          <select
-            aria-label={t`Week`}
-            className="h-8 rounded-lg border border-border bg-background px-2"
-            value={week}
-            onChange={(event) => {
-              const next = event.target.value;
-              setWeek(next);
-              const payout = screen.payouts.find((item) => `${item.from}|${item.to}` === next);
-              if (payout) onSelect(payout.id);
-            }}
-          >
-            {weeks.map((payout) => (
-              <option key={`${payout.from}|${payout.to}`} value={`${payout.from}|${payout.to}`}>
-                {formatCivilDay(payout.from)} – {formatCivilDay(payout.to)}
-              </option>
-            ))}
-          </select>
-        </label>
       ) : null}
       <ul>
         {(shown.length > 0 ? shown : screen.payouts).map((payout) => (
@@ -111,73 +108,25 @@ export function PaymentsScreen({
                       : " · —"}
                 </span>
               </span>
-              <span className="owner-pill owner-pill-watch">{t`Check runs Thursday`}</span>
+              <span className="owner-pill bg-muted text-muted-foreground">{t`Check runs Thursday`}</span>
+              <span aria-hidden="true">›</span>
             </button>
           </li>
         ))}
       </ul>
-      {screen.deductions.length > 0 ? (
-        <section>
-          <h2 className="text-label text-muted-foreground">{t`Where the money went`}</h2>
-          <ul>
-            {screen.deductions.map((row) => (
-              <li key={row.id} className="flex justify-between border-t border-border py-2">
-                <span>{row.label}</span>
-                <span>{formatRupees(row.paise)}</span>
-              </li>
-            ))}
-          </ul>
-          {screen.plot ? <PlotFigure plot={screen.plot} /> : null}
-        </section>
-      ) : null}
-      {screen.orders.length > 0 ? (
-        <section>
-          <h2 className="text-label text-muted-foreground">{t`Orders in this payout`}</h2>
-          <ul>
-            {visible.map((order) => (
-              <li
-                key={order.orderId}
-                className="flex justify-between gap-3 border-t border-border py-2"
-              >
-                <span>
-                  {order.orderId}
-                  <span className="ml-2 text-body-sm text-muted-foreground">
-                    {formatCivilDay(order.date)}
-                  </span>
-                </span>
-                {order.netPayoutPaise != null ? (
-                  <span>{formatRupees(order.netPayoutPaise)}</span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-          {hidden > 0 ? (
-            <button
-              type="button"
-              className="mt-2 text-body-sm text-primary"
-              onClick={() => setOpen((value) => !value)}
-            >
-              {open ? t`Show less` : t`Show ${hidden} more`}
-            </button>
-          ) : null}
-        </section>
-      ) : null}
-      {screen.adjustments.length > 0 ? (
-        <section>
-          <h2 className="text-label text-muted-foreground">{t`Adjustments`}</h2>
-          <ul>
-            {screen.adjustments.map((row) => (
-              <li
-                key={`${row.label}-${row.amountPaise}`}
-                className="flex justify-between border-t border-border py-2"
-              >
-                <span>{row.label}</span>
-                <span>{formatRupees(row.amountPaise)}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
     </div>
+  );
+}
+
+function Reach({ screen }: { screen: OwnerPayments }) {
+  const { t } = useLingui();
+  const sales = screen.breakdown.find((row) => row.id === "sales")?.paise;
+  const bank = screen.breakdown.find((row) => row.id === "bank" || row.id === "net")?.paise;
+  if (sales == null || sales <= 0 || bank == null) return null;
+  const reached = Math.round((bank / sales) * 100);
+  return (
+    <p className="mt-3 text-body-sm">
+      {t`Out of every ₹100 in sales, ₹${reached} reached your bank`}
+    </p>
   );
 }

@@ -1,6 +1,6 @@
 import * as z from "zod";
-import { formatCompactRupees } from "./ops/format.js";
 import type { OwnerPlot } from "./owner-dashboard.js";
+import { settledPayoutPaise } from "./owner-home.js";
 
 /** The payout pill until a reconciliation check exists. It is not a match. */
 export const PAYOUT_CHECK = "pending_check" as const;
@@ -94,6 +94,10 @@ export interface OwnerMenuFacts {
   photoPct: number | null;
   descriptionPct: number | null;
   top5RevenuePaise: number | null;
+  /** Last day the score was present. Later empty days do not erase it. */
+  scoreAsOf?: string | null;
+  /** Top dishes as a percent of Swiggy sales over the same window. */
+  top5SharePct?: number | null;
 }
 
 export interface OwnerMenu {
@@ -210,19 +214,29 @@ export function composeOwnerPayments(input: {
         left.platform.localeCompare(right.platform) ||
         left.id.localeCompare(right.id),
     )
-    .map((cycle) => ({
-      id: cycle.id,
-      outletId: cycle.outletId,
-      platform: cycle.platform,
-      from: cycle.from,
-      to: cycle.to,
-      orderCount: cycle.orderCount,
-      netPayoutPaise: cycle.netPayoutPaise,
-      paidAmountPaise: cycle.paidAmountPaise,
-      outletName: cycle.outletName,
-      bankBasis: bankBasis(cycle),
-      status: PAYOUT_CHECK,
-    }));
+    .map((cycle) => {
+      const adjustmentPaise = input.adjustments
+        .filter((row) => row.cycleId === cycle.id)
+        .reduce((total, row) => total + row.amountPaise, 0);
+      const settled = settledPayoutPaise({
+        paidAmountPaise: cycle.paidAmountPaise,
+        netPayoutPaise: cycle.netPayoutPaise,
+        adjustmentPaise,
+      });
+      return {
+        id: cycle.id,
+        outletId: cycle.outletId,
+        platform: cycle.platform,
+        from: cycle.from,
+        to: cycle.to,
+        orderCount: cycle.orderCount,
+        netPayoutPaise: cycle.paidAmountPaise != null ? cycle.netPayoutPaise : settled,
+        paidAmountPaise: cycle.paidAmountPaise,
+        outletName: cycle.outletName,
+        bankBasis: bankBasis(cycle),
+        status: PAYOUT_CHECK,
+      };
+    });
   const selected = payouts.find((payout) => payout.id === input.selectedId) ?? payouts[0] ?? null;
   const cycle = selected ? input.cycles.find((item) => item.id === selected.id) : undefined;
   const deductions = cycle ? deductionRows(cycle) : [];
@@ -230,8 +244,13 @@ export function composeOwnerPayments(input: {
     payouts,
     selectedId: selected?.id ?? null,
     deductions,
-    plot: deductions.length > 0 ? deductionPlot(deductions) : null,
-    breakdown: cycle ? paymentBreakdown(cycle) : [],
+    plot: null,
+    breakdown: cycle
+      ? paymentBreakdown(
+          cycle,
+          input.adjustments.filter((row) => row.cycleId === cycle.id),
+        )
+      : [],
     orders: selected
       ? input.orders
           .filter((order) => order.cycleId === selected.id)
@@ -290,26 +309,9 @@ const COMPLAINTS = [
   ["complaints_wrong", "Wrong items"],
 ] as const;
 
-function appReported(
-  app:
-    | {
-        poorRatedOrders?: number | null;
-        complaints?: Readonly<Record<string, number | null>>;
-      }
-    | undefined,
-): boolean {
-  if (!app) return false;
-  if ((app.poorRatedOrders ?? 0) > 0) return true;
-  return Object.values(app.complaints ?? {}).some((count) => (count ?? 0) > 0);
-}
-
-/** A stored zero is unreported when the app sent no complaint figures at all. */
-function reportedFigure(
-  value: number | null | undefined,
-  app: Parameters<typeof appReported>[0],
-): number | null {
+/** Null is unreported. A stored zero stays zero. */
+function reportedFigure(value: number | null | undefined): number | null {
   if (value == null) return null;
-  if (value === 0 && !appReported(app)) return null;
   return value;
 }
 
@@ -333,11 +335,11 @@ export function composeOwnerRatings(input: {
       rating,
       ratingState:
         platform === "swiggy" ? "not_in_report" : rating == null ? "not_in_report" : "ok",
-      poorRatedOrders: reportedFigure(app?.poorRatedOrders, app),
+      poorRatedOrders: reportedFigure(app?.poorRatedOrders),
       complaints: COMPLAINTS.map(([id, label]) => ({
         id,
         label,
-        count: reportedFigure(app?.complaints?.[id], app),
+        count: reportedFigure(app?.complaints?.[id]),
       })),
     };
   });
@@ -393,8 +395,19 @@ function bankBasis(cycle: PaymentCycle): "paid" | "net" | "missing" {
   return "missing";
 }
 
-function paymentBreakdown(cycle: PaymentCycle): OwnerPayments["breakdown"] {
+function paymentBreakdown(
+  cycle: PaymentCycle,
+  adjustments: readonly PaymentAdjustment[],
+): OwnerPayments["breakdown"] {
   const basis = bankBasis(cycle);
+  const adjustmentPaise = adjustments.reduce((total, row) => total + row.amountPaise, 0);
+  const ads = cycle.adsPaise ?? (adjustmentPaise !== 0 ? adjustmentPaise : null);
+  const other = cycle.adsPaise != null && adjustmentPaise !== 0 ? -adjustmentPaise : null;
+  const settled = settledPayoutPaise({
+    paidAmountPaise: cycle.paidAmountPaise,
+    netPayoutPaise: cycle.netPayoutPaise,
+    adjustmentPaise,
+  });
   return [
     { id: "sales", label: "Your sales", paise: cycle.grossSalesPaise, basis: null },
     { id: "discounts", label: "Discounts you paid for", paise: cycle.discountsPaise, basis: null },
@@ -404,20 +417,26 @@ function paymentBreakdown(cycle: PaymentCycle): OwnerPayments["breakdown"] {
       paise: sumPaise(cycle.commissionPaise, cycle.feesPaise),
       basis: null,
     },
-    { id: "ads", label: "Ads", paise: cycle.adsPaise, basis: null },
+    { id: "ads", label: "Ads", paise: ads, basis: null },
     {
       id: "tax",
       label: "GST & TDS",
-      paise: sumPaise(cycle.gstPaise, cycle.tdsPaise, cycle.tcsPaise, cycle.taxesPaise),
+      paise: sumPaise(cycle.taxesPaise, cycle.tdsPaise, cycle.tcsPaise),
       basis: null,
     },
-    { id: "deductions", label: "Other deductions", paise: cycle.complaintsPaise, basis: null },
+    {
+      id: "complaints",
+      label: "Complaints and cancellations",
+      paise: cycle.complaintsPaise,
+      basis: null,
+    },
+    { id: "other", label: "Other adjustments", paise: other, basis: null },
     basis === "paid"
-      ? { id: "bank", label: "Paid to bank", paise: cycle.paidAmountPaise, basis: "paid" }
+      ? { id: "bank", label: "Paid to your bank", paise: settled, basis: "paid" }
       : {
           id: "net",
-          label: "Net in file",
-          paise: cycle.netPayoutPaise,
+          label: "Expected from the file",
+          paise: settled,
           basis: basis === "net" ? "net" : null,
         },
   ];
@@ -473,28 +492,6 @@ function deductionRows(cycle: PaymentCycle): Array<{ id: string; label: string; 
     const paise = amounts[id];
     return paise != null && paise !== 0 ? [{ id, label, paise }] : [];
   });
-}
-
-function deductionPlot(rows: ReadonlyArray<{ label: string; paise: number }>): OwnerPlot {
-  return {
-    id: "deductions",
-    width: 640,
-    height: 180,
-    marginLeft: 64,
-    x: { label: null },
-    y: {
-      label: null,
-      grid: true,
-      tickFormat: (value: number) => formatCompactRupees(Number(value)),
-    },
-    marks: [
-      {
-        type: "rectY",
-        data: rows.map((row) => ({ name: row.label, paise: row.paise })),
-        options: { x: "name", y: "paise" },
-      },
-    ],
-  };
 }
 
 function archiveKind(kind: string | null): OwnerReportArchiveItem["kind"] | null {

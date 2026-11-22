@@ -1,7 +1,6 @@
 import { useLingui } from "@lingui/react/macro";
-import type { OwnerMenu, OwnerMenuFacts } from "@rakazo/contracts";
-import { formatRupees } from "@rakazo/contracts";
-import { PlatformDot } from "./marks";
+import type { OwnerMenu } from "@rakazo/contracts";
+import { formatCivilDay, formatRupees } from "@rakazo/contracts";
 
 export function MenuScreen({ screen }: { screen: OwnerMenu }) {
   const { t } = useLingui();
@@ -19,13 +18,22 @@ export function MenuScreen({ screen }: { screen: OwnerMenu }) {
           <Fact label={t`Menu score`} value={screen.swiggy.score} />
           <Fact label={t`Dishes with photos`} value={screen.swiggy.photoPct} percent />
           <Fact label={t`Dishes with descriptions`} value={screen.swiggy.descriptionPct} percent />
-          <Fact label={t`Top dishes`} value={screen.swiggy.top5RevenuePaise} rupees />
+          <Fact
+            label={t`Top dishes`}
+            value={screen.swiggy.top5SharePct ?? screen.swiggy.top5RevenuePaise}
+            percent={screen.swiggy.top5SharePct != null}
+            rupees={screen.swiggy.top5SharePct == null}
+          />
+          {screen.swiggy.scoreAsOf ? (
+            <li className="text-body-sm text-muted-foreground">
+              {t`Menu score as of ${formatCivilDay(screen.swiggy.scoreAsOf)}`}
+            </li>
+          ) : null}
         </ul>
-      ) : (
-        <p className="text-body-sm text-muted-foreground">
-          {t`Zomato doesn't share menu scores in its reports.`}
-        </p>
-      )}
+      ) : null}
+      <p className="text-body-sm text-muted-foreground">
+        {t`Zomato doesn't share menu scores in its reports.`}
+      </p>
       <section className="owner-panel p-4">
         <h2 className="text-label text-muted-foreground">{t`What you'll get`}</h2>
         <ul className="mt-2 text-body-sm">
@@ -50,28 +58,6 @@ export function MenuScreen({ screen }: { screen: OwnerMenu }) {
           ))}
         </ul>
       </section>
-      {screen.missingCount > 0 ? (
-        <p className="text-body-sm text-muted-foreground">
-          {screen.missingCount === 1
-            ? t`1 item not on one app`
-            : t`${screen.missingCount} items not on one app`}
-        </p>
-      ) : null}
-      {screen.rows.length === 0 ? (
-        <p>{t`No menu items are in yet.`}</p>
-      ) : (
-        <ul>
-          {screen.rows.map((row) => (
-            <li key={row.name} className="flex items-center gap-3 border-t border-border py-2">
-              <span className="flex-1">{row.name}</span>
-              {row.platforms.map((platform) => (
-                <PlatformDot key={platform} platform={platform} />
-              ))}
-              <span>{formatRupees(row.revenuePaise)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }
@@ -83,7 +69,7 @@ function Fact({
   rupees = false,
 }: {
   label: string;
-  value: OwnerMenuFacts[keyof OwnerMenuFacts];
+  value: number | null | undefined;
   percent?: boolean;
   rupees?: boolean;
 }) {
