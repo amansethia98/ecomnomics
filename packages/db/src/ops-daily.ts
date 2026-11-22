@@ -34,13 +34,14 @@ import {
   formatIstClock,
   indiaCivilDate,
   istMorning,
+  labeledPayoutTotals,
   nextReportDelivery,
   noteFailedFetch,
+  paymentPeriods,
   pctChange,
   resolvedLine,
   resolveOpsRulesConfig,
   rollupDailyApps,
-  settledPayoutPaise,
   snoozeAlert,
   utcMidnight,
   viewFromDaily,
@@ -640,7 +641,9 @@ export async function readOwnerHomeForMember(
       })),
       weekdayHistory: sameWeekdaySales(days, yesterday),
       lastComplete: view.form === "no_data" ? lastCompleteDay(days, yesterday) : null,
-      payoutPaise: payout.paise,
+      payoutPaise: null,
+      payoutPaidPaise: payout.paidPaise,
+      payoutPendingPaise: payout.pendingPaise,
       payoutToCheck: states.filter((alert) => alert.cadence === "payout" && visible(alert, today))
         .length,
       fetched: {
@@ -651,12 +654,23 @@ export async function readOwnerHomeForMember(
   });
 }
 
+interface PayoutTileRow {
+  id: string;
+  platform: "zomato" | "swiggy";
+  from: string;
+  to: string;
+  bankBasis: "paid" | "net" | "missing";
+  paidAmountPaise: number | null;
+  expectedPaise: number | null;
+}
+
 async function payoutTile(
   db: PrismaClient,
   scope: Pick<RestaurantScope, "restaurantId" | "spaceId">,
   _today: string,
   outletId?: string,
-): Promise<{ paise: number | null }> {
+): Promise<{ paidPaise: number | null; pendingPaise: number | null }> {
+  const empty = { paidPaise: null, pendingPaise: null };
   try {
     const cycles = await db.payoutCycle.findMany({
       where: {
@@ -667,25 +681,20 @@ async function payoutTile(
       },
       orderBy: { cycleEnd: "desc" },
     });
-    const latest = new Map<string, (typeof cycles)[number]>();
-    for (const cycle of cycles) {
-      const key = `${cycle.outletId}:${cycle.platform}`;
-      if (!latest.has(key)) latest.set(key, cycle);
-    }
-    const chosen = [...latest.values()];
-    if (chosen.length === 0) return { paise: null };
+    if (cycles.length === 0) return empty;
     const adjustments = await db.payoutAdjustment.findMany({
       where: {
         restaurantId: scope.restaurantId,
         spaceId: scope.spaceId,
         supersededAt: null,
-        cycleId: { in: [...new Set(chosen.map((cycle) => cycle.cycleId))] },
+        cycleId: { in: [...new Set(cycles.map((cycle) => cycle.cycleId))] },
       },
       select: { cycleId: true, outletId: true, platform: true, amountPaise: true },
     });
-    let total = 0;
-    let any = false;
-    for (const cycle of chosen) {
+    const rows: PayoutTileRow[] = cycles.flatMap((cycle) => {
+      const platform: PayoutTileRow["platform"] | null =
+        cycle.platform === "zomato" || cycle.platform === "swiggy" ? cycle.platform : null;
+      if (!platform) return [];
       const adjustmentPaise = adjustments
         .filter(
           (row) =>
@@ -694,18 +703,31 @@ async function payoutTile(
             row.platform === cycle.platform,
         )
         .reduce((sum, row) => sum + row.amountPaise, 0);
-      const settled = settledPayoutPaise({
-        paidAmountPaise: cycle.paidAmountPaise,
-        netPayoutPaise: cycle.netPayoutPaise,
-        adjustmentPaise,
-      });
-      if (settled == null) continue;
-      any = true;
-      total += settled;
-    }
-    return { paise: any ? total : null };
+      const expected = cycle.netPayoutPaise == null ? null : cycle.netPayoutPaise - adjustmentPaise;
+      return [
+        {
+          id: cycle.id,
+          platform,
+          from: indiaCivilDate(cycle.cycleStart),
+          to: indiaCivilDate(cycle.cycleEnd),
+          bankBasis:
+            cycle.paidAmountPaise != null
+              ? ("paid" as const)
+              : expected != null
+                ? ("net" as const)
+                : ("missing" as const),
+          paidAmountPaise: cycle.paidAmountPaise,
+          expectedPaise: expected,
+        },
+      ];
+    });
+    const period = paymentPeriods(rows)[0];
+    if (!period) return empty;
+    return labeledPayoutTotals(
+      [period.zomato, period.swiggy].filter((row): row is PayoutTileRow => row != null),
+    );
   } catch {
-    return { paise: null };
+    return empty;
   }
 }
 

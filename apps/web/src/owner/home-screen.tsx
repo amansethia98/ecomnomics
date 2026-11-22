@@ -157,7 +157,17 @@ export function OwnerHomeScreen({
             <div>
               <p className="text-label text-muted-foreground">{t`Last week's payout`}</p>
               <p className="mt-1 text-heading1 font-semibold">
-                {home.payout.paise != null ? formatRupees(home.payout.paise) : "—"}
+                {home.payout.paidPaise != null ? (
+                  <span className="block">
+                    {t`Paid`} {formatRupees(home.payout.paidPaise)}
+                  </span>
+                ) : null}
+                {home.payout.pendingPaise != null ? (
+                  <span className="block">
+                    {t`Pending`} {formatRupees(home.payout.pendingPaise)}
+                  </span>
+                ) : null}
+                {home.payout.paidPaise == null && home.payout.pendingPaise == null ? "—" : null}
               </p>
               <p className="text-body-sm text-muted-foreground">{t`Check runs Thursday`}</p>
               {home.payout.toCheck > 0 ? (

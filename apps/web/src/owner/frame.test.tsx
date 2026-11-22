@@ -370,6 +370,41 @@ it("keeps every phone tab inside the bar", () => {
   for (const item of items) expect(item.className).toContain("min-w-0");
 });
 
+it("keeps every owner page inside a 390px frame", () => {
+  for (const screen of OWNER_SCREENS) {
+    const host = render(
+      <div style={{ width: "390px" }}>
+        <OwnerFrame
+          restaurantId="r1"
+          profile={profile}
+          screen={screen.id}
+          view={view}
+          today="2026-11-22"
+          onView={() => undefined}
+          confirmLeave={() => true}
+        >
+          <p>Page</p>
+        </OwnerFrame>
+      </div>,
+    );
+    host.style.width = "390px";
+    const shell = host.querySelector(".ecomnomics");
+    expect(shell?.className).toContain("overflow-x-clip");
+    expect(shell?.className).toContain("max-w-full");
+    expect(host.querySelector("main")?.className).toContain("min-w-0");
+    const bar = host.querySelector(".owner-tabbar");
+    expect(bar?.children.length).toBe(5);
+    for (const item of bar?.children ?? []) expect(item.className).toContain("min-w-0");
+    for (const node of host.querySelectorAll<HTMLElement>("[style]")) {
+      const min = Number.parseFloat(node.style.minWidth);
+      if (Number.isFinite(min)) expect(min).toBeLessThanOrEqual(390);
+    }
+    act(() => root?.unmount());
+    root = null;
+    document.body.replaceChildren();
+  }
+});
+
 it("keeps 4W selected when that range is chosen", () => {
   const seen: string[] = [];
   const host = render(

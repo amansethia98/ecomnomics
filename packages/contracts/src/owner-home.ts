@@ -86,6 +86,10 @@ export interface OwnerHomeInput {
     }>;
   } | null;
   payoutPaise: number | null;
+  /** Bank payments in the latest settlement period. Not added to pending. */
+  payoutPaidPaise?: number | null;
+  /** Computed nets in that period that have no bank payment yet. */
+  payoutPendingPaise?: number | null;
   payoutToCheck: number;
   /** Each app's own fetch clock (`05:42`), when that app's file is in. */
   fetched?: { zomato: string | null; swiggy: string | null };
@@ -141,7 +145,13 @@ export interface OwnerHomeModel {
   questions: OwnerHomeQuestion[];
   sales: OwnerHomeNumber;
   delivered: OwnerHomeNumber;
-  payout: { paise: number | null; toCheck: number; nextDate: string };
+  payout: {
+    paise: number | null;
+    paidPaise?: number | null;
+    pendingPaise?: number | null;
+    toCheck: number;
+    nextDate: string;
+  };
   checksPassed: number;
   updated: { zomato: string | null; swiggy: string | null };
   askChief: boolean;
@@ -262,7 +272,9 @@ export function composeOwnerHome(input: OwnerHomeInput): OwnerHomeModel {
     sales,
     delivered,
     payout: {
-      paise: input.payoutPaise,
+      paise: null,
+      paidPaise: input.payoutPaidPaise ?? null,
+      pendingPaise: input.payoutPendingPaise ?? null,
       toCheck: input.payoutToCheck,
       nextDate: nextThursday(input.today),
     },

@@ -1,9 +1,13 @@
 import { useLingui } from "@lingui/react/macro";
 import type {
   MarketingScreen,
+  OwnerDocuments,
   OwnerHomeModel,
   OwnerHomeQuestion,
+  OwnerMenu,
+  OwnerPayments,
   OwnerProfile,
+  OwnerRatings,
   OwnerView,
   StaffThread,
 } from "@rakazo/contracts";
@@ -13,11 +17,15 @@ import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-
 import { setUiLocale } from "../lib/i18n";
 import { DashboardSkeleton, OwnerDashboard, prefetchOwnerDashboard } from "./dashboard-screen";
 import { useDiscardGuard } from "./discard-guard";
+import { DocumentsScreen } from "./documents-screen";
 import type { OwnerScreenId } from "./frame";
 import { isOwnerScreen, OwnerFrame } from "./frame";
 import { OwnerHomeScreen } from "./home-screen";
 import { MarketingActionsScreen } from "./marketing-screen";
 import { MetricState } from "./marks";
+import { MenuScreen } from "./menu-screen";
+import { PaymentsScreen } from "./payments-screen";
+import { RatingsScreen } from "./ratings-screen";
 import { StaffScreen } from "./staff-screen";
 import "./owner.css";
 import type { ProfileDraft } from "./settings";
@@ -54,6 +62,11 @@ export function OwnerPage() {
   const [staff, setStaff] = useState<StaffThread | null>(null);
   const [marketing, setMarketing] = useState<MarketingScreen | null>(null);
   const [staffNotice, setStaffNotice] = useState<string | null>(null);
+  const [payments, setPayments] = useState<OwnerPayments | null>(null);
+  const [documents, setDocuments] = useState<OwnerDocuments | null>(null);
+  const [menu, setMenu] = useState<OwnerMenu | null>(null);
+  const [ratings, setRatings] = useState<OwnerRatings | null>(null);
+  const [licenceSaving, setLicenceSaving] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -134,6 +147,49 @@ export function OwnerPage() {
       live = false;
     };
   }, [restaurantId, screenParam]);
+
+  useEffect(() => {
+    if (!restaurantId || !isDeskScreen(screenParam)) return;
+    let live = true;
+    setPayments(null);
+    setDocuments(null);
+    setMenu(null);
+    setRatings(null);
+    const query = new URLSearchParams(search);
+    const outlet = query.get("outlet");
+    const outletQuery = outlet && outlet !== "all" ? `outletId=${encodeURIComponent(outlet)}` : "";
+    const cycle = query.get("cycle");
+    const paymentsQuery = [outletQuery, cycle ? `cycle=${encodeURIComponent(cycle)}` : ""]
+      .filter(Boolean)
+      .join("&");
+    const path =
+      screenParam === "payments"
+        ? `/api/v1/restaurants/${restaurantId}/payments${paymentsQuery ? `?${paymentsQuery}` : ""}`
+        : screenParam === "documents"
+          ? `/api/v1/restaurants/${restaurantId}/documents`
+          : screenParam === "menu"
+            ? `/api/v1/restaurants/${restaurantId}/menu${outletQuery ? `?${outletQuery}` : ""}`
+            : `/api/v1/restaurants/${restaurantId}/ratings${outletQuery ? `?${outletQuery}` : ""}`;
+    ownerJson<OwnerPayments | OwnerDocuments | OwnerMenu | OwnerRatings>(path)
+      .then((next) => {
+        if (!live) return;
+        if (screenParam === "payments") setPayments(next as OwnerPayments);
+        else if (screenParam === "documents") setDocuments(next as OwnerDocuments);
+        else if (screenParam === "menu") setMenu(next as OwnerMenu);
+        else setRatings(next as OwnerRatings);
+      })
+      .catch(() => {
+        if (live) setFailed(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [restaurantId, screenParam, search]);
+
+  useEffect(() => {
+    setDirty(false);
+    setSaveError(false);
+  }, [screenParam]);
 
   const confirmLeave = useDiscardGuard(dirty, t`Leave without saving?`);
 
@@ -337,6 +393,62 @@ export function OwnerPage() {
         ) : (
           <p className="text-muted-foreground">{t`Loading`}</p>
         )
+      ) : screen === "payments" ? (
+        payments ? (
+          <PaymentsScreen
+            screen={payments}
+            today={today}
+            onSelect={(id) => {
+              const next = new URLSearchParams(search);
+              next.set("cycle", id);
+              navigate({ search: `?${next.toString()}` });
+            }}
+          />
+        ) : (
+          <p className="text-muted-foreground">{t`Loading`}</p>
+        )
+      ) : screen === "documents" ? (
+        documents ? (
+          <>
+            <DocumentsScreen
+              screen={documents}
+              saving={licenceSaving}
+              onDirty={setDirty}
+              onSave={(draft) => {
+                setLicenceSaving(true);
+                setSaveError(false);
+                void ownerJson<OwnerDocuments>(`/api/v1/restaurants/${restaurantId}/documents`, {
+                  method: "PATCH",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify(draft),
+                })
+                  .then((next) => {
+                    setDocuments(next);
+                    setDirty(false);
+                  })
+                  .catch(() => setSaveError(true))
+                  .finally(() => setLicenceSaving(false));
+              }}
+            />
+            {saveError ? (
+              <p className="mt-3 text-body-sm text-destructive">{t`Couldn't save. Try again.`}</p>
+            ) : null}
+          </>
+        ) : (
+          <p className="text-muted-foreground">{t`Loading`}</p>
+        )
+      ) : screen === "menu" ? (
+        menu ? (
+          <MenuScreen screen={menu} />
+        ) : (
+          <p className="text-muted-foreground">{t`Loading`}</p>
+        )
+      ) : screen === "ratings" ? (
+        ratings ? (
+          <RatingsScreen screen={ratings} />
+        ) : (
+          <p className="text-muted-foreground">{t`Loading`}</p>
+        )
       ) : (
         <Placeholder />
       )}
@@ -359,6 +471,12 @@ function effectiveView(view: OwnerView, profile: OwnerProfile): OwnerView {
   const known = active.some((item) => item.id === view.outlet);
   const outlet = active.length < 2 || view.outlet === "all" || !known ? "all" : view.outlet;
   return { ...view, platform, outlet };
+}
+
+function isDeskScreen(
+  value: string | undefined,
+): value is "payments" | "documents" | "menu" | "ratings" {
+  return value === "payments" || value === "documents" || value === "menu" || value === "ratings";
 }
 
 function Placeholder() {

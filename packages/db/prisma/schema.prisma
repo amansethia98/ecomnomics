@@ -2787,6 +2787,7 @@ model Restaurant {
   outletDayAnswers OutletDayAnswer[]
   marketingActions MarketingAction[]
   staffTurns       OwnerStaffTurn[]
+  ownerLicence    OwnerLicence?
 
   @@unique([id, spaceId])
   @@map("restaurants")
@@ -3253,6 +3254,20 @@ model MarketingAction {
   @@index([restaurantId, decision], map: "marketing_actions_decision_idx")
   @@index([spaceId], map: "marketing_actions_space_idx")
   @@map("marketing_actions")
+}
+
+/// The FSSAI licence date the owner typed, plus an optional GSTIN. One row per restaurant.
+model OwnerLicence {
+  restaurantId String     @id
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId      String
+  reference    String?
+  expiresOn    DateTime?  @db.Date
+  gstin        String?
+  updatedAt    DateTime   @updatedAt
+
+  @@index([spaceId], map: "owner_licences_space_idx")
+  @@map("owner_licences")
 }
 
 /// One turn in the in-app chief of staff thread. Counted owner turns use the daily limit.
