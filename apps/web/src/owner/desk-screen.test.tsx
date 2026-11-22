@@ -152,6 +152,7 @@ it("says menu editing is coming soon and names a missing app", () => {
   expect(host.textContent).toContain("Dish-by-dish insights are on the way");
   expect(host.textContent).toContain("What you'll get");
   expect(host.textContent).toContain("Keep & promote");
+  expect(host.querySelector("input")).toBeNull();
   const top = [...host.querySelectorAll("li")].find((item) =>
     item.textContent?.includes("Top dishes"),
   );
