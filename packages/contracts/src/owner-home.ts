@@ -77,6 +77,13 @@ export interface OwnerHomeInput {
     ordersChangePct?: number | null;
     /** Set when that day is one app. The other app is still pending. */
     onlyPlatform?: "zomato" | "swiggy" | null;
+    apps?: ReadonlyArray<{
+      platform: "zomato" | "swiggy";
+      salesPaise: number | null;
+      salesChangePct: number | null;
+      delivered: number | null;
+      ordersChangePct: number | null;
+    }>;
   } | null;
   payoutPaise: number | null;
   payoutToCheck: number;
@@ -107,6 +114,12 @@ export interface OwnerHomeNumber {
   /** Set when one app is still pending, so the figure is not a total. */
   pendingPlatform: OpsPlatform | null;
   asOf: string | null;
+  /** Per app, against the same weekday a week earlier. */
+  splits?: ReadonlyArray<{
+    platform: "zomato" | "swiggy";
+    value: number | null;
+    changePct: number | null;
+  }>;
 }
 
 export interface OwnerHomeModel {
@@ -287,6 +300,11 @@ function salesNumber(
             ? "zomato"
             : null,
       asOf: last?.date ?? null,
+      splits: (last?.apps ?? []).map((app) => ({
+        platform: app.platform,
+        value: app.salesPaise,
+        changePct: app.salesChangePct,
+      })),
     };
   }
   const sales = brief?.sales;
@@ -308,6 +326,12 @@ function salesNumber(
     changePct: current != null && baseline != null ? pctChange(current, baseline) : null,
     pendingPlatform: pending,
     asOf: null,
+    splits: (["zomato", "swiggy"] as const).flatMap((platform) => {
+      const value = platform === "zomato" ? sales.zomatoPaise : sales.swiggyPaise;
+      const base = platform === "zomato" ? sales.zomatoBaselinePaise : sales.swiggyBaselinePaise;
+      if (value == null) return [];
+      return [{ platform, value, changePct: base != null ? pctChange(value, base) : null }];
+    }),
   };
 }
 
@@ -328,6 +352,11 @@ function deliveredNumber(
             ? "zomato"
             : null,
       asOf: last?.date ?? null,
+      splits: (last?.apps ?? []).map((app) => ({
+        platform: app.platform,
+        value: app.delivered,
+        changePct: app.ordersChangePct,
+      })),
     };
   }
   const pending = brief?.sales ? pendingPlatform(brief.sales) : null;

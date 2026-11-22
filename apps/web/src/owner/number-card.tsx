@@ -41,11 +41,15 @@ export function NumberCard({ tile, onOpen }: { tile: DashTile; onOpen: () => voi
         <p className="text-body-sm text-muted-foreground">{t`Not in reports`}</p>
       ) : null}
       {tile.changePct != null && tile.format !== "rating" ? (
-        <ChangeBadge
-          direction={tile.changePct < 0 ? "down" : "up"}
-          good={tile.good}
-          label={formatSignedPct(tile.changePct)}
-        />
+        Math.abs(tile.changePct) < 0.05 ? (
+          <p className="text-body-sm text-muted-foreground">{t`no change`}</p>
+        ) : (
+          <ChangeBadge
+            direction={tile.changePct < 0 ? "down" : "up"}
+            good={tile.good}
+            label={formatSignedPct(tile.changePct)}
+          />
+        )
       ) : null}
       {tile.format === "rating" && tile.changePct != null ? (
         <p className="text-body-sm text-muted-foreground">
@@ -95,9 +99,6 @@ export function NumberCard({ tile, onOpen }: { tile: DashTile; onOpen: () => voi
             </span>
           ))}
         </p>
-      ) : null}
-      {tile.festival ? (
-        <p className="text-label text-muted-foreground">{t`festival week`}</p>
       ) : null}
     </button>
   );

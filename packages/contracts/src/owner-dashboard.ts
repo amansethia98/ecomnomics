@@ -1,6 +1,7 @@
 import {
   addDays,
   formatAxisDay,
+  formatCivilDay,
   formatCompactRupees,
   formatInclusiveRange,
   formatPct1,
@@ -175,6 +176,12 @@ export function composeOwnerDashboard(input: OwnerDashboardInput): OwnerDashboar
           : "down";
   const heatmap = heatmapFor(bounded.readings, trendWeeks, platforms);
   const funnel = funnelFor(bounded.readings, chart.starts, chart.grain, platforms);
+  const funnelWeeks = funnelFor(
+    bounded.readings,
+    recentMondays(bounded.today, 12),
+    "week",
+    platforms,
+  );
   const week = lastCompleteWeekChange(bounded.readings, platforms, bounded.today);
   const dipped =
     window.unit === "week" && week && week.pct <= -3
@@ -205,7 +212,7 @@ export function composeOwnerDashboard(input: OwnerDashboardInput): OwnerDashboar
     compared: null,
     periodPhrase: periodPhrase(window.unit, window.count),
     heatmapLine: heatmapHeadline(heatmap),
-    funnelLine: funnelHeadline(funnel),
+    funnelLine: funnelHeadline(funnelWeeks),
     comparisonsStart,
     onePlatform: platforms.length === 1,
   };
@@ -255,6 +262,13 @@ function lastSalesDay(
 }
 
 /** Monday of the last week that has fully ended by `today`, at or before `onOrBefore`. */
+function recentMondays(today: string, count: number): string[] {
+  const end = completeMonday(today, today);
+  const starts: string[] = [];
+  for (let index = count - 1; index >= 0; index -= 1) starts.push(addDays(end, -7 * index));
+  return starts;
+}
+
 function completeMonday(today: string, onOrBefore: string): string {
   let monday = weekMonday(onOrBefore);
   if (addDays(monday, 7) > today) monday = addDays(monday, -7);
@@ -495,12 +509,37 @@ function salesPanel(
   };
 }
 
+const FESTIVAL_NAMES: Record<string, string> = {
+  "2026-09-14": "Ganesh Chaturthi",
+  "2026-10-11": "Navratri",
+  "2026-10-12": "Navratri",
+  "2026-10-13": "Navratri",
+  "2026-10-14": "Navratri",
+  "2026-10-15": "Navratri",
+  "2026-10-16": "Navratri",
+  "2026-10-17": "Navratri",
+  "2026-10-18": "Navratri",
+  "2026-10-19": "Navratri",
+  "2026-10-20": "Dussehra",
+  "2026-11-08": "Diwali",
+};
+
+function festivalLabel(dates: readonly string[]): string {
+  const names: string[] = [];
+  for (const date of dates) {
+    const name = FESTIVAL_NAMES[date] ?? formatCivilDay(date);
+    if (!names.includes(name)) names.push(name);
+  }
+  return names.join(" · ");
+}
+
 function pinsFor(input: OwnerDashboardInput, weeks: string[], platforms: OpsPlatform[]): DashPin[] {
   const pins: Array<Omit<DashPin, "n">> = [];
   for (const week of weeks) {
     const through = addDays(week, 7);
-    if (input.holidays.some((date) => date >= week && date < through)) {
-      pins.push({ week, kind: "festival", label: "Festival" });
+    const holidays = input.holidays.filter((date) => date >= week && date < through);
+    if (holidays.length > 0) {
+      pins.push({ week, kind: "festival", label: festivalLabel(holidays) });
     }
     if (discountEnded(input.readings, week, platforms)) {
       pins.push({ week, kind: "discount", label: "Discount ended" });
@@ -615,6 +654,10 @@ function lastDip(
   readings: readonly DashReading[],
   grain: "day" | "week",
 ): OwnerDashboardModel["answer"]["dipped"] {
+  if (grain === "day" && panels.length > 1) {
+    const combined = combinedDayDip(panels, readings);
+    if (combined !== undefined) return combined;
+  }
   let worst: OwnerDashboardModel["answer"]["dipped"] = null;
   for (const panel of panels) {
     const points = panel.points.filter((point) => point.sales != null);
@@ -646,6 +689,39 @@ function lastDip(
     if (!worst || change < worst.pct) worst = { platform: panel.platform, pct: change, against };
   }
   return worst;
+}
+
+/** Both apps on the same last day: one combined change. `undefined` when an app is missing. */
+function combinedDayDip(
+  panels: SalesPanel[],
+  readings: readonly DashReading[],
+): OwnerDashboardModel["answer"]["dipped"] | undefined {
+  const latest = panels.map((panel) => panel.points.filter((point) => point.sales != null).at(-1));
+  const day = latest[0]?.week;
+  if (!day || latest.some((point) => point?.week !== day || point.sales == null)) return undefined;
+  const current = latest.reduce((sum, point) => sum + (point?.sales ?? 0), 0);
+  const sameDay = addDays(day, -7);
+  let baseline = 0;
+  for (const panel of panels) {
+    const same = readings.find(
+      (reading) =>
+        reading.grain === "day" &&
+        reading.platform === panel.platform &&
+        reading.key === SALES_KEY[panel.platform] &&
+        reading.from === sameDay &&
+        reading.state === "ok" &&
+        reading.value != null,
+    );
+    if (same?.value == null) return undefined;
+    baseline += same.value;
+  }
+  const change = pctChange(current, baseline);
+  if (change == null || change >= -3) return null;
+  return {
+    platform: panels[0]?.platform ?? "zomato",
+    pct: change,
+    against: `last ${formatWeekdayName(day)}`,
+  };
 }
 
 function tileFor(
@@ -982,7 +1058,8 @@ function wordFromChange(
   change: number | null,
   weeks: number,
 ): { word: TileWord | null; weeks: number; good: boolean | null } {
-  if (change == null || Math.abs(change) < 3) {
+  const flatAt = tile.format === "rating" ? 0.1 : 3;
+  if (change == null || Math.abs(change) < flatAt) {
     return {
       word: change == null ? null : "steady",
       weeks: change == null ? 0 : weeks,
@@ -992,21 +1069,25 @@ function wordFromChange(
   const up = change > 0;
   const good = tile.goodUp ? up : !up;
   const word: TileWord =
-    tile.word === "prep"
+    tile.format === "rating"
       ? up
-        ? "slower"
-        : "faster"
-      : tile.word === "rejects"
+        ? "improving"
+        : "falling"
+      : tile.word === "prep"
         ? up
-          ? "rising"
-          : "falling"
-        : tile.word === "ads"
+          ? "slower"
+          : "faster"
+        : tile.word === "rejects"
           ? up
-            ? "improving"
+            ? "rising"
             : "falling"
-          : up
-            ? "growing"
-            : "falling";
+          : tile.word === "ads"
+            ? up
+              ? "improving"
+              : "falling"
+            : up
+              ? "growing"
+              : "falling";
   return { word, weeks, good };
 }
 
@@ -1578,7 +1659,8 @@ export function dashboardPlots(model: OwnerDashboardModel): OwnerPlot[] {
     ),
   ].sort();
   const axis = ownerDateAxis(ticks.length > 0 ? ticks : dated);
-  if (dated[0] && dated.at(-1)) axis.domain = [dated[0], addDays(dated.at(-1) ?? dated[0], 1)];
+  const span = model.answer.unit === "week" ? 7 : 1;
+  if (dated[0] && dated.at(-1)) axis.domain = [dated[0], addDays(dated.at(-1) ?? dated[0], span)];
   const plots: OwnerPlot[] = model.panels.map((panel) => salesPlotFor(model, panel, axis));
   const heatWeeks = [...new Set(model.heatmap.map((cell) => cell.week))].sort();
   const cell = 30;
@@ -1697,7 +1779,7 @@ function salesPlotFor(
     marks.push({
       type: "linearRegressionY",
       data: known,
-      options: { x: "at", y: "y", stroke, strokeDasharray: "4 3" },
+      options: { x: "at", y: "y", stroke, strokeDasharray: "4 3", ci: 0 },
     });
   }
   const last = known.at(-1);

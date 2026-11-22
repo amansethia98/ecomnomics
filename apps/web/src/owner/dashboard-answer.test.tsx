@@ -14,7 +14,9 @@ vi.mock("@lingui/react/macro", () => ({
   }),
 }));
 
+import type { DashTile } from "@rakazo/contracts";
 import { Answer } from "./dashboard-screen";
+import { NumberCard } from "./number-card";
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -87,6 +89,37 @@ function answer(over: Partial<OwnerDashboardModel["answer"]>): OwnerDashboardMod
     onePlatform: false,
   };
 }
+
+it("says festival week once, beside the comparison", () => {
+  const host = render(answer({ festival: true, dipped: null }));
+  expect(host.textContent?.match(/festival week/g)).toHaveLength(1);
+});
+
+it("says no change when a tile moved by nothing", () => {
+  const tile: DashTile = {
+    id: "rejected",
+    value: 4,
+    format: "count",
+    changePct: 0,
+    spark: [],
+    word: "steady",
+    weeks: 4,
+    good: null,
+    state: "value",
+    festival: true,
+    splits: [],
+    basis: "in 4 weeks",
+    span: "4 weeks",
+  };
+  const host = document.createElement("div");
+  document.body.append(host);
+  act(() => {
+    createRoot(host).render(<NumberCard tile={tile} onOpen={() => undefined} />);
+  });
+  expect(host.textContent).toContain("no change");
+  expect(host.textContent).not.toContain("0.0%");
+  expect(host.textContent).not.toContain("festival week");
+});
 
 function render(model: OwnerDashboardModel) {
   const host = document.createElement("div");

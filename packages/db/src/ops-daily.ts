@@ -734,6 +734,13 @@ function lastCompleteDay(
   salesChangePct: number | null;
   ordersChangePct: number | null;
   onlyPlatform: "zomato" | "swiggy" | null;
+  apps: Array<{
+    platform: "zomato" | "swiggy";
+    salesPaise: number | null;
+    salesChangePct: number | null;
+    delivered: number | null;
+    ordersChangePct: number | null;
+  }>;
 } | null {
   const byDate = new Map<string, Map<string, { sales: number | null; delivered: number | null }>>();
   for (const day of days) {
@@ -771,6 +778,27 @@ function lastCompleteDay(
   const prior = addIsoDays(latest, -7);
   const priorSales = sum(prior, "sales");
   const priorOrders = sum(prior, "delivered");
+  const priorApps = byDate.get(prior);
+  const appRows = (["zomato", "swiggy"] as const).flatMap((platform) => {
+    const current = apps?.get(platform);
+    if (!current || (current.sales == null && current.delivered == null)) return [];
+    const earlier = priorApps?.get(platform);
+    return [
+      {
+        platform,
+        salesPaise: current.sales,
+        salesChangePct:
+          current.sales != null && earlier?.sales != null
+            ? pctChange(current.sales, earlier.sales)
+            : null,
+        delivered: current.delivered,
+        ordersChangePct:
+          current.delivered != null && earlier?.delivered != null
+            ? pctChange(current.delivered, earlier.delivered)
+            : null,
+      },
+    ];
+  });
   return {
     date: latest,
     salesPaise: sales,
@@ -779,6 +807,7 @@ function lastCompleteDay(
     ordersChangePct:
       delivered != null && priorOrders != null ? pctChange(delivered, priorOrders) : null,
     onlyPlatform,
+    apps: appRows,
   };
 }
 
