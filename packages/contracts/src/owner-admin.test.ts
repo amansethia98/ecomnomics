@@ -298,7 +298,8 @@ describe("platform admin panel", () => {
     expect(panel.freshness).toHaveLength(7);
     expect(panel.freshness.at(-1)?.downloads).toBe(2);
     expect(panel.nights.map((night) => night.runs)).toEqual([1, 1]);
-    expect(panel.dailyCosts.map((day) => day.costPaise)).toEqual([100, 250]);
+    expect(panel.dailyCosts).toHaveLength(7);
+    expect(panel.dailyCosts.map((day) => day.costPaise)).toEqual([0, 0, 0, 0, 0, 100, 250]);
   });
 
   it("reads the nightly id as the start and counts only that night's files", () => {
@@ -317,6 +318,7 @@ describe("platform admin panel", () => {
               platform: "swiggy",
               status: "stored",
               runId: "nightly-20261122-0607",
+              attemptCount: 2,
               periodStart: "2026-11-22",
             },
             {
@@ -324,6 +326,7 @@ describe("platform admin panel", () => {
               platform: "zomato",
               status: "stored",
               runId: "daytime",
+              attemptCount: 40,
               periodStart: "2026-11-22",
             },
           ],
@@ -344,6 +347,8 @@ describe("platform admin panel", () => {
     expect(panel.downloads).toEqual({ ok: 1, total: 1 });
     expect(panel.pendingSwiggy).toBe(1);
     expect(panel.pendingZomato).toBe(1);
+    expect(panel.pendingNote).toBe("Sat 21 is pending on both apps");
+    expect(panel.runs[0]).toMatchObject({ tries: 2, rows: 1 });
     expect(panel.messageRows).toEqual([
       "Daily brief · Mon 16 Nov · Sent",
       "Payout check · Thu 12 Nov · Sent",
