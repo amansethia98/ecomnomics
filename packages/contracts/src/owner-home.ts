@@ -246,7 +246,9 @@ export function composeOwnerHome(input: OwnerHomeInput): OwnerHomeModel {
   return {
     kind,
     date: brief?.date ?? null,
-    baselineDate: brief?.baselineDate ?? null,
+    baselineDate:
+      brief?.baselineDate ??
+      (input.lastComplete?.date ? addDays(input.lastComplete.date, -7) : null),
     readiness: welcome ? null : displayedReadiness(brief?.statusText ?? null, urgent, watch),
     corrections: brief?.corrections ?? [],
     staleNote: stale,

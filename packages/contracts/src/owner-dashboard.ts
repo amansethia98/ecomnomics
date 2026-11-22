@@ -212,7 +212,7 @@ export function composeOwnerDashboard(input: OwnerDashboardInput): OwnerDashboar
     compared: null,
     periodPhrase: periodPhrase(window.unit, window.count),
     heatmapLine: heatmapHeadline(heatmap),
-    funnelLine: funnelHeadline(funnelWeeks),
+    funnelLine: funnelHeadline(funnelWeeks) ?? funnelHeadline(funnel),
     comparisonsStart,
     onePlatform: platforms.length === 1,
   };
