@@ -140,13 +140,18 @@ export function AdminPanelScreen({
             <div className="grid gap-3 sm:grid-cols-4">
               <Stat
                 label={t`Downloads OK`}
-                value={`${panel.runs.filter((run) => run.state === "done").length}/${panel.runs.length}`}
+                value={
+                  panel.downloads && panel.downloads.total > 0
+                    ? `${panel.downloads.ok}/${panel.downloads.total}`
+                    : `${panel.runs.filter((run) => run.state === "done").length}/${panel.runs.length}`
+                }
               />
               <Stat label={t`Briefs sent`} value="—" />
               <Stat
                 label={t`Swiggy pending`}
                 value={String(
-                  panel.connections.filter((row) => row.swiggy === "not_connected").length,
+                  panel.pendingSwiggy ??
+                    panel.connections.filter((row) => row.swiggy === "not_connected").length,
                 )}
               />
               <Stat
@@ -186,9 +191,13 @@ export function AdminPanelScreen({
         {section === "restaurants" ? (
           <section className="mt-4 flex flex-col gap-4">
             <h2 className="owner-title">
-              {t`${panel.restaurants.length} restaurants`}
+              {panel.restaurants.length === 1
+                ? t`1 restaurant`
+                : t`${panel.restaurants.length} restaurants`}
               {" · "}
-              {t`${panel.connections.length} outlets`}
+              {panel.connections.length === 1
+                ? t`1 outlet`
+                : t`${panel.connections.length} outlets`}
             </h2>
             <input
               type="search"
@@ -273,19 +282,13 @@ export function AdminPanelScreen({
             {panel.nights.length === 0 ? (
               <p className="mt-3 text-body-sm text-muted-foreground">{t`No nights are stored.`}</p>
             ) : (
-              <ul className="mt-4 flex h-16 items-end gap-1">
-                {panel.nights.map((night) => {
-                  const max = Math.max(...panel.nights.map((item) => item.runs), 1);
-                  return (
-                    <li
-                      key={night.day}
-                      className="flex-1 bg-foreground"
-                      style={{ height: `${Math.max(8, (night.runs / max) * 100)}%` }}
-                      title={formatCivilDay(night.day)}
-                    />
-                  );
-                })}
-              </ul>
+              <Bars
+                items={panel.nights.map((night) => ({
+                  key: night.day,
+                  value: night.runs,
+                  title: formatCivilDay(night.day),
+                }))}
+              />
             )}
             {panel.night ? (
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -319,10 +322,12 @@ export function AdminPanelScreen({
                     <td className="py-3">
                       <span className="owner-pill">{stateLabel[run.state]}</span>
                     </td>
-                    <td className="py-3">—</td>
-                    <td className="py-3">—</td>
-                    <td className="py-3">—</td>
-                    <td className="py-3">—</td>
+                    <td className="py-3">{run.tries ?? "—"}</td>
+                    <td className="py-3">{run.rows ?? "—"}</td>
+                    <td className="py-3">{run.minutes == null ? "—" : t`${run.minutes} min`}</td>
+                    <td className="py-3">
+                      {run.costPaise == null ? "—" : formatRupees(run.costPaise)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -335,24 +340,48 @@ export function AdminPanelScreen({
               {t`Status only. Passwords and codes are never shown or stored here.`}
             </p>
             <ul>
-              {panel.connections.map((row) => (
-                <li key={`${row.restaurant}-${row.outlet}`} className="border-t border-border py-2">
-                  <span className="font-medium">{row.outlet}</span>
-                  <span className="ml-2 text-body-sm text-muted-foreground">{row.restaurant}</span>
-                  <span className="ml-2 text-body-sm">
-                    {row.zomato === "connected" ? t`Zomato connected` : t`Zomato not connected`}
-                    {" · "}
-                    {row.swiggy === "connected" ? t`Swiggy connected` : t`Swiggy not connected`}
-                  </span>
-                </li>
-              ))}
+              {panel.connections.flatMap((row) =>
+                (["zomato", "swiggy"] as const).map((platform) => (
+                  <li
+                    key={`${row.restaurant}-${row.outlet}-${platform}`}
+                    className="flex items-center justify-between gap-3 border-t border-border py-2"
+                  >
+                    <span>
+                      <span className="font-medium">{row.outlet}</span>
+                      <span className="ml-2 text-body-sm text-muted-foreground">
+                        {row.restaurant}
+                      </span>
+                    </span>
+                    <span
+                      className={
+                        row[platform] === "connected"
+                          ? "owner-pill owner-pill-good"
+                          : "owner-pill owner-pill-watch"
+                      }
+                    >
+                      {platform === "zomato" ? t`Zomato` : t`Swiggy`}{" "}
+                      {row[platform] === "connected" ? t`connected` : t`not connected`}
+                    </span>
+                  </li>
+                )),
+              )}
             </ul>
           </section>
         ) : null}
         {section === "messages" ? (
           <div className="owner-panel mt-4 p-4">
             <h2 className="text-heading1 font-semibold">{t`Messages sent`}</h2>
-            <p className="mt-2 text-body-sm text-muted-foreground">{panel.messages}</p>
+            {(panel.messageRows ?? []).length > 0 ? (
+              <ul className="mt-2">
+                {(panel.messageRows ?? []).map((line) => (
+                  <li key={line} className="border-t border-border py-2 text-body-sm">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-body-sm text-muted-foreground">{panel.messages}</p>
+            )}
           </div>
         ) : null}
         {section === "costs" ? (
@@ -365,21 +394,15 @@ export function AdminPanelScreen({
             {panel.dailyCosts.length === 0 ? (
               <p className="text-body-sm text-muted-foreground">{t`No cost is stored for these nights.`}</p>
             ) : (
-              <ul className="flex h-16 items-end gap-1">
-                {panel.dailyCosts.map((day) => {
-                  const max = Math.max(...panel.dailyCosts.map((item) => item.costPaise), 1);
-                  return (
-                    <li
-                      key={day.day}
-                      className="flex-1 bg-foreground"
-                      style={{ height: `${Math.max(8, (day.costPaise / max) * 100)}%` }}
-                      title={`${formatCivilDay(day.day)} · ${formatRupees(day.costPaise)}`}
-                    />
-                  );
-                })}
-              </ul>
+              <Bars
+                items={panel.dailyCosts.map((day) => ({
+                  key: day.day,
+                  value: day.costPaise,
+                  title: `${formatCivilDay(day.day)} · ${formatRupees(day.costPaise)}`,
+                }))}
+              />
             )}
-            <p className="text-body-sm text-muted-foreground">{t`No cap is set.`}</p>
+            <p className="text-body-sm text-muted-foreground">{t`Cap not shown here yet.`}</p>
             <table className="w-full text-body-sm">
               <tbody>
                 {panel.restaurants.map((row) => (
@@ -408,12 +431,28 @@ export function AdminPanelScreen({
                 ))}
               </ul>
             ) : (
-              <p className="mt-3 text-body-sm text-muted-foreground">{t`No data-quality rows in this view.`}</p>
+              <p className="mt-3 text-body-sm text-muted-foreground">{t`No mismatch in the last three weeks.`}</p>
             )}
           </section>
         ) : null}
       </main>
     </div>
+  );
+}
+
+function Bars({ items }: { items: Array<{ key: string; value: number; title: string }> }) {
+  const max = Math.max(...items.map((item) => item.value), 1);
+  return (
+    <ul className="mt-4 flex h-16 items-end gap-2">
+      {items.map((item) => (
+        <li key={item.key} title={item.title} className="flex w-2 items-end">
+          <span
+            className="block w-2 rounded-sm bg-foreground"
+            style={{ height: `${Math.max(4, Math.round((item.value / max) * 48))}px` }}
+          />
+        </li>
+      ))}
+    </ul>
   );
 }
 

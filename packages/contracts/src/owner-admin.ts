@@ -1,6 +1,7 @@
 /** Read-only platform admin. Nothing here is a login, a token, or a secret. */
 
 import { addIsoDays, indiaCivilDate } from "./metric-dates.js";
+import { formatCivilDay } from "./ops/format.js";
 import type { DashReading } from "./owner-dashboard.js";
 import { incomparableFunnelDays } from "./owner-dashboard.js";
 
@@ -26,11 +27,16 @@ export interface AdminRestaurantInput {
   runs: readonly AdminRun[];
   /** Stored downloads. The newest createdAt is the last-download date. */
   fetches?: readonly AdminFetch[];
+  reports?: ReadonlyArray<{ kind: string | null; on: string }>;
 }
 
 export interface AdminFetch {
   createdAt: string;
   platform?: string | null;
+  status?: string | null;
+  runId?: string | null;
+  attemptCount?: number | null;
+  periodStart?: string | null;
 }
 
 export interface AdminRestaurantRow {
@@ -85,6 +91,10 @@ export interface AdminPanel {
   runs: Array<{
     restaurant: string;
     state: "in_progress" | "done" | "not_started" | "failed" | "paused";
+    tries?: number | null;
+    rows?: number | null;
+    minutes?: number | null;
+    costPaise?: number | null;
   }>;
   restaurants: AdminRestaurantRow[];
   connections: Array<{
@@ -94,6 +104,13 @@ export interface AdminPanel {
     swiggy: "connected" | "not_connected";
   }>;
   messages: string;
+  /** One line per brief we could read. Empty when the log is not readable. */
+  messageRows?: string[];
+  /** Stored downloads, not restaurants. */
+  downloads?: { ok: number; total: number };
+  /** Days in the last week with no stored file for that app. */
+  pendingSwiggy?: number;
+  pendingZomato?: number;
   costsPaise: number | null;
   rules: string;
   /** Days a rate cannot be computed, plus payout rows a parser could not read. */
@@ -146,14 +163,18 @@ export function panelFromAdminRows(
     }>;
     jobRuns: ReadonlyArray<AdminRun>;
     fetches?: ReadonlyArray<AdminFetch>;
+    reports?: ReadonlyArray<{ kind: string | null; on: string }>;
+    quality?: readonly string[];
   }>,
   openFindings: number,
 ): AdminPanel {
   return composeAdminPanel({
     openFindings,
+    quality: rows.flatMap((row) => row.quality ?? []),
     restaurants: rows.map((row) => ({
       restaurantId: row.restaurantId,
       fetches: row.fetches,
+      reports: row.reports,
       name: row.name,
       outlets: ownerViewFromRestaurant(row).outlets,
       runs: row.jobRuns,
@@ -165,6 +186,7 @@ export function composeAdminPanel(input: {
   restaurants: readonly AdminRestaurantInput[];
   openFindings: number;
   quality?: readonly string[];
+  today?: string;
 }): AdminPanel {
   const restaurants = [...input.restaurants].sort((left, right) =>
     left.name.localeCompare(right.name),
@@ -176,7 +198,11 @@ export function composeAdminPanel(input: {
       runs: [],
       restaurants: [],
       connections: [],
-      messages: "No messages are in this view.",
+      messages: "Message log isn't readable from admin yet.",
+      messageRows: [],
+      downloads: { ok: 0, total: 0 },
+      pendingSwiggy: 0,
+      pendingZomato: 0,
       costsPaise: null,
       rules: rulesLine(input.openFindings),
       quality: [],
@@ -215,6 +241,10 @@ export function composeAdminPanel(input: {
     runs: rows.map((row) => ({
       restaurant: row.restaurant.name,
       state: runState(row.latest, paused(row.restaurant)),
+      tries: attemptTotal(row.restaurant.fetches ?? []),
+      rows: storedTotal(row.restaurant.fetches ?? []),
+      minutes: runMinutes(row.latest),
+      costPaise: runCost(row.restaurant.runs),
     })),
     restaurants: rows.map((row) => ({
       restaurantId: row.restaurant.restaurantId,
@@ -237,15 +267,104 @@ export function composeAdminPanel(input: {
           swiggy: outlet.swiggy,
         })),
     ),
-    messages: "No messages are in this view.",
+    messages:
+      messageRows(restaurants).length > 0
+        ? messageRows(restaurants).join("\n")
+        : "Message log isn't readable from admin yet.",
+    messageRows: messageRows(restaurants),
+    downloads: downloadTally(fetches),
+    pendingSwiggy: pendingApps(fetches, input.today ?? indiaCivilDate(new Date())).swiggy,
+    pendingZomato: pendingApps(fetches, input.today ?? indiaCivilDate(new Date())).zomato,
     costsPaise: costs.length === 0 ? null : costs.reduce((sum, value) => sum + value, 0),
     rules: rulesLine(input.openFindings),
     quality: [...(input.quality ?? [])],
-    night: adminNight(runs),
+    night: nightlyWindow(fetches) ?? adminNight(runs),
     freshness: adminFreshness(fetches),
     nights: adminNights(runs),
     dailyCosts: adminDailyCosts(runs),
   };
+}
+
+/** The latest nightly download's first and last stored time. Job runs are not the night. */
+export function nightlyWindow(
+  fetches: readonly AdminFetch[],
+): { startedAt: string; endedAt: string | null } | null {
+  const nightly = fetches.filter((row) => row.runId?.startsWith("nightly-"));
+  const latest = nightly
+    .map((row) => row.runId)
+    .sort()
+    .at(-1);
+  if (!latest) return null;
+  const times = nightly
+    .filter((row) => row.runId === latest)
+    .map((row) => row.createdAt)
+    .sort();
+  const startedAt = times[0];
+  if (!startedAt) return null;
+  return { startedAt, endedAt: times.at(-1) ?? startedAt };
+}
+
+/** Stored files, one per app and report. A restaurant is not a download. */
+export function downloadTally(fetches: readonly AdminFetch[]): { ok: number; total: number } {
+  const counted = fetches.filter((row) => row.status);
+  return {
+    ok: counted.filter((row) => row.status === "stored").length,
+    total: counted.length,
+  };
+}
+
+/** Days in the week before `today` with no stored file for that app. */
+export function pendingApps(
+  fetches: readonly AdminFetch[],
+  today: string,
+): { zomato: number; swiggy: number } {
+  const count = (platform: "zomato" | "swiggy") => {
+    let pending = 0;
+    for (let offset = 1; offset <= 7; offset += 1) {
+      const day = addIsoDays(today, -offset);
+      const stored = fetches.some((row) => {
+        if (row.platform !== platform) return false;
+        if (row.status != null && row.status !== "stored") return false;
+        const covered = row.periodStart ?? indiaCivilDate(new Date(row.createdAt));
+        return covered === day;
+      });
+      if (!stored) pending += 1;
+    }
+    return pending;
+  };
+  return { zomato: count("zomato"), swiggy: count("swiggy") };
+}
+
+function messageRows(restaurants: readonly AdminRestaurantInput[]): string[] {
+  return restaurants.flatMap((restaurant) =>
+    (restaurant.reports ?? []).map((report) => {
+      const kind =
+        report.kind === "daily_brief"
+          ? "Daily brief"
+          : report.kind === "weekly_review"
+            ? "Weekly review"
+            : "Payout check";
+      return `${kind} · ${formatCivilDay(report.on)} · Sent`;
+    }),
+  );
+}
+
+function attemptTotal(fetches: readonly AdminFetch[]): number | null {
+  const known = fetches.flatMap((row) => (row.attemptCount == null ? [] : [row.attemptCount]));
+  if (known.length === 0) return null;
+  return known.reduce((sum, value) => sum + value, 0);
+}
+
+function storedTotal(fetches: readonly AdminFetch[]): number | null {
+  const counted = fetches.filter((row) => row.status);
+  if (counted.length === 0) return null;
+  return counted.filter((row) => row.status === "stored").length;
+}
+
+function runMinutes(run: AdminRun | null): number | null {
+  if (!run?.endedAt) return null;
+  const minutes = Math.round((Date.parse(run.endedAt) - Date.parse(run.startedAt)) / 60_000);
+  return Number.isFinite(minutes) && minutes >= 0 ? minutes : null;
 }
 
 /** The newest night's first start and last finish. An open run has no end. */
@@ -362,6 +481,27 @@ function latestRun(runs: readonly AdminRun[]): AdminRun | null {
 }
 
 /** Funnel days that are not a rate, plus payout rows whose mark could not be read. */
+/** A funnel day that cannot be a rate, with the stored cart and order counts. */
+export function funnelGapLines(readings: readonly DashReading[]): string[] {
+  return incomparableFunnelDays(readings).map((day) => {
+    const carts = readings.find(
+      (row) => row.from === day && row.key === "cart_builds" && row.state === "ok",
+    );
+    const orders = readings.find(
+      (row) =>
+        row.from === day &&
+        row.platform === carts?.platform &&
+        (row.key === "placed_orders" || row.key === "swiggy_funnel_orders") &&
+        row.state === "ok",
+    );
+    const name = carts?.platform === "swiggy" ? "Swiggy" : "Zomato";
+    if (carts?.value == null || orders?.value == null) {
+      return `Carts and orders do not match on ${day}`;
+    }
+    return `${name} ${formatCivilDay(day)}: ${carts.value} carts → ${orders.value} orders`;
+  });
+}
+
 export function adminQualityNotes(input: {
   readings: readonly DashReading[];
   badPayouts: readonly { platform: string; mark: string }[];

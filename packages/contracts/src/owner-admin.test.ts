@@ -3,6 +3,7 @@ import {
   adminQualityNotes,
   composeAdminPanel,
   filterAdminRestaurants,
+  funnelGapLines,
   ownerViewFromRestaurant,
   panelFromAdminRows,
 } from "./owner-admin.js";
@@ -23,7 +24,7 @@ describe("platform admin panel", () => {
     expect(panel.restaurants).toEqual([]);
     expect(panel.needsYou).toBe(false);
     expect(panel.rules).toBe("No rule placeholders left.");
-    expect(panel.messages).toBe("No messages are in this view.");
+    expect(panel.messages).toBe("Message log isn't readable from admin yet.");
   });
 
   it("counts a run that is still going and leaves a paused restaurant out", () => {
@@ -181,6 +182,84 @@ describe("platform admin panel", () => {
       "Carts and orders do not match on 2026-11-18",
       "zomato payout mark unreadable could not be read",
     ]);
+  });
+
+  it("reads last night from the nightly download and counts files", () => {
+    const panel = composeAdminPanel({
+      today: "2026-11-22",
+      openFindings: 0,
+      restaurants: [
+        {
+          restaurantId: "r1",
+          name: "Sample",
+          outlets: [outlet],
+          runs: [
+            {
+              status: "ok",
+              startedAt: "2026-11-12T01:00:00.000Z",
+              endedAt: "2026-11-12T02:00:00.000Z",
+              costPaise: 10,
+            },
+          ],
+          fetches: [
+            {
+              createdAt: "2026-11-22T00:37:00.000Z",
+              platform: "zomato",
+              status: "stored",
+              runId: "nightly-a",
+              attemptCount: 1,
+              periodStart: "2026-11-20",
+            },
+            {
+              createdAt: "2026-11-22T00:40:00.000Z",
+              platform: "swiggy",
+              status: "stored",
+              runId: "nightly-a",
+              attemptCount: 2,
+              periodStart: "2026-11-20",
+            },
+            {
+              createdAt: "2026-11-22T00:40:00.000Z",
+              platform: "swiggy",
+              status: "download_failed",
+              runId: "nightly-a",
+              attemptCount: 1,
+              periodStart: "2026-11-19",
+            },
+          ],
+          reports: [{ kind: "daily_brief", on: "2026-11-16" }],
+        },
+      ],
+    });
+    expect(panel.night).toEqual({
+      startedAt: "2026-11-22T00:37:00.000Z",
+      endedAt: "2026-11-22T00:40:00.000Z",
+    });
+    expect(panel.downloads).toEqual({ ok: 2, total: 3 });
+    expect(panel.pendingSwiggy).toBeGreaterThan(0);
+    expect(panel.pendingZomato).toBe(panel.pendingSwiggy);
+    expect(panel.messageRows).toEqual(["Daily brief · Mon 16 Nov · Sent"]);
+    expect(panel.runs[0]).toMatchObject({ tries: 4, rows: 2, minutes: 60 });
+    expect(
+      funnelGapLines([
+        {
+          from: "2026-11-18",
+          grain: "day",
+          platform: "zomato",
+          key: "cart_builds",
+          value: 4,
+          state: "ok",
+        },
+        {
+          from: "2026-11-18",
+          grain: "day",
+          platform: "zomato",
+          key: "placed_orders",
+          value: 9,
+          state: "ok",
+        },
+      ]),
+    ).toEqual(["Zomato Wed 18 Nov: 4 carts → 9 orders"]);
   });
 
   it("builds the night window, a seven-day download grid, and the stored costs", () => {
