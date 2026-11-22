@@ -1,3 +1,5 @@
+> **Note (Aman, 22 Nov 23:58 IST).** The 05:30 nightly downloads, the 07:00 backup, and the 08:00 retry are a temporary bridge. They run as Grok routines on the box only because hosting (step 4) is not done yet and the fetch-job code is not in the repo yet. At step 4: move fetch-job into the repo by PR (with Aman's yes), schedule 05:30 / 07:00 / 08:00 IST exactly on the hosted server via the Ecomnomics app's own agent, verify a live run, then switch off these three Grok routines. The 11 PM summary stays with the Grok bot. The prompt bodies below are unchanged.
+
 # Appendix R: exact saved routine prompts (copied verbatim from the old account, 22 Nov 2026)
 
 Recreate each as a routine on the new account with the same schedule and timing. Box paths refer to the old box; adjust them once the stack is restored on the new computer.
