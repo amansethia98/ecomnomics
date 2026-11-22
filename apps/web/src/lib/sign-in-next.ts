@@ -25,15 +25,13 @@ export function newAccountDestination(next: string | null): string {
   return next && INVITE_PATH.test(next) ? next : "/onboarding";
 }
 
-/** Where a signed-in person lands. The agent shell is not an owner screen. */
+/**
+ * Where a sign-in with no page of its own returns. The site root and the bare agent
+ * shell open the restaurant list. A page the person asked for still opens, including
+ * a bot chat, because onboarding and a protected link finish there.
+ */
 export function ownerEntry(next: string | null): string {
-  if (
-    !next ||
-    next === "/" ||
-    next === "/app" ||
-    next.startsWith("/app/") ||
-    next.startsWith("/app?")
-  ) {
+  if (!next || next === "/" || next === "/app" || next.startsWith("/app?")) {
     return "/restaurants";
   }
   return next;

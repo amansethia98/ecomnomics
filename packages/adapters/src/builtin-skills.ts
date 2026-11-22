@@ -141,7 +141,7 @@ Replace the outlet and both months. The command waits for the new file and write
   },
   {
     name: "Ecomnomics",
-    description: "How to use or set up Ecomnomics: chat apps, your computer, billing, hosting",
+    description: "How to use Ecomnomics: chat apps, computer, billing, hosting",
     body: `Answer questions about Ecomnomics itself from its docs. Fetch the matching page with web_fetch before answering, then answer briefly in your own words and link the page. If fetching fails or is unavailable, answer only what this index says and link the page. Never invent menus, buttons, or steps the page doesn't show. Account-specific facts (credit balance, plan, usage) aren't in the docs: point to the screen that shows them.
 
 ${RAKAZO_DOCS.map(([topics, url]) => `- ${topics}: ${url}`).join("\n")}`,

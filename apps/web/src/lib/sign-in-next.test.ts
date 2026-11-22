@@ -20,7 +20,8 @@ it("sends a signed-in person to the owner app, not the agent shell", () => {
   expect(ownerEntry(null)).toBe("/restaurants");
   expect(ownerEntry("/")).toBe("/restaurants");
   expect(ownerEntry("/app")).toBe("/restaurants");
-  expect(ownerEntry("/app/board")).toBe("/restaurants");
+  expect(ownerEntry("/app/board")).toBe("/app/board");
+  expect(ownerEntry("/app/bot-1")).toBe("/app/bot-1");
   expect(ownerEntry("/app?settings=account")).toBe("/restaurants");
   expect(ownerEntry("/invite/abc_DEF-123")).toBe("/invite/abc_DEF-123");
   expect(ownerEntry("/restaurants/r1/home")).toBe("/restaurants/r1/home");

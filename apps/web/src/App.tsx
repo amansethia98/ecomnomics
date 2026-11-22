@@ -40,7 +40,6 @@ import {
 import {
   MCP_OAUTH_CALLBACK_PATH,
   newAccountDestination,
-  ownerEntry,
   SLACK_INSTALL_CALLBACK_PATH,
   signInNext,
 } from "./lib/sign-in-next";
@@ -194,7 +193,7 @@ function SessionApp() {
                 path="/sign-in"
                 element={
                   user ? (
-                    <Navigate to={ownerEntry(next)} replace />
+                    <Navigate to={next && next !== "/" ? next : "/app"} replace />
                   ) : (
                     <AuthPage key="in" mode="in" />
                   )

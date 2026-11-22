@@ -30,7 +30,7 @@ addEventListener("message", (event) => {
       }
       return;
     }
-    const fresh = active && gesture > 0 && Date.now() - gestureAt <= GESTURE_WINDOW_MS ? `${key}:${gesture}` : null;
+    const fresh = active && gesture > 0 && Date.now() - gestureAt <= GESTURE_WINDOW_MS ? key + ":" + gesture : null;
     if (data && data.type === "rakazo-page:open-link" && typeof data.url === "string") {
       parent.postMessage({ type: data.type, url: data.url, gesture: fresh }, "*");
     } else if (data && data.type === "rakazo-page:reply" && typeof data.text === "string") {

@@ -91,7 +91,7 @@ describe("self-hosted passkey domain", () => {
   });
 
   it("associates the build with RAKAZO_PASSKEY_RP_ID", async () => {
-    const passkeys = await load(" Ecomnomics.Example.org ");
+    const passkeys = await load(" Rakazo.Example.org ");
     expect(passkeys.PASSKEY_RP_ID).toBe("rakazo.example.org");
     expect(passkeys.passkeyEntitlements(base, "ABCDE12345", pkg.build.appId)).toContain(
       "<string>webcredentials:rakazo.example.org</string>",
