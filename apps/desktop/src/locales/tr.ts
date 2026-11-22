@@ -3,7 +3,7 @@ export const TR_MESSAGES: Record<string, string> = {
   "Check for Updates…": "Güncellemeleri Denetle…",
   "Computer Access…": "Bilgisayar Erişimi…",
   "Revoke Local Computer Access": "Yerel Bilgisayar Erişimini İptal Et",
-  "Change Rakazo Server…": "Rakazo Sunucusunu Değiştir…",
+  "Change Ecomnomics Server…": "Ecomnomics Sunucusunu Değiştir…",
   "Stop Local Stack": "Yerel Yığını Durdur",
   "Hide {name}": "{name} Uygulamasını Gizle",
   "Hide Others": "Diğerlerini Gizle",
@@ -35,12 +35,12 @@ export const TR_MESSAGES: Record<string, string> = {
   Close: "Kapat",
   "Close Window": "Pencereyi Kapat",
   "Bring All to Front": "Tümünü Öne Getir",
-  "Rakazo {version} is ready to install.": "Rakazo {version} yüklenmeye hazır.",
+  "Ecomnomics {version} is ready to install.": "Ecomnomics {version} yüklenmeye hazır.",
   Restart: "Yeniden Başlat",
   Later: "Daha Sonra",
   "Could not install the update.": "Güncelleme yüklenemedi.",
   "Could not check for updates.": "Güncellemeler denetlenemedi.",
-  "Rakazo is up to date.": "Rakazo güncel.",
+  "Ecomnomics is up to date.": "Ecomnomics güncel.",
   "Version {version}": "Sürüm {version}",
   "Automatic updates are turned off for this install.":
     "Bu kurulumda otomatik güncellemeler kapalı.",
@@ -48,11 +48,11 @@ export const TR_MESSAGES: Record<string, string> = {
     "Otomatik güncellemeler yalnızca kurulu bir sürümde çalışır.",
   "No desktop releases are published for this build yet.":
     "Bu derleme için henüz yayımlanmış masaüstü sürümü yok.",
-  "Move Rakazo to Applications to install updates.":
-    "Güncellemeleri yüklemek için Rakazo’yu Uygulamalar klasörüne taşıyın.",
+  "Move Ecomnomics to Applications to install updates.":
+    "Güncellemeleri yüklemek için Ecomnomics’yu Uygulamalar klasörüne taşıyın.",
   "Free up disk space to install updates.": "Güncellemeleri yüklemek için diskte yer açın.",
-  "This update could not be verified. Reinstall Rakazo from a trusted download.":
-    "Bu güncelleme doğrulanamadı. Rakazo’yu güvenilir bir indirmeden yeniden yükleyin.",
+  "This update could not be verified. Reinstall Ecomnomics from a trusted download.":
+    "Bu güncelleme doğrulanamadı. Ecomnomics’yu güvenilir bir indirmeden yeniden yükleyin.",
   "The update could not be completed. Try again later.":
     "Güncelleme tamamlanamadı. Daha sonra yeniden deneyin.",
   "Could not reach the update server.": "Güncelleme sunucusuna ulaşılamadı.",
@@ -71,12 +71,12 @@ export const TR_MESSAGES: Record<string, string> = {
     "Zaten devam eden bir oturum açma denemesi var. Onu iptal edip yeniden deneyin.",
   "Could not open browser sign-in. Close other sign-in attempts and retry.":
     "Tarayıcıda oturum açma başlatılamadı. Diğer oturum açma denemelerini kapatıp yeniden deneyin.",
-  "Sign-in callback rejected. Return to Rakazo to retry.":
-    "Oturum açma yanıtı reddedildi. Yeniden denemek için Rakazo’ya dönün.",
-  "You can close this tab and return to Rakazo.": "Bu sekmeyi kapatıp Rakazo’ya dönebilirsiniz.",
-  "Set up Rakazo": "Rakazo’yu Kur",
-  "Quit Rakazo": "Rakazo’dan Çık",
-  "Welcome to Rakazo": "Rakazo’ya hoş geldiniz",
+  "Sign-in callback rejected. Return to Ecomnomics to retry.":
+    "Oturum açma yanıtı reddedildi. Yeniden denemek için Ecomnomics’ya dönün.",
+  "You can close this tab and return to Ecomnomics.": "Bu sekmeyi kapatıp Ecomnomics’ya dönebilirsiniz.",
+  "Set up Ecomnomics": "Ecomnomics’yu Kur",
+  "Quit Ecomnomics": "Ecomnomics’dan Çık",
+  "Welcome to Ecomnomics": "Ecomnomics’ya hoş geldiniz",
   "Choose which server this app should use.": "Bu uygulamanın hangi sunucuyu kullanacağını seçin.",
   Instance: "Örnek",
   "This computer": "Bu bilgisayar",
@@ -91,14 +91,14 @@ export const TR_MESSAGES: Record<string, string> = {
   "Check again": "Yeniden denetle",
   Retry: "Yeniden dene",
   "Getting ready…": "Hazırlanıyor…",
-  "Downloading Rakazo…": "Rakazo indiriliyor…",
-  "Starting Rakazo…": "Rakazo başlatılıyor…",
+  "Downloading Ecomnomics…": "Ecomnomics indiriliyor…",
+  "Starting Ecomnomics…": "Ecomnomics başlatılıyor…",
   "Almost ready…": "Neredeyse hazır…",
-  "Rakazo is ready.": "Rakazo hazır.",
+  "Ecomnomics is ready.": "Ecomnomics hazır.",
   "{size} downloaded": "{size} indirildi",
   "Connecting…": "Bağlanıyor…",
   "Checking…": "Denetleniyor…",
-  "Rakazo answered at {url}.": "Rakazo {url} adresinde yanıt verdi.",
+  "Ecomnomics answered at {url}.": "Ecomnomics {url} adresinde yanıt verdi.",
   "Enter a server address first.": "Önce bir sunucu adresi girin.",
   "Could not save that address.": "Bu adres kaydedilemedi.",
   "Could not save that address. Try again.": "Bu adres kaydedilemedi. Yeniden deneyin.",
@@ -107,17 +107,17 @@ export const TR_MESSAGES: Record<string, string> = {
   "Could not run the connection check. Try again.":
     "Bağlantı denetimi çalıştırılamadı. Yeniden deneyin.",
   "Setup bridge unavailable.": "Kurulum köprüsü kullanılamıyor.",
-  "Setup could not start. Quit Rakazo and try again.":
-    "Kurulum başlatılamadı. Rakazo’dan çıkıp yeniden deneyin.",
+  "Setup could not start. Quit Ecomnomics and try again.":
+    "Kurulum başlatılamadı. Ecomnomics’dan çıkıp yeniden deneyin.",
   "Enter a server address.": "Bir sunucu adresi girin.",
   "Enter a valid http:// or https:// address.": "Geçerli bir http:// veya https:// adresi girin.",
   "Enter a valid server address. Public servers require HTTPS; a new local instance must use localhost.":
     "Geçerli bir sunucu adresi girin. Herkese açık sunucular HTTPS gerektirir; yeni bir yerel örnek localhost kullanmalıdır.",
   "Invalid custom headers": "Geçersiz özel üst bilgiler",
-  "That address redirects elsewhere. Enter the final Rakazo server address.":
-    "Bu adres başka bir yere yönlendiriyor. Rakazo sunucusunun son adresini girin.",
-  "That address did not respond like a Rakazo server.":
-    "Bu adres bir Rakazo sunucusu gibi yanıt vermedi.",
+  "That address redirects elsewhere. Enter the final Ecomnomics server address.":
+    "Bu adres başka bir yere yönlendiriyor. Ecomnomics sunucusunun son adresini girin.",
+  "That address did not respond like a Ecomnomics server.":
+    "Bu adres bir Ecomnomics sunucusu gibi yanıt vermedi.",
   "The server answered with HTTP {status}.": "Sunucu HTTP {status} ile yanıt verdi.",
   "Timed out reaching that address.": "Bu adrese ulaşırken zaman aşımı oluştu.",
   "Nothing is listening at that address yet.": "Bu adreste henüz dinleyen bir şey yok.",
@@ -141,8 +141,8 @@ export const TR_MESSAGES: Record<string, string> = {
     "Kurulum kaydedilemedi. Önceki örnek geri yüklendi.",
   "Connected, but could not save setup for the next launch. Try Continue again.":
     "Bağlanıldı ancak kurulum bir sonraki açılış için kaydedilemedi. Devam’a yeniden tıklayın.",
-  "The app-managed Rakazo services are not ready. Retry setup.":
-    "Uygulamanın yönettiği Rakazo hizmetleri hazır değil. Kurulumu yeniden deneyin.",
+  "The app-managed Ecomnomics services are not ready. Retry setup.":
+    "Uygulamanın yönettiği Ecomnomics hizmetleri hazır değil. Kurulumu yeniden deneyin.",
   "Docker is not installed on this computer.": "Bu bilgisayarda Docker yüklü değil.",
   "Docker is installed, but Docker Compose is missing. Install Docker Desktop or the docker-compose-plugin.":
     "Docker yüklü ancak Docker Compose eksik. Docker Desktop’ı veya docker-compose-plugin’i yükleyin.",
@@ -166,10 +166,10 @@ export const TR_MESSAGES: Record<string, string> = {
     "Docker yanıt vermeyi bıraktı. Docker’ı başlatıp yeniden deneyin.",
   "Docker Compose is missing. Install Docker Desktop or the docker-compose-plugin, then retry.":
     "Docker Compose eksik. Docker Desktop’ı veya docker-compose-plugin’i yükleyip yeniden deneyin.",
-  "Downloading Rakazo images failed. Check the output below, then retry.":
-    "Rakazo görüntüleri indirilemedi. Aşağıdaki çıktıyı inceleyip yeniden deneyin.",
-  "Rakazo services did not start. Check the output below, then retry.":
-    "Rakazo hizmetleri başlamadı. Aşağıdaki çıktıyı inceleyip yeniden deneyin.",
+  "Downloading Ecomnomics images failed. Check the output below, then retry.":
+    "Ecomnomics görüntüleri indirilemedi. Aşağıdaki çıktıyı inceleyip yeniden deneyin.",
+  "Ecomnomics services did not start. Check the output below, then retry.":
+    "Ecomnomics hizmetleri başlamadı. Aşağıdaki çıktıyı inceleyip yeniden deneyin.",
   "The stack started but the web app did not answer. Retry, and check the output below.":
     "Yığın başladı ancak web uygulaması yanıt vermedi. Yeniden deneyin ve aşağıdaki çıktıyı inceleyin.",
   "Could not prepare the local stack. Retry.": "Yerel yığın hazırlanamadı. Yeniden deneyin.",

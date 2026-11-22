@@ -100,7 +100,7 @@ export async function createDirectory(
     };
   };
   return betterAuth({
-    appName: "Rakazo",
+    appName: "Ecomnomics",
     logger: options.logger,
     secret: options.secret,
     baseURL: options.baseURL,

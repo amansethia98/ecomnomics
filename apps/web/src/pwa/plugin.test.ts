@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { webDarkTokens } from "@rakazo/ui-tokens";
 import type { Rolldown } from "vite";
 import { describe, expect, it } from "vitest";
@@ -41,6 +42,16 @@ describe("PWA build", () => {
     );
     expect(() => injectShell(code, [], "")).toThrow();
     expect(() => injectShell("install(self)", [], "20261023113220")).toThrow();
+  });
+
+  it("names the installed app Ecomnomics", () => {
+    const manifest = webManifest();
+    const shell = readFileSync(new URL("../../index.html", import.meta.url), "utf8");
+    expect(manifest.name).toBe("Ecomnomics");
+    expect(manifest.short_name).toBe("Ecomnomics");
+    expect(JSON.stringify(manifest)).not.toContain("Rakazo");
+    expect(shell).toContain("Ecomnomics");
+    expect(shell).not.toContain("Rakazo");
   });
 
   it("takes the manifest colors from the shared tokens", () => {

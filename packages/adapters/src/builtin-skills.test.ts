@@ -94,9 +94,9 @@ describe("Payout reconciliation", () => {
   });
 });
 
-describe("Rakazo skill", () => {
+describe("Ecomnomics skill", () => {
   it("links only to published docs pages", () => {
-    const skill = BUILTIN_AGENT_SKILLS.find((s) => s.name === "Rakazo")!;
+    const skill = BUILTIN_AGENT_SKILLS.find((s) => s.name === "Ecomnomics")!;
     const urls = [...skill.content.matchAll(/https?:\/\/\S+/g)].map((match) => match[0]);
     expect(urls).toEqual(RAKAZO_DOCS_URLS);
     for (const url of urls) {

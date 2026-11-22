@@ -5,7 +5,7 @@ import { buildSkillMd, parseSkillMd } from "@rakazo/core";
 import { LEGACY_ZOMATO_LOGIN_GUIDANCE } from "./legacy-zomato-login.js";
 
 const RAKAZO_DOCS: ReadonlyArray<readonly [topics: string, url: string]> = [
-  ["Getting started, first bot, what Rakazo does", "https://rakazo.com/docs.md"],
+  ["Getting started, first bot, what Ecomnomics does", "https://rakazo.com/docs.md"],
   [
     "Creating bots, chatting, bot settings, sidebar, search",
     "https://rakazo.com/docs/bots-and-chats.md",
@@ -140,9 +140,9 @@ python3 /usr/local/bin/rakazo-zomato-report monthly --outlet "OUTLET ID" --befor
 Replace the outlet and both months. The command waits for the new file and writes a .csv, .xlsx, .json and .txt beside it. Explain only those computed metrics, rates, denominators, verdicts and warnings. Counts and rates are different. Attach the source file and the analysis .csv and .xlsx. Do not invent cancellations, causes, seasonality, profitability, or a full-year result. Offer fields the script marks ambiguous stay ambiguous. Ads ROI in the export is not the derived ad-sales/spend figure. If the command is not found, the computer image is older than this skill and needs a rebuild.`,
   },
   {
-    name: "Rakazo",
-    description: "How to use or set up Rakazo: chat apps, your computer, billing, hosting",
-    body: `Answer questions about Rakazo itself from its docs. Fetch the matching page with web_fetch before answering, then answer briefly in your own words and link the page. If fetching fails or is unavailable, answer only what this index says and link the page. Never invent menus, buttons, or steps the page doesn't show. Account-specific facts (credit balance, plan, usage) aren't in the docs: point to the screen that shows them.
+    name: "Ecomnomics",
+    description: "How to use or set up Ecomnomics: chat apps, your computer, billing, hosting",
+    body: `Answer questions about Ecomnomics itself from its docs. Fetch the matching page with web_fetch before answering, then answer briefly in your own words and link the page. If fetching fails or is unavailable, answer only what this index says and link the page. Never invent menus, buttons, or steps the page doesn't show. Account-specific facts (credit balance, plan, usage) aren't in the docs: point to the screen that shows them.
 
 ${RAKAZO_DOCS.map(([topics, url]) => `- ${topics}: ${url}`).join("\n")}`,
   },
