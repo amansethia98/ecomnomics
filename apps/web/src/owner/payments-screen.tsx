@@ -1,30 +1,37 @@
 import { useLingui } from "@lingui/react/macro";
 import type { OwnerPayments } from "@rakazo/contracts";
-import { formatExclusiveRange, formatRupees, paymentsHeroRows } from "@rakazo/contracts";
+import {
+  formatExclusiveRange,
+  formatRupees,
+  paymentsHeroRows,
+  paymentWeeks,
+} from "@rakazo/contracts";
 import { useState } from "react";
 import { PlatformDot } from "./marks";
 
 export function PaymentsScreen({
   screen,
+  today,
   onSelect,
 }: {
   screen: OwnerPayments;
+  today: string;
   onSelect: (id: string) => void;
 }) {
   const { t } = useLingui();
   const selected = screen.payouts.find((payout) => payout.id === screen.selectedId) ?? null;
-  const [week, setWeek] = useState(selected ? `${selected.from}|${selected.to}` : "");
+  const earliest = screen.payouts.map((payout) => payout.from).sort()[0] ?? null;
+  const weeks = paymentWeeks(today, earliest);
+  const selectedRank = selected ? payoutRank(screen.payouts, selected.id) : 0;
+  const initial = weeks[selectedRank] ?? weeks[0];
+  const [week, setWeek] = useState(initial ? `${initial.from}|${initial.to}` : "");
   const [ordersOpen, setOrdersOpen] = useState(false);
   if (screen.payouts.length === 0) {
     return <p>{t`This week's payout file isn't out yet (usually Thursday morning).`}</p>;
   }
-  const weeks = [
-    ...new Map(screen.payouts.map((payout) => [`${payout.from}|${payout.to}`, payout])).values(),
-  ];
-  const shown = screen.payouts.filter((payout) => `${payout.from}|${payout.to}` === week);
-  const [weekFrom, weekTo] = week.split("|");
-  const heroRows =
-    weekFrom && weekTo ? paymentsHeroRows(screen.payouts, weekFrom, weekTo) : screen.payouts;
+  const weekFrom = week.split("|")[0] ?? "";
+  const heroRows = weekFrom ? paymentsHeroRows(screen.payouts, weekFrom, today) : screen.payouts;
+  const shown = heroRows.length > 0 ? heroRows : screen.payouts;
   const heroPaise = heroRows.reduce((total, payout) => {
     const amount = payoutAmount(payout);
     return amount == null ? total : total + amount;
@@ -71,13 +78,15 @@ export function PaymentsScreen({
               onChange={(event) => {
                 const next = event.target.value;
                 setWeek(next);
-                const payout = screen.payouts.find((item) => `${item.from}|${item.to}` === next);
-                if (payout) onSelect(payout.id);
+                const from = next.split("|")[0] ?? "";
+                const rows = paymentsHeroRows(screen.payouts, from, today);
+                const payout = rows.find((item) => item.id === screen.selectedId) ?? rows[0];
+                if (payout && payout.id !== screen.selectedId) onSelect(payout.id);
               }}
             >
-              {weeks.map((payout) => (
-                <option key={`${payout.from}|${payout.to}`} value={`${payout.from}|${payout.to}`}>
-                  {formatExclusiveRange(payout.from, payout.to)}
+              {weeks.map((item) => (
+                <option key={`${item.from}|${item.to}`} value={`${item.from}|${item.to}`}>
+                  {formatExclusiveRange(item.from, item.to)}
                 </option>
               ))}
             </select>
@@ -142,6 +151,17 @@ export function PaymentsScreen({
       </ul>
     </div>
   );
+}
+
+function payoutRank(payouts: OwnerPayments["payouts"], id: string): number {
+  const payout = payouts.find((item) => item.id === id);
+  if (!payout) return 0;
+  const rows = payouts
+    .filter((item) => item.platform === payout.platform)
+    .slice()
+    .sort((left, right) => right.to.localeCompare(left.to));
+  const index = rows.findIndex((item) => item.id === id);
+  return Math.max(index, 0);
 }
 
 function payoutAmount(payout: OwnerPayments["payouts"][number]): number | null {
