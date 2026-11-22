@@ -235,6 +235,9 @@ export function OwnerFrame({
         })}
         <details className="relative flex flex-1 flex-col items-center py-2 text-label text-muted-foreground">
           <summary className="flex cursor-pointer list-none flex-col items-center gap-1">
+            <span aria-hidden="true" className="flex size-5 items-center justify-center">
+              •••
+            </span>
             {t`More`}
           </summary>
           <div className="absolute bottom-12 right-2 flex w-48 flex-col rounded-lg border border-border bg-background p-1 shadow-sm">

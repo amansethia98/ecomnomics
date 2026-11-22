@@ -96,6 +96,47 @@ it("lists the nine owner screens", () => {
   expect(host.textContent).toContain("Ratings & reviews");
   expect(host.textContent).toContain("All outlets");
   expect(host.querySelector("select")?.textContent).toContain("Indiranagar");
+  expect(host.querySelector("summary")?.textContent).toContain("•••");
+  expect(host.querySelector("summary")?.textContent).toContain("More");
+});
+
+it("hides the outlet picker when the restaurant has one outlet", () => {
+  const host = render(
+    <OwnerFrame
+      restaurantId="r1"
+      profile={{ ...profile, outlets: profile.outlets.slice(0, 1) }}
+      screen="home"
+      view={view}
+      today="2026-11-15"
+      onView={() => undefined}
+      confirmLeave={() => true}
+    >
+      <p>Home</p>
+    </OwnerFrame>,
+  );
+  expect(host.querySelector("select")).toBeNull();
+});
+
+it("shows the outlet picker when the restaurant has three outlets", () => {
+  const third = profile.outlets[0];
+  if (!third) throw new Error("fixture");
+  const host = render(
+    <OwnerFrame
+      restaurantId="r1"
+      profile={{
+        ...profile,
+        outlets: [...profile.outlets, { ...third, id: "o3", name: "HSR" }],
+      }}
+      screen="home"
+      view={view}
+      today="2026-11-15"
+      onView={() => undefined}
+      confirmLeave={() => true}
+    >
+      <p>Home</p>
+    </OwnerFrame>,
+  );
+  expect(host.querySelector("select")?.textContent).toContain("HSR");
 });
 
 it("hides the range on settings and the outlet list when there is one outlet", () => {
