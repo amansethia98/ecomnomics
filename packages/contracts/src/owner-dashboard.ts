@@ -433,7 +433,7 @@ function alignedSales(
 
 function salesKeys(
   readings: readonly DashReading[],
-  platforms: OpsPlatform[],
+  platforms: readonly OpsPlatform[],
   from: string,
   grain: "day" | "week",
 ): Map<OpsPlatform, number> {
@@ -671,11 +671,13 @@ function tileFor(
       window.unit === "week" && window.count >= 12
         ? measureBlock(tile, input.readings, [platform], window)
         : measureTile(tile, input, [platform], window, days);
+    const gap: DashSplit["gap"] =
+      part.state === "na" ? "no_spend" : part.state === "value" ? null : "missing";
     return {
       platform,
       value: part.current,
       inReport: part.state === "value",
-      gap: part.state === "na" ? "no_spend" : part.state === "value" ? null : "missing",
+      gap,
     };
   });
   if (measured.state !== "value") return { ...emptyTile(tile, measured.state), spark, splits };
