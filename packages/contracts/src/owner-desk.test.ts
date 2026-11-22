@@ -7,10 +7,10 @@ import {
   composeOwnerPayments,
   composeOwnerRatings,
   LicencePatchSchema,
+  labeledPayoutTotals,
   PAYOUT_CHECK,
   parseDisplayDate,
-  paymentsHeroRows,
-  paymentWeeks,
+  paymentPeriods,
   ratingsForWindow,
   ratingsFromRows,
 } from "./owner-desk.js";
@@ -211,9 +211,14 @@ describe("owner payments", () => {
     expect(screen.breakdown.find((row) => row.id === "bank")?.label).toBe("= Paid to your bank");
   });
 
-  it("keeps both apps after ads on every picked week", () => {
+  it("pairs offset settlement weeks and leaves a missing app out", () => {
     const screen = composeOwnerPayments({
       cycles: [
+        cycle("z-new", "2026-11-23", {
+          from: "2026-11-16",
+          netPayoutPaise: 5_000_000,
+          paidAmountPaise: null,
+        }),
         cycle("z", "2026-11-16", {
           from: "2026-11-09",
           netPayoutPaise: 10_361_477,
@@ -231,63 +236,74 @@ describe("owner payments", () => {
       adjustments: [{ cycleId: "z", label: "ADS", amountPaise: 2_270_143 }],
       selectedId: "s",
     });
-    expect(screen.payouts.find((payout) => payout.id === "z")?.netPayoutPaise).toBe(8_091_334);
-    const today = "2026-11-22";
-    const labels = paymentWeeks(today, "2026-11-01").map((week) =>
-      formatExclusiveRange(week.from, week.to),
+    expect(screen.payouts.find((payout) => payout.id === "z")?.expectedPaise).toBe(8_091_334);
+    const periods = paymentPeriods(screen.payouts);
+    expect(periods.map((period) => [period.zomato?.id ?? null, period.swiggy?.id ?? null])).toEqual(
+      [
+        ["z-new", null],
+        ["z", "s"],
+      ],
     );
-    expect(labels.slice(0, 2)).toEqual(["15–21 Nov", "8–14 Nov"]);
-    const later = paymentsHeroRows(screen.payouts, "2026-11-15", today);
-    const due = (rows: typeof later) =>
-      rows.reduce((total, payout) => {
-        const amount = payout.bankBasis === "paid" ? payout.paidAmountPaise : payout.netPayoutPaise;
-        return total + (amount ?? 0);
-      }, 0);
-    expect(formatRupees(due(later))).toBe("₹1,61,587");
-    expect(formatRupees(10_361_477 + 8_067_351)).toBe("₹1,84,288");
-    expect(formatRupees(due(later))).not.toBe("₹1,84,288");
+    expect(formatExclusiveRange(periods[1]?.from ?? "", periods[1]?.to ?? "")).toBe("8–15 Nov");
+    const paired = [periods[1]?.zomato, periods[1]?.swiggy].filter((row) => row != null);
+    const totals = labeledPayoutTotals(paired);
+    expect(formatRupees(totals.paidPaise ?? 0)).toBe("₹80,674");
+    expect(formatRupees(totals.pendingPaise ?? 0)).toBe("₹80,913");
+    expect(totals.paidPaise).not.toBe((totals.paidPaise ?? 0) + (totals.pendingPaise ?? 0));
+    expect((totals.paidPaise ?? 0) + (totals.pendingPaise ?? 0)).toBe(16_158_685);
+    expect(periods[0]?.swiggy).toBeNull();
   });
 
-  it("uses that week's payouts after ads, not the latest week again", () => {
+  it("sums a null Zomato total from order rows and leaves an absent field null", () => {
     const screen = composeOwnerPayments({
       cycles: [
-        cycle("z-new", "2026-11-16", {
+        cycle("z", "2026-11-16", {
           from: "2026-11-09",
-          netPayoutPaise: 10_361_477,
-          adsPaise: 2_270_143,
-          paidAmountPaise: null,
-        }),
-        cycle("s-new", "2026-11-15", {
-          from: "2026-11-08",
-          platform: "swiggy",
-          netPayoutPaise: 9_000_000,
-          paidAmountPaise: 8_067_351,
-        }),
-        cycle("z-old", "2026-11-09", {
-          from: "2026-11-02",
-          paidAmountPaise: 4_000_000,
-          netPayoutPaise: 5_000_000,
-        }),
-        cycle("s-old", "2026-11-08", {
-          from: "2026-11-01",
-          platform: "swiggy",
-          paidAmountPaise: 3_000_000,
-          netPayoutPaise: 4_000_000,
+          commissionPaise: null,
+          feesPaise: null,
+          taxesPaise: null,
+          gstPaise: null,
+          adsPaise: null,
+          grossSalesPaise: null,
         }),
       ],
-      orders: [],
-      adjustments: [{ cycleId: "z-new", label: "ADS", amountPaise: 2_270_143 }],
-      selectedId: null,
+      orders: [
+        {
+          cycleId: "z",
+          orderId: "o-1",
+          date: "2026-11-10",
+          netPayoutPaise: 40_000,
+          grossSalesPaise: 60_000,
+          commissionPaise: 5_000,
+          feesPaise: 1_000,
+          taxesPaise: 200,
+          gstCollectedPaise: 300,
+        },
+        {
+          cycleId: "z",
+          orderId: "o-2",
+          date: "2026-11-11",
+          netPayoutPaise: 20_000,
+          grossSalesPaise: 30_000,
+          commissionPaise: 2_500,
+          feesPaise: 500,
+          taxesPaise: 100,
+          gstCollectedPaise: null,
+        },
+      ],
+      adjustments: [
+        { cycleId: "z", label: "ADS", amountPaise: 2_000_000 },
+        { cycleId: "z", label: "ADS", amountPaise: 52_800 },
+      ],
+      selectedId: "z",
     });
-    const today = "2026-11-22";
-    const earlier = paymentsHeroRows(screen.payouts, "2026-11-08", today);
-    const due = earlier.reduce((total, payout) => {
-      const amount = payout.bankBasis === "paid" ? payout.paidAmountPaise : payout.netPayoutPaise;
-      return total + (amount ?? 0);
-    }, 0);
-    expect(earlier.map((payout) => payout.id).sort()).toEqual(["s-old", "z-old"]);
-    expect(formatRupees(due)).toBe("₹70,000");
-    expect(formatRupees(due)).not.toBe("₹1,61,587");
+    expect(screen.breakdown.find((row) => row.id === "sales")?.paise).toBe(90_000);
+    expect(screen.breakdown.find((row) => row.id === "commission")?.paise).toBe(9_000);
+    expect(screen.breakdown.find((row) => row.id === "ads")?.paise).toBe(2_052_800);
+    expect(screen.breakdown.find((row) => row.id === "tax")?.paise).toBe(300);
+    expect(screen.deductions.find((row) => row.id === "gst")?.paise).toBe(300);
+    expect(screen.deductions.find((row) => row.id === "tds")).toBeUndefined();
+    expect(screen.breakdown.find((row) => row.id === "discounts")?.paise).toBeNull();
   });
 
   it("signs a positive other adjustment as a credit", () => {

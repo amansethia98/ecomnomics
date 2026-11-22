@@ -46,6 +46,15 @@ export interface PaymentOrder {
   orderId: string;
   date: string;
   netPayoutPaise: number | null;
+  grossSalesPaise?: number | null;
+  discountPaise?: number | null;
+  commissionPaise?: number | null;
+  feesPaise?: number | null;
+  taxesPaise?: number | null;
+  tdsPaise?: number | null;
+  tcsPaise?: number | null;
+  gstCollectedPaise?: number | null;
+  complaintsPaise?: number | null;
 }
 
 export interface PaymentAdjustment {
@@ -64,6 +73,8 @@ export interface OwnerPayments {
     orderCount: number | null;
     netPayoutPaise: number | null;
     paidAmountPaise: number | null;
+    /** File net after adjustments. Separate from the bank payment. */
+    expectedPaise: number | null;
     outletName: string | null;
     /** paid uses the settled amount. net is the payout-file net, not the bank. */
     bankBasis: "paid" | "net" | "missing";
@@ -221,7 +232,17 @@ export function composeOwnerPayments(input: {
   adjustments: readonly PaymentAdjustment[];
   selectedId: string | null;
 }): OwnerPayments {
-  const payouts = [...input.cycles]
+  const filled = new Map(
+    input.cycles.map((cycle) => [
+      cycle.id,
+      fillCycleFromOrders(
+        cycle,
+        input.orders.filter((order) => order.cycleId === cycle.id),
+        input.adjustments.filter((row) => row.cycleId === cycle.id),
+      ),
+    ]),
+  );
+  const payouts = [...filled.values()]
     .sort(
       (left, right) =>
         right.to.localeCompare(left.to) ||
@@ -232,6 +253,7 @@ export function composeOwnerPayments(input: {
       const adjustmentPaise = input.adjustments
         .filter((row) => row.cycleId === cycle.id)
         .reduce((total, row) => total + row.amountPaise, 0);
+      const expected = cycle.netPayoutPaise == null ? null : cycle.netPayoutPaise - adjustmentPaise;
       const settled = settledPayoutPaise({
         paidAmountPaise: cycle.paidAmountPaise,
         netPayoutPaise: cycle.netPayoutPaise,
@@ -246,13 +268,14 @@ export function composeOwnerPayments(input: {
         orderCount: cycle.orderCount,
         netPayoutPaise: cycle.paidAmountPaise != null ? cycle.netPayoutPaise : settled,
         paidAmountPaise: cycle.paidAmountPaise,
+        expectedPaise: expected,
         outletName: cycle.outletName,
         bankBasis: bankBasis(cycle),
         status: PAYOUT_CHECK,
       };
     });
   const selected = payouts.find((payout) => payout.id === input.selectedId) ?? payouts[0] ?? null;
-  const cycle = selected ? input.cycles.find((item) => item.id === selected.id) : undefined;
+  const cycle = selected ? filled.get(selected.id) : undefined;
   const deductions = cycle ? deductionRows(cycle) : [];
   return {
     payouts,
@@ -420,48 +443,85 @@ export function ratingsForWindow(
   return composeOwnerRatings({ ...summed, from, to: end });
 }
 
-/** Weeks ending today, newest first: 15–21 Nov, then 8–14 Nov, back to the earliest payout. */
-export function paymentWeeks(
-  today: string,
-  earliest: string | null,
-): Array<{ from: string; to: string }> {
-  const stop = earliest ?? addDays(today, -7);
-  const weeks: Array<{ from: string; to: string }> = [];
-  let to = today;
-  while (weeks.length < 16) {
-    const from = addDays(to, -7);
-    weeks.push({ from, to });
-    if (from <= stop) break;
-    to = from;
-  }
-  return weeks;
+export interface PaymentPeriod<T extends { from: string; to: string }> {
+  from: string;
+  to: string;
+  zomato: T | null;
+  swiggy: T | null;
 }
 
-/**
- * The nth newest payout of each app. Week 0 is the latest week (through yesterday);
- * an older week uses that week's own payout and does not repeat the latest one.
- */
-export function paymentsHeroRows<T extends { platform: "zomato" | "swiggy"; to: string }>(
-  payouts: readonly T[],
-  weekFrom: string,
-  today: string,
-): T[] {
-  let index = 0;
-  for (
-    let cursor = addDays(today, -7);
-    cursor > weekFrom && index < 16;
-    cursor = addDays(cursor, -7)
-  ) {
-    index += 1;
+function rangesOverlap(
+  left: { from: string; to: string },
+  right: { from: string; to: string },
+): boolean {
+  return left.from < right.to && right.from < left.to;
+}
+
+/** Real settlement periods, newest first. An app joins a period only when its cycle overlaps. */
+export function paymentPeriods<
+  T extends { platform: "zomato" | "swiggy"; from: string; to: string },
+>(payouts: readonly T[]): PaymentPeriod<T>[] {
+  const sorted = [...payouts].sort(
+    (left, right) =>
+      right.from.localeCompare(left.from) ||
+      left.platform.localeCompare(right.platform) ||
+      right.to.localeCompare(left.to),
+  );
+  const periods: PaymentPeriod<T>[] = [];
+  for (const payout of sorted) {
+    const match = periods.find((period) => {
+      if (period[payout.platform]) return false;
+      const held = [period.zomato, period.swiggy].filter((row): row is T => row != null);
+      return held.some((row) => rangesOverlap(row, payout));
+    });
+    if (match) {
+      match[payout.platform] = payout;
+      if (payout.from < match.from) match.from = payout.from;
+      if (payout.to > match.to) match.to = payout.to;
+      continue;
+    }
+    periods.push({
+      from: payout.from,
+      to: payout.to,
+      zomato: payout.platform === "zomato" ? payout : null,
+      swiggy: payout.platform === "swiggy" ? payout : null,
+    });
   }
-  return (["zomato", "swiggy"] as const).flatMap((platform) => {
-    const rows = payouts
-      .filter((payout) => payout.platform === platform)
-      .slice()
-      .sort((left, right) => right.to.localeCompare(left.to));
-    const row = rows[index];
-    return row ? [row] : [];
-  });
+  return periods.sort(
+    (left, right) => right.from.localeCompare(left.from) || right.to.localeCompare(left.to),
+  );
+}
+
+/** Paid is the bank figure. Pending is the computed net of a payout with no bank figure. They are not added. */
+export function labeledPayoutTotals(
+  payouts: readonly {
+    bankBasis: "paid" | "net" | "missing";
+    paidAmountPaise: number | null;
+    netPayoutPaise?: number | null;
+    expectedPaise: number | null;
+  }[],
+): { paidPaise: number | null; pendingPaise: number | null } {
+  let paid = 0;
+  let paidAny = false;
+  let pending = 0;
+  let pendingAny = false;
+  for (const payout of payouts) {
+    if (payout.bankBasis === "paid" && payout.paidAmountPaise != null) {
+      paid += payout.paidAmountPaise;
+      paidAny = true;
+      continue;
+    }
+    const expected =
+      payout.expectedPaise ?? (payout.bankBasis === "net" ? payout.netPayoutPaise : null);
+    if (expected != null) {
+      pending += expected;
+      pendingAny = true;
+    }
+  }
+  return {
+    paidPaise: paidAny ? paid : null,
+    pendingPaise: pendingAny ? pending : null,
+  };
 }
 
 /** Null is unreported. A stored zero stays zero. */
@@ -681,6 +741,39 @@ function labelledReports(
     });
   }
   return rows;
+}
+
+/** A null cycle cell is filled from stored order rows. A field with no stored number stays null. */
+export function fillCycleFromOrders(
+  cycle: PaymentCycle,
+  orders: readonly PaymentOrder[],
+  adjustments: readonly PaymentAdjustment[],
+): PaymentCycle {
+  const sum = (pick: (order: PaymentOrder) => number | null | undefined): number | null => {
+    let any = false;
+    let total = 0;
+    for (const order of orders) {
+      const value = pick(order);
+      if (value == null) continue;
+      any = true;
+      total += value;
+    }
+    return any ? total : null;
+  };
+  const ads = storedAdsPaise(adjustments);
+  return {
+    ...cycle,
+    grossSalesPaise: cycle.grossSalesPaise ?? sum((order) => order.grossSalesPaise),
+    discountsPaise: cycle.discountsPaise ?? sum((order) => order.discountPaise),
+    commissionPaise: cycle.commissionPaise ?? sum((order) => order.commissionPaise),
+    feesPaise: cycle.feesPaise ?? sum((order) => order.feesPaise),
+    taxesPaise: cycle.taxesPaise ?? sum((order) => order.taxesPaise),
+    tdsPaise: cycle.tdsPaise ?? sum((order) => order.tdsPaise),
+    tcsPaise: cycle.tcsPaise ?? sum((order) => order.tcsPaise),
+    gstPaise: cycle.gstPaise ?? sum((order) => order.gstCollectedPaise),
+    complaintsPaise: cycle.complaintsPaise ?? sum((order) => order.complaintsPaise),
+    adsPaise: cycle.adsPaise ?? ads,
+  };
 }
 
 function deductionRows(cycle: PaymentCycle): Array<{ id: string; label: string; paise: number }> {

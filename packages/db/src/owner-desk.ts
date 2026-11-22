@@ -99,8 +99,20 @@ export async function readPaymentsForMember(
               supersededAt: null,
             },
             orderBy: { orderDate: "desc" },
-            take: 200,
-            select: { platformOrderId: true, orderDate: true, netPayoutPaise: true },
+            select: {
+              platformOrderId: true,
+              orderDate: true,
+              netPayoutPaise: true,
+              grossSalesPaise: true,
+              discountPaise: true,
+              commissionPaise: true,
+              platformFeesPaise: true,
+              taxesPaise: true,
+              tdsPaise: true,
+              tcsPaise: true,
+              gstCollectedPaise: true,
+              complaintsCancellationChargesPaise: true,
+            },
           })
         : Promise.resolve([]),
       cycles.length === 0
@@ -130,6 +142,15 @@ export async function readPaymentsForMember(
       orderId: order.platformOrderId,
       date: indiaCivilDate(order.orderDate),
       netPayoutPaise: order.netPayoutPaise,
+      grossSalesPaise: order.grossSalesPaise,
+      discountPaise: order.discountPaise,
+      commissionPaise: order.commissionPaise,
+      feesPaise: order.platformFeesPaise,
+      taxesPaise: order.taxesPaise,
+      tdsPaise: order.tdsPaise,
+      tcsPaise: order.tcsPaise,
+      gstCollectedPaise: order.gstCollectedPaise,
+      complaintsPaise: order.complaintsCancellationChargesPaise,
     }));
     const adjustmentRows: PaymentAdjustment[] = adjustments.flatMap((row) => {
       const platform = namedPlatform(row.platform);

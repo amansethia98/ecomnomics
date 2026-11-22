@@ -45,6 +45,7 @@ const payments: OwnerPayments = {
       orderCount: 4,
       netPayoutPaise: 80_000,
       paidAmountPaise: null,
+      expectedPaise: 80_000,
       outletName: "Indiranagar",
       bankBasis: "net",
       status: "pending_check",
@@ -58,6 +59,7 @@ const payments: OwnerPayments = {
       orderCount: 2,
       netPayoutPaise: 40_000,
       paidAmountPaise: null,
+      expectedPaise: 40_000,
       outletName: "Indiranagar",
       bankBasis: "net",
       status: "pending_check",
@@ -79,18 +81,17 @@ it("shows the Thursday check on a payout and not a match", () => {
   const host = render(<PaymentsScreen screen={payments} today="2026-11-22" onSelect={onSelect} />);
   expect(host.textContent).toContain("Check runs Thursday");
   expect(host.textContent).toContain("Net in file");
-  expect(host.textContent).toContain("—");
+  expect(host.textContent).toContain("Not in report");
   const options = [...host.querySelectorAll("option")].map((option) => option.textContent);
-  expect(options.slice(0, 2)).toEqual(["15–21 Nov", "8–14 Nov"]);
+  expect(options).toEqual(["9–15 Nov", "3–8 Nov"]);
   const weekLine = host.querySelector("[data-testid='payout-week']")?.textContent ?? "";
-  expect(weekLine.match(/\d+–\d+ \w+/g)).toEqual(["15–21 Nov"]);
-  expect(weekLine).not.toContain("3–8 Nov");
-  expect(weekLine).not.toContain("9–15 Nov");
+  expect(weekLine).toContain("3–8 Nov");
+  expect(weekLine).toContain("Report not in yet");
+  expect(weekLine).not.toContain("15–21 Nov");
   expect(host.textContent).toContain("Where your money went");
   expect(host.textContent).toContain("₹800");
   expect(host.textContent).not.toContain("Matches");
-  expect(host.textContent).toContain("₹800");
-  expect(host.textContent).toContain("₹400");
+  expect(host.textContent).toContain("Pending");
   expect(host.textContent).toContain("View orders");
   expect(host.textContent).not.toContain("o-1");
   act(() => {
