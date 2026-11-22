@@ -332,6 +332,45 @@ export function briefUrgentCount(text: string | null | undefined): number | null
   return match?.[1] == null ? null : Number(match[1]);
 }
 
+/** Rating from platform-check rows. Complaints and rated orders are summed facts. */
+export function ratingsFromRows(
+  rows: ReadonlyArray<{
+    platform: string;
+    key: string;
+    value: number | null;
+    rowRole: string;
+  }>,
+): {
+  rating: number | null;
+  reviews: readonly OwnerReview[];
+  apps: NonNullable<Parameters<typeof composeOwnerRatings>[0]["apps"]>;
+} {
+  let rating: number | null = null;
+  const sums = new Map<string, number>();
+  for (const row of rows) {
+    if (row.value == null) continue;
+    if (row.key === "rating") {
+      if (row.rowRole === "platform_check" && row.platform === "zomato" && rating == null) {
+        rating = row.value;
+      }
+      continue;
+    }
+    if (row.rowRole !== "fact") continue;
+    const id = `${row.platform}|${row.key}`;
+    sums.set(id, (sums.get(id) ?? 0) + row.value);
+  }
+  const app = (platform: "zomato" | "swiggy") => ({
+    platform,
+    rating: platform === "zomato" ? rating : null,
+    poorRatedOrders: sums.get(`${platform}|poor_rated_orders`) ?? null,
+    orders: sums.get(`${platform}|rated_orders`) ?? null,
+    complaints: Object.fromEntries(
+      COMPLAINTS.map(([id]) => [id, sums.get(`${platform}|${id}`) ?? null]),
+    ),
+  });
+  return { rating, reviews: [], apps: [app("zomato"), app("swiggy")] };
+}
+
 /** Null is unreported. A stored zero stays zero. */
 function reportedFigure(value: number | null | undefined): number | null {
   if (value == null) return null;
@@ -428,12 +467,23 @@ function paymentBreakdown(
   const basis = bankBasis(cycle);
   const adjustmentPaise = adjustments.reduce((total, row) => total + row.amountPaise, 0);
   const ads = cycle.adsPaise ?? (adjustmentPaise !== 0 ? adjustmentPaise : null);
-  const other = cycle.adsPaise != null && adjustmentPaise !== 0 ? -adjustmentPaise : null;
   const settled = settledPayoutPaise({
     paidAmountPaise: cycle.paidAmountPaise,
     netPayoutPaise: cycle.netPayoutPaise,
     adjustmentPaise,
   });
+  const target = cycle.paidAmountPaise ?? settled;
+  const piece = (value: number | null) => value ?? 0;
+  const other =
+    cycle.grossSalesPaise != null && target != null
+      ? target -
+        (cycle.grossSalesPaise -
+          piece(cycle.discountsPaise) -
+          piece(sumPaise(cycle.commissionPaise, cycle.feesPaise)) -
+          piece(ads) -
+          piece(sumPaise(cycle.taxesPaise, cycle.tdsPaise, cycle.tcsPaise)) -
+          piece(cycle.complaintsPaise))
+      : null;
   return [
     { id: "sales", label: "Your sales", paise: cycle.grossSalesPaise, basis: null },
     { id: "discounts", label: "Discounts you paid for", paise: cycle.discountsPaise, basis: null },

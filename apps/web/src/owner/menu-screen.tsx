@@ -47,6 +47,8 @@ export function MenuScreen({ screen }: { screen: OwnerMenu }) {
               label={t`Menu score`}
               value={screen.swiggy.score}
               points={screen.swiggy.scorePoints}
+              score
+              asOf={screen.swiggy.scoreAsOf}
             />
             <Fact label={t`Dishes with photos`} value={screen.swiggy.photoPct} percent />
             <Fact
@@ -55,16 +57,11 @@ export function MenuScreen({ screen }: { screen: OwnerMenu }) {
               percent
             />
             <Fact
-              label={t`Top dishes`}
+              label={t`Top 5 dishes' share of Swiggy sales`}
               value={screen.swiggy.top5SharePct ?? screen.swiggy.top5RevenuePaise}
               percent={screen.swiggy.top5SharePct != null}
               rupees={screen.swiggy.top5SharePct == null}
             />
-            {screen.swiggy.scoreAsOf ? (
-              <li className="text-body-sm text-muted-foreground">
-                {t`Menu score as of ${formatCivilDay(screen.swiggy.scoreAsOf)}`}
-              </li>
-            ) : null}
           </ul>
         </section>
       ) : null}
@@ -80,26 +77,44 @@ function Fact({
   value,
   percent = false,
   rupees = false,
+  score = false,
   points,
+  asOf,
 }: {
   label: string;
   value: number | null | undefined;
   percent?: boolean;
   rupees?: boolean;
+  score?: boolean;
   points?: number[];
+  asOf?: string | null;
 }) {
   const { t } = useLingui();
   const shown =
-    value == null ? "—" : rupees ? formatRupees(value) : percent ? `${value}%` : String(value);
+    value == null
+      ? "—"
+      : rupees
+        ? formatRupees(value)
+        : percent
+          ? `${value}%`
+          : score
+            ? `${value} / 100`
+            : String(value);
+  const strong = value != null && (percent ? value >= 90 : value >= 80);
   return (
     <li className="flex items-center justify-between gap-3 border-t border-border py-2">
       <span>{label}</span>
       <span className="flex items-center gap-2">
         <Sparkline points={points} />
         {value == null ? "—" : shown}
-        <span className="owner-pill bg-muted text-muted-foreground">
-          {value == null ? t`Not in reports` : t`In reports`}
-        </span>
+        {asOf ? (
+          <span className="text-muted-foreground">{t`as of ${formatCivilDay(asOf)}`}</span>
+        ) : null}
+        {value != null ? (
+          <span className={strong ? "owner-pill owner-pill-good" : "owner-pill owner-pill-watch"}>
+            {strong ? t`Strong` : t`Needs work`}
+          </span>
+        ) : null}
       </span>
     </li>
   );

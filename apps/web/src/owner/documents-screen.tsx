@@ -150,32 +150,17 @@ export function DocumentsScreen({
             {t`Save`}
           </Button>
         </form>
-      ) : (
-        <div>
-          <p className="font-medium">{screen.reference ?? t`FSSAI licence`}</p>
-          {screen.expiresOn ? (
-            <p className="text-body-sm text-muted-foreground">{formatCivilDay(screen.expiresOn)}</p>
-          ) : null}
-          {screen.gstin ? <p className="text-body-sm">{screen.gstin}</p> : null}
-          <button
-            type="button"
-            className="mt-2 text-body-sm text-primary"
-            onClick={() => setEditing(true)}
-          >
-            {t`Edit`}
-          </button>
-        </div>
-      )}
+      ) : null}
       <section>
         <h2 className="text-label text-muted-foreground">{t`Business documents`}</h2>
         <ul>
           <li className="flex items-center justify-between gap-3 border-t border-border py-2">
-            <span>
+            <button type="button" className="text-left" onClick={() => setEditing(true)}>
               <span className="block font-medium">{t`FSSAI licence`}</span>
               <span className="block text-body-sm text-muted-foreground">
                 {screen.expiresOn ? formatCivilDay(screen.expiresOn) : t`No expiry typed`}
               </span>
-            </span>
+            </button>
             <span
               className={
                 screen.reminder === "expired" || screen.reminder === "7" || screen.reminder === "30"

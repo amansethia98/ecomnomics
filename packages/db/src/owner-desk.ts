@@ -8,6 +8,7 @@ import {
   composeOwnerPayments,
   composeOwnerRatings,
   indiaCivilDate,
+  ratingsFromRows,
   utcMidnight,
 } from "@rakazo/contracts";
 import type { PrismaClient } from "./client.js";
@@ -266,29 +267,34 @@ export async function readRatingsForMember(
 ) {
   const restaurant = await memberRestaurant(db, userId, restaurantId);
   return runAsTenant({ spaceId: restaurant.spaceId, userId }, async () => {
-    const keys = ["rating", "poor_rated_orders", "placed_orders", ...COMPLAINT_KEYS];
-    const facts = await latestFacts(db, restaurant, keys, outletId);
-    const app = (platform: "zomato" | "swiggy") => {
-      const poorDay = facts.dates.get(`${platform}|poor_rated_orders`);
-      const orderDay = facts.dates.get(`${platform}|placed_orders`);
-      return {
-        platform,
-        rating: facts.values.get(`${platform}|rating`) ?? null,
-        poorRatedOrders: facts.values.get(`${platform}|poor_rated_orders`) ?? null,
-        orders:
-          poorDay != null && poorDay === orderDay
-            ? (facts.values.get(`${platform}|placed_orders`) ?? null)
-            : null,
-        complaints: Object.fromEntries(
-          COMPLAINT_KEYS.map((key) => [key, facts.values.get(`${platform}|${key}`) ?? null]),
-        ),
-      };
-    };
-    return composeOwnerRatings({
-      rating: facts.values.get("zomato|rating") ?? null,
-      reviews: [],
-      apps: [app("zomato"), app("swiggy")],
+    const since = utcMidnight(addIsoDays(indiaCivilDate(new Date()), -28));
+    const rows = await db.metricValue.findMany({
+      where: {
+        restaurantId: restaurant.restaurantId,
+        spaceId: restaurant.spaceId,
+        key: { in: ["rating", "poor_rated_orders", "rated_orders", ...COMPLAINT_KEYS] },
+        state: "ok",
+        supersededAt: null,
+        rowRole: { in: ["fact", "platform_check"] },
+        ...(outletId ? { outletId } : {}),
+      },
+      orderBy: { periodStart: "desc" },
+      select: { key: true, platform: true, value: true, rowRole: true, periodStart: true },
+      take: 2000,
     });
+    const windowed = rows.flatMap((row) => {
+      if (row.value == null) return [];
+      if (row.key !== "rating" && row.periodStart < since) return [];
+      return [
+        {
+          platform: row.platform,
+          key: row.key,
+          value: Number(row.value),
+          rowRole: row.rowRole,
+        },
+      ];
+    });
+    return composeOwnerRatings(ratingsFromRows(windowed));
   });
 }
 
