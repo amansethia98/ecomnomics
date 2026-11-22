@@ -1,6 +1,7 @@
 import type { PaymentAdjustment, PaymentCycle, PaymentOrder } from "@rakazo/contracts";
 import {
   addIsoDays,
+  briefUrgentCount,
   civilDateOrNull,
   composeOwnerDocuments,
   composeOwnerMenu,
@@ -187,7 +188,14 @@ async function readDocumentsInside(
       where: { restaurantId: restaurant.restaurantId, spaceId: restaurant.spaceId },
       orderBy: { createdAt: "desc" },
       take: 20,
-      select: { id: true, kind: true, periodStart: true, periodEnd: true, createdAt: true },
+      select: {
+        id: true,
+        kind: true,
+        periodStart: true,
+        periodEnd: true,
+        createdAt: true,
+        summaryMarkdown: true,
+      },
     }),
   ]);
   return composeOwnerDocuments({
@@ -201,6 +209,8 @@ async function readDocumentsInside(
       from: indiaCivilDate(report.periodStart),
       to: indiaCivilDate(report.periodEnd),
       createdOn: indiaCivilDate(report.createdAt),
+      createdAt: report.createdAt.toISOString(),
+      urgent: briefUrgentCount(report.summaryMarkdown),
     })),
   });
 }
@@ -256,16 +266,24 @@ export async function readRatingsForMember(
 ) {
   const restaurant = await memberRestaurant(db, userId, restaurantId);
   return runAsTenant({ spaceId: restaurant.spaceId, userId }, async () => {
-    const keys = ["rating", "poor_rated_orders", ...COMPLAINT_KEYS];
+    const keys = ["rating", "poor_rated_orders", "placed_orders", ...COMPLAINT_KEYS];
     const facts = await latestFacts(db, restaurant, keys, outletId);
-    const app = (platform: "zomato" | "swiggy") => ({
-      platform,
-      rating: facts.values.get(`${platform}|rating`) ?? null,
-      poorRatedOrders: facts.values.get(`${platform}|poor_rated_orders`) ?? null,
-      complaints: Object.fromEntries(
-        COMPLAINT_KEYS.map((key) => [key, facts.values.get(`${platform}|${key}`) ?? null]),
-      ),
-    });
+    const app = (platform: "zomato" | "swiggy") => {
+      const poorDay = facts.dates.get(`${platform}|poor_rated_orders`);
+      const orderDay = facts.dates.get(`${platform}|placed_orders`);
+      return {
+        platform,
+        rating: facts.values.get(`${platform}|rating`) ?? null,
+        poorRatedOrders: facts.values.get(`${platform}|poor_rated_orders`) ?? null,
+        orders:
+          poorDay != null && poorDay === orderDay
+            ? (facts.values.get(`${platform}|placed_orders`) ?? null)
+            : null,
+        complaints: Object.fromEntries(
+          COMPLAINT_KEYS.map((key) => [key, facts.values.get(`${platform}|${key}`) ?? null]),
+        ),
+      };
+    };
     return composeOwnerRatings({
       rating: facts.values.get("zomato|rating") ?? null,
       reviews: [],
@@ -301,6 +319,7 @@ async function swiggyMenuFacts(
   return {
     score: facts.values.get("swiggy|menu_score") ?? null,
     scoreAsOf: facts.dates.get("swiggy|menu_score") ?? null,
+    scorePoints: [...(facts.series.get("swiggy|menu_score") ?? [])].reverse(),
     photoPct: photo == null ? null : Math.round(photo),
     descriptionPct: description == null ? null : Math.round(description),
     top5RevenuePaise: facts.values.get("swiggy|top5_items_revenue_paise") ?? null,
@@ -361,14 +380,20 @@ async function latestFacts(
   });
   const kept = new Map<string, number | null>();
   const dates = new Map<string, string>();
+  const series = new Map<string, number[]>();
   for (const row of rows) {
     if (row.value == null) continue;
     const id = `${row.platform}|${row.key}`;
+    const points = series.get(id) ?? [];
+    if (points.length < 12) {
+      points.push(Number(row.value));
+      series.set(id, points);
+    }
     if (kept.has(id)) continue;
     kept.set(id, Number(row.value));
     dates.set(id, indiaCivilDate(row.periodStart));
   }
-  return { values: kept, dates };
+  return { values: kept, dates, series };
 }
 
 /** The newest menu window for each outlet and app. A later window on one app does not drop the other. */

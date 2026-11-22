@@ -286,4 +286,19 @@ describe("owner menu and ratings", () => {
     expect(zomato?.complaints.find((row) => row.id === "complaints_quality")?.count).toBe(0);
     expect(zomato?.complaints.find((row) => row.id === "complaints_packaging")?.count).toBeNull();
   });
+
+  it("states poorly rated orders as a percent of the same day's orders", () => {
+    const screen = composeOwnerRatings({
+      rating: null,
+      reviews: [],
+      apps: [{ platform: "zomato", poorRatedOrders: 2, orders: 8, complaints: {} }],
+    });
+    expect(screen.apps.find((app) => app.platform === "zomato")?.poorRatedPct).toBe(25);
+    const missing = composeOwnerRatings({
+      rating: null,
+      reviews: [],
+      apps: [{ platform: "zomato", poorRatedOrders: 2, complaints: {} }],
+    });
+    expect(missing.apps.find((app) => app.platform === "zomato")?.poorRatedPct).toBeNull();
+  });
 });

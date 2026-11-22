@@ -1,7 +1,8 @@
 import { useLingui } from "@lingui/react/macro";
 import type { OwnerDocuments } from "@rakazo/contracts";
-import { formatCivilDay, parseDisplayDate } from "@rakazo/contracts";
+import { formatCivilDay, formatIstClock, parseDisplayDate } from "@rakazo/contracts";
 import { Button } from "@rakazo/ui-web";
+import { FileText } from "lucide-react";
 import { useEffect, useState } from "react";
 
 export function DocumentsScreen({
@@ -220,7 +221,8 @@ export function DocumentsScreen({
             {screen.reports
               .filter((report) => reportFilter === "all" || report.kind === reportFilter)
               .map((report) => (
-                <li key={report.id} className="border-t border-border py-2">
+                <li key={report.id} className="flex items-center gap-2 border-t border-border py-2">
+                  <FileText aria-hidden="true" className="size-4 shrink-0" />
                   <span className="font-medium">
                     {report.kind === "daily"
                       ? t`Daily brief`
@@ -232,7 +234,15 @@ export function DocumentsScreen({
                   </span>
                   <span className="ml-2 text-body-sm text-muted-foreground">
                     {formatCivilDay(report.createdOn)}
+                    {report.createdAt ? ` · ${formatIstClock(new Date(report.createdAt))}` : ""}
                   </span>
+                  {report.urgent === 1 ? (
+                    <span className="owner-pill bg-muted text-muted-foreground">{t`1 urgent`}</span>
+                  ) : report.urgent != null && report.urgent > 1 ? (
+                    <span className="owner-pill bg-muted text-muted-foreground">
+                      {t`${report.urgent} urgent`}
+                    </span>
+                  ) : null}
                   <span className="owner-pill bg-muted text-muted-foreground">{t`Sent`}</span>
                 </li>
               ))}

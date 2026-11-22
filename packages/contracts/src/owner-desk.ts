@@ -98,6 +98,8 @@ export interface OwnerMenuFacts {
   scoreAsOf?: string | null;
   /** Top dishes as a percent of Swiggy sales over the same window. */
   top5SharePct?: number | null;
+  /** Menu score, oldest to newest, only the points that were stored. */
+  scorePoints?: number[];
 }
 
 export interface OwnerMenu {
@@ -125,6 +127,8 @@ export interface OwnerRatingApp {
   /** Swiggy's rating is not in its reports. */
   ratingState: "ok" | "not_in_report";
   poorRatedOrders: number | null;
+  /** Poorly rated orders divided by orders on the same day. Null when that day has no order count. */
+  poorRatedPct: number | null;
   complaints: Array<{ id: string; label: string; count: number | null }>;
 }
 
@@ -140,6 +144,10 @@ export interface OwnerReportArchiveItem {
   from: string;
   to: string;
   createdOn: string;
+  /** When the report was stored. Absent on older rows that only kept the day. */
+  createdAt?: string | null;
+  /** Act-now count parsed from the stored brief. Null when the brief has no count. */
+  urgent?: number | null;
 }
 
 export interface OwnerDocuments {
@@ -309,6 +317,21 @@ const COMPLAINTS = [
   ["complaints_wrong", "Wrong items"],
 ] as const;
 
+/** Poorly rated orders as a percent of orders on that same day. */
+export function poorRatedPercent(
+  poor: number | null,
+  orders: number | null | undefined,
+): number | null {
+  if (poor == null || orders == null || orders <= 0) return null;
+  return Math.round((poor / orders) * 1000) / 10;
+}
+
+/** Act-now count from a stored brief. Null when the brief does not say. */
+export function briefUrgentCount(text: string | null | undefined): number | null {
+  const match = text?.match(/Act now \((\d+)\)/);
+  return match?.[1] == null ? null : Number(match[1]);
+}
+
 /** Null is unreported. A stored zero stays zero. */
 function reportedFigure(value: number | null | undefined): number | null {
   if (value == null) return null;
@@ -322,6 +345,8 @@ export function composeOwnerRatings(input: {
     platform: "zomato" | "swiggy";
     rating?: number | null;
     poorRatedOrders?: number | null;
+    /** Orders on the same day as the poorly-rated count. */
+    orders?: number | null;
     complaints?: Readonly<Record<string, number | null>>;
   }>;
 }): OwnerRatings {
@@ -336,6 +361,7 @@ export function composeOwnerRatings(input: {
       ratingState:
         platform === "swiggy" ? "not_in_report" : rating == null ? "not_in_report" : "ok",
       poorRatedOrders: reportedFigure(app?.poorRatedOrders),
+      poorRatedPct: poorRatedPercent(reportedFigure(app?.poorRatedOrders), app?.orders),
       complaints: COMPLAINTS.map(([id, label]) => ({
         id,
         label,
