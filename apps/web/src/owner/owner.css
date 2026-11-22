@@ -45,12 +45,13 @@
 }
 
 .ecomnomics .owner-plot {
+  max-width: 100%;
   overflow-x: auto;
 }
 
 .ecomnomics .owner-plot svg {
-  width: auto;
-  max-width: none;
+  width: 100%;
+  max-width: 100%;
   height: auto;
   font-size: 12px;
 }

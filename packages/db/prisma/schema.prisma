@@ -2785,6 +2785,8 @@ model Restaurant {
   opsAlertEvents OpsAlertEvent[]
   opsReportDeliveries OpsReportDelivery[]
   outletDayAnswers OutletDayAnswer[]
+  marketingActions MarketingAction[]
+  staffTurns       OwnerStaffTurn[]
 
   @@unique([id, spaceId])
   @@map("restaurants")
@@ -2819,6 +2821,7 @@ model Outlet {
   relabelAttempts     MetricRelabelAttempt[]
   opsAlerts           OpsAlert[]
   outletDayAnswers    OutletDayAnswer[]
+  marketingActions    MarketingAction[]
 
   @@unique([id, spaceId])
   @@index([spaceId])
@@ -3225,6 +3228,50 @@ model OpsAlert {
   @@index([restaurantId, status, lastSeenDate], map: "ops_alerts_status_idx")
   @@index([spaceId], map: "ops_alerts_space_idx")
   @@map("ops_alerts")
+}
+
+/// A marketing decision recorded from chat. It does not change Zomato or Swiggy.
+model MarketingAction {
+  id            String    @id @default(cuid())
+  restaurantId  String
+  restaurant    Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId       String
+  outletId      String?
+  outlet        Outlet?   @relation(fields: [outletId], references: [id], onDelete: SetNull)
+  platform      String
+  kind          String
+  title         String
+  detail        String    @db.Text
+  maxCostPaise  Int?
+  decision      String
+  approvedAt    DateTime?
+  declinedUntil DateTime? @db.Date
+  confirmedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([restaurantId, decision], map: "marketing_actions_decision_idx")
+  @@index([spaceId], map: "marketing_actions_space_idx")
+  @@map("marketing_actions")
+}
+
+/// One turn in the in-app chief of staff thread. Counted owner turns use the daily limit.
+model OwnerStaffTurn {
+  id           String   @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId      String
+  userId       String
+  businessDate DateTime @db.Date
+  role         String
+  body         Json
+  counted      Boolean  @default(false)
+  failed       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@index([restaurantId, userId, businessDate], map: "owner_staff_turns_day_idx")
+  @@index([spaceId], map: "owner_staff_turns_space_idx")
+  @@map("owner_staff_turns")
 }
 
 /// The owner's answer for one outlet on one civil date: closed or not sure (status closed | not_sure).

@@ -457,30 +457,41 @@ export function weekSales(
   const skipped = (day: { date: string; outletId?: string }) =>
     day.outletId != null && closedKeys.has(`${day.outletId}|${day.date}`);
   const start = weekMonday(date);
+  const rows = new Map<string, Map<string, number>>();
+  for (const day of days) {
+    if (skipped(day) || day.salesPaise == null) continue;
+    const key = `${day.outletId ?? ""}|${day.platform ?? "all"}`;
+    const bucket = rows.get(day.date) ?? new Map<string, number>();
+    bucket.set(key, (bucket.get(key) ?? 0) + day.salesPaise);
+    rows.set(day.date, bucket);
+  }
   let current = 0;
   let baseline = 0;
   let pairs = 0;
   let firstData: string | null = null;
   let lastData: string | null = null;
   const used = new Set<string>();
-  for (const day of days) {
-    if (skipped(day)) continue;
-    if (day.date < start || day.date > date || day.salesPaise == null) continue;
-    const prior = days.find(
-      (item) =>
-        !skipped(item) &&
-        item.date === addIso(day.date, -7) &&
-        item.salesPaise != null &&
-        (item.platform ?? "all") === (day.platform ?? "all") &&
-        (day.outletId == null || item.outletId === day.outletId),
-    );
-    if (!prior || prior.salesPaise == null) continue;
-    current += day.salesPaise;
-    baseline += prior.salesPaise;
+  for (const day of [...rows.keys()].filter((item) => item >= start && item <= date).sort()) {
+    const now = rows.get(day);
+    const prior = rows.get(addIso(day, -7));
+    if (!now || !prior || now.size === 0) continue;
+    let dayNow = 0;
+    let dayBase = 0;
+    let shared = 0;
+    for (const [key, sales] of now) {
+      const before = prior.get(key);
+      if (before == null) continue;
+      dayNow += sales;
+      dayBase += before;
+      shared += 1;
+    }
+    if (shared === 0) continue;
+    current += dayNow;
+    baseline += dayBase;
     pairs += 1;
-    used.add(day.date);
-    if (!firstData || day.date < firstData) firstData = day.date;
-    if (!lastData || day.date > lastData) lastData = day.date;
+    used.add(day);
+    if (!firstData || day < firstData) firstData = day;
+    if (!lastData || day > lastData) lastData = day;
   }
   if (pairs === 0 || baseline === 0 || !lastData || !firstData) return null;
   const change = pctChange(current, baseline);
@@ -627,11 +638,63 @@ function salesLine(view: DailyBriefView): string | null {
   return parts.join(" · ");
 }
 
-function weekLine(view: DailyBriefView): string {
-  const week = view.week;
-  if (!week) return "";
+export function formatWeekLine(week: {
+  startLabel: string;
+  endLabel: string;
+  currentPaise: number;
+  changePct: number;
+  pendingLabel?: string | null;
+}): string {
   const pending = week.pendingLabel ? `, ${week.pendingLabel}` : "";
-  return `Week so far (${week.startLabel}–${week.endLabel}${pending}): ${formatRupees(week.currentPaise)} (${formatSignedPct(week.changePct)})`;
+  return `Week so far (${week.startLabel}–${week.endLabel}${pending}): ${formatRupees(week.currentPaise)} vs the same days last week (${formatSignedPct(week.changePct)})`;
+}
+
+/** Swap a stored week sentence for the same days, measured again. */
+export function replaceWeekLine(
+  markdown: string,
+  week: {
+    startLabel: string;
+    endLabel: string;
+    currentPaise: number;
+    changePct: number;
+    pendingLabel?: string | null;
+  } | null,
+): string {
+  if (!week || !markdown.includes("Week so far (")) return markdown;
+  return markdown.replace(/Week so far \([^)\n]*\):[^\n]*/, formatWeekLine(week));
+}
+
+function weekLine(view: DailyBriefView): string {
+  return view.week ? formatWeekLine(view.week) : "";
+}
+
+/** Rewrite a stored brief's pending line and data stamp from the latest fetch. */
+export function refreshBriefClosing(
+  markdown: string,
+  fresh: {
+    capturedOn: string | null;
+    dataAsOf: string | null;
+    missing: ReadonlyArray<{ platform: "zomato" | "swiggy"; date: string }>;
+  },
+): string {
+  let text = markdown
+    .replace(/(?:Zomato|Swiggy)'s figures for [^.]*(?:aren't in yet|never came in)[^.]*\./g, "")
+    .replace(/Data as of [^.]+\./g, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  const gaps = fresh.missing.map((gap) => {
+    const day = formatCivilDay(gap.date);
+    return gap.platform === "swiggy"
+      ? `Swiggy's figures for ${day} aren't in yet (Swiggy can take up to 48 hours); we'll check them tomorrow.`
+      : `Zomato's figures for ${day} aren't in yet; we'll check them tomorrow.`;
+  });
+  if (gaps.length > 0) text = [text, ...gaps].filter((part) => part.length > 0).join("\n");
+  if (fresh.capturedOn) {
+    const clock = fresh.dataAsOf ? `, ${fresh.dataAsOf}` : "";
+    text = `${text} Data as of ${formatCivilDay(fresh.capturedOn)}${clock} IST.`.trim();
+  }
+  return text;
 }
 
 function closing(view: DailyBriefView): string {

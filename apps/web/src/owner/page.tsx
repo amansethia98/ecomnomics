@@ -1,5 +1,12 @@
 import { useLingui } from "@lingui/react/macro";
-import type { OwnerHomeModel, OwnerHomeQuestion, OwnerProfile, OwnerView } from "@rakazo/contracts";
+import type {
+  MarketingScreen,
+  OwnerHomeModel,
+  OwnerHomeQuestion,
+  OwnerProfile,
+  OwnerView,
+  StaffThread,
+} from "@rakazo/contracts";
 import { indiaCivilDate, parseOwnerView } from "@rakazo/contracts";
 import { useEffect, useState } from "react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -9,7 +16,9 @@ import { useDiscardGuard } from "./discard-guard";
 import type { OwnerScreenId } from "./frame";
 import { isOwnerScreen, OwnerFrame } from "./frame";
 import { OwnerHomeScreen } from "./home-screen";
+import { MarketingActionsScreen } from "./marketing-screen";
 import { MetricState } from "./marks";
+import { StaffScreen } from "./staff-screen";
 import "./owner.css";
 import type { ProfileDraft } from "./settings";
 import { SettingsProfile } from "./settings";
@@ -20,7 +29,10 @@ interface RestaurantList {
 
 async function ownerJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...init, credentials: "include" });
-  if (!response.ok) throw new Error(String(response.status));
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
+    throw new Error(typeof body?.error === "string" ? body.error : String(response.status));
+  }
   return response.json() as Promise<T>;
 }
 
@@ -39,6 +51,9 @@ export function OwnerPage() {
   const [dirty, setDirty] = useState(false);
   const [home, setHome] = useState<OwnerHomeModel | null>(null);
   const [homeTick, setHomeTick] = useState(0);
+  const [staff, setStaff] = useState<StaffThread | null>(null);
+  const [marketing, setMarketing] = useState<MarketingScreen | null>(null);
+  const [staffNotice, setStaffNotice] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -96,6 +111,29 @@ export function OwnerPage() {
     const platform = raw === "zomato" || raw === "swiggy" ? raw : "both";
     prefetchOwnerDashboard(restaurantId, outlet, platform, today);
   }, [restaurantId, screenParam, search, today]);
+
+  useEffect(() => {
+    if (!restaurantId || (screenParam !== "chief-of-staff" && screenParam !== "marketing")) return;
+    let live = true;
+    setStaff(null);
+    setMarketing(null);
+    const path =
+      screenParam === "marketing"
+        ? `/api/v1/restaurants/${restaurantId}/marketing`
+        : `/api/v1/restaurants/${restaurantId}/staff`;
+    ownerJson<StaffThread | MarketingScreen>(path)
+      .then((next) => {
+        if (!live) return;
+        if (screenParam === "marketing") setMarketing(next as MarketingScreen);
+        else setStaff(next as StaffThread);
+      })
+      .catch(() => {
+        if (live) setFailed(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [restaurantId, screenParam]);
 
   const confirmLeave = useDiscardGuard(dirty, t`Leave without saving?`);
 
@@ -235,6 +273,70 @@ export function OwnerPage() {
         )
       ) : screen === "dashboard" ? (
         <OwnerDashboard restaurantId={restaurantId} view={view} today={today} />
+      ) : screen === "chief-of-staff" ? (
+        staff ? (
+          <StaffScreen
+            restaurantId={restaurantId}
+            thread={staff}
+            notice={staffNotice}
+            onAsk={(text, key) => {
+              setStaffNotice(null);
+              void ownerJson<StaffThread>(`/api/v1/restaurants/${restaurantId}/staff/questions`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ text, key }),
+              })
+                .then((next) => setStaff(next))
+                .catch((error: unknown) =>
+                  setStaffNotice(error instanceof Error ? error.message : t`Try again.`),
+                );
+            }}
+            onChoose={(actionId, choice) => {
+              setStaffNotice(null);
+              void ownerJson<StaffThread>(`/api/v1/restaurants/${restaurantId}/staff/choices`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ actionId, choice }),
+              })
+                .then((next) => setStaff(next))
+                .catch((error: unknown) =>
+                  setStaffNotice(error instanceof Error ? error.message : t`Try again.`),
+                );
+            }}
+          />
+        ) : (
+          <p className="text-muted-foreground">{t`Loading`}</p>
+        )
+      ) : screen === "marketing" ? (
+        marketing ? (
+          <MarketingActionsScreen
+            restaurantId={restaurantId}
+            screen={marketing}
+            onConfirm={(actionId, done) => {
+              void ownerJson<MarketingScreen>(
+                `/api/v1/restaurants/${restaurantId}/marketing/${actionId}/confirm`,
+                {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({ done }),
+                },
+              ).then((next) => setMarketing(next));
+            }}
+            onDecide={(actionId, choice) => {
+              void ownerJson<StaffThread>(`/api/v1/restaurants/${restaurantId}/staff/choices`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ actionId, choice }),
+              })
+                .then(() =>
+                  ownerJson<MarketingScreen>(`/api/v1/restaurants/${restaurantId}/marketing`),
+                )
+                .then((next) => setMarketing(next));
+            }}
+          />
+        ) : (
+          <p className="text-muted-foreground">{t`Loading`}</p>
+        )
       ) : (
         <Placeholder />
       )}

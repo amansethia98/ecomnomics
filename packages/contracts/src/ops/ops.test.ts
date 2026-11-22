@@ -11,6 +11,8 @@ import {
   catchUpLine,
   combinedDaySales,
   composeDailyBrief,
+  refreshBriefClosing,
+  replaceWeekLine,
   viewFromDaily,
   weekSales,
 } from "./brief.js";
@@ -760,7 +762,7 @@ describe("daily brief", () => {
 Sat 14 Nov vs Sat 7 Nov · 🟢 Healthy
 Net sales ₹18,400 (+6.2%) · Zomato ₹11,200 (+4.7%) · Swiggy ₹7,200 (+8.6%)
 42 delivered · AOV ₹438
-Week so far (Mon–Sat): ₹1,02,300 (+2.1%)
+Week so far (Mon–Sat): ₹1,02,300 vs the same days last week (+2.1%)
 All good on both apps. Data as of Sun 15 Nov, 05:48 IST.`;
 
   const callouts = `*Good morning · Sample Kitchen*
@@ -1165,6 +1167,94 @@ Note: Swiggy figures for Sat may change within 48 hours. Data as of Sun 15 Nov, 
     );
     expect(week?.currentPaise).toBe(750_000);
     expect(week?.changePct).toBeCloseTo(-44.4, 1);
+  });
+
+  it("compares a partial week with the same apps on both sides", () => {
+    const days = ["2026-11-09", "2026-11-10", "2026-11-11"].flatMap((date) => [
+      { date, platform: "zomato" as const, salesPaise: 100 },
+      { date, platform: "swiggy" as const, salesPaise: 100 },
+      { date: addDays(date, -7), platform: "zomato" as const, salesPaise: 200 },
+      { date: addDays(date, -7), platform: "swiggy" as const, salesPaise: 200 },
+    ]);
+    for (const date of ["2026-11-05", "2026-11-06", "2026-11-07", "2026-11-08"]) {
+      days.push(
+        { date, platform: "zomato", salesPaise: 900 },
+        { date, platform: "swiggy", salesPaise: 900 },
+      );
+    }
+    days.push(
+      { date: "2026-11-12", platform: "zomato", salesPaise: 100 },
+      { date: "2026-11-05", platform: "zomato", salesPaise: 900 },
+      { date: "2026-11-05", platform: "swiggy", salesPaise: 900 },
+    );
+    const week = weekSales("2026-11-12", days);
+    expect(week?.endLabel).toBe("Thu");
+    expect(week?.currentPaise).toBe(700);
+    expect(week?.changePct).toBeCloseTo(-76.7, 1);
+    const line = composeDailyBrief({
+      restaurantName: "Sample Kitchen",
+      date: "2026-11-12",
+      baselineDate: "2026-11-05",
+      form: "brief",
+      onlyApp: null,
+      sales: null,
+      delivered: null,
+      aovPaise: null,
+      week,
+      callouts: [],
+      ongoing: null,
+      resolved: null,
+      notes: [],
+      dataAsOf: null,
+      catchUp: [],
+      healthyOutlets: 1,
+      outletCount: 1,
+    }).text;
+    expect(line).toContain("vs the same days last week");
+  });
+
+  it("keeps a Sunday that both weeks share and ignores a day that exists only last week", () => {
+    const days = [
+      { date: "2026-11-09", platform: "zomato" as const, salesPaise: 400 },
+      { date: "2026-11-15", platform: "zomato" as const, salesPaise: 500 },
+      { date: "2026-11-02", platform: "zomato" as const, salesPaise: 300 },
+      { date: "2026-11-08", platform: "zomato" as const, salesPaise: 350 },
+      { date: "2026-11-08", platform: "swiggy" as const, salesPaise: 999 },
+      { date: "2026-11-01", platform: "zomato" as const, salesPaise: 999 },
+    ];
+    const week = weekSales("2026-11-15", days);
+    expect(week?.startLabel).toBe("Mon");
+    expect(week?.endLabel).toBe("Sun");
+    expect(week?.currentPaise).toBe(900);
+    expect(week?.changePct).toBeCloseTo(38.5, 1);
+    expect(
+      replaceWeekLine(
+        "Week so far (Mon–Wed): ₹100 vs the same days last week (−50.0%)\nNext",
+        week,
+      ),
+    ).toBe(`Week so far (Mon–Sun): ₹9 vs the same days last week (+38.5%)\nNext`);
+  });
+
+  it("rebuilds a stale pending line and data stamp from the latest fetch", () => {
+    const text = refreshBriefClosing(
+      "All good on Zomato; Swiggy pending.\nSwiggy's figures for Sun 2 Nov aren't in yet (Swiggy can take up to 48 hours); we'll check them tomorrow. Data as of Mon 3 Nov, 05:42 IST.",
+      {
+        capturedOn: "2026-11-20",
+        dataAsOf: "06:10",
+        missing: [{ platform: "swiggy", date: "2026-11-19" }],
+      },
+    );
+    expect(text).not.toContain("Sun 2 Nov");
+    expect(text).not.toContain("Mon 3 Nov");
+    expect(text).toContain("Swiggy's figures for Thu 19 Nov aren't in yet");
+    expect(text).toContain("Data as of Fri 20 Nov, 06:10 IST.");
+    const ready = refreshBriefClosing(text, {
+      capturedOn: "2026-11-20",
+      dataAsOf: "06:10",
+      missing: [],
+    });
+    expect(ready).not.toContain("aren't in yet");
+    expect(ready).toContain("Data as of Fri 20 Nov, 06:10 IST.");
   });
 
   it("does not put a UTR-like token in a brief", () => {

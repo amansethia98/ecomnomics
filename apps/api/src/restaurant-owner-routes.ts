@@ -1,25 +1,33 @@
 import {
   AGENT_TOKEN_PREFIX,
   isIsoDate,
+  MarketingConfirmSchema,
   OpsDismissSchema,
   OpsSnoozeSchema,
   OutletDayRequestSchema,
   OwnerMetricsQuerySchema,
   OwnerProfilePatchSchema,
   ownerMetricsErrorMessage,
+  StaffChoiceSchema,
+  StaffQuestionSchema,
 } from "@rakazo/contracts";
 import type { PrismaClient } from "@rakazo/db";
 import {
+  askStaffForMember,
+  chooseStaffForMember,
+  confirmMarketingForMember,
   dismissOpsAlertForMember,
   listOpsAlertsForMember,
   listOpsFeedForMember,
   listOwnerRestaurants,
   proposeOpsActionForMember,
   RestaurantAgentError,
+  readMarketingForMember,
   readOpsReportForMember,
   readOwnerHomeForMember,
   readOwnerMetricsForMember,
   readOwnerProfileForMember,
+  readStaffForMember,
   recordOutletDayForMember,
   snoozeOpsAlertForMember,
   updateOwnerProfileForMember,
@@ -247,6 +255,88 @@ export function restaurantOwnerRoutes(options: RestaurantOwnerRouteOptions) {
       throw error;
     }
   });
+  app.get("/api/v1/restaurants/:restaurantId/staff", async (c) => {
+    const session = await options.getSession(c.req.raw.headers);
+    if (!session) return ownerError(c, 401, "unauthorized", "Unauthorized");
+    try {
+      return c.json(
+        await readStaffForMember(options.prisma, session.userId, c.req.param("restaurantId")),
+      );
+    } catch (error) {
+      return ownerFailure(c, error);
+    }
+  });
+  app.post("/api/v1/restaurants/:restaurantId/staff/questions", async (c) => {
+    const session = await options.getSession(c.req.raw.headers);
+    if (!session) return ownerError(c, 401, "unauthorized", "Unauthorized");
+    const body = await c.req.json().catch(() => null);
+    const parsed = StaffQuestionSchema.safeParse(body);
+    if (!parsed.success) return ownerError(c, 400, "invalid_body", "That question is not valid.");
+    try {
+      return c.json(
+        await askStaffForMember(
+          options.prisma,
+          session.userId,
+          c.req.param("restaurantId"),
+          parsed.data.text,
+          parsed.data.key,
+        ),
+      );
+    } catch (error) {
+      return ownerFailure(c, error);
+    }
+  });
+  app.post("/api/v1/restaurants/:restaurantId/staff/choices", async (c) => {
+    const session = await options.getSession(c.req.raw.headers);
+    if (!session) return ownerError(c, 401, "unauthorized", "Unauthorized");
+    const body = await c.req.json().catch(() => null);
+    const parsed = StaffChoiceSchema.safeParse(body);
+    if (!parsed.success) return ownerError(c, 400, "invalid_body", "That choice is not valid.");
+    try {
+      return c.json(
+        await chooseStaffForMember(
+          options.prisma,
+          session.userId,
+          c.req.param("restaurantId"),
+          parsed.data.actionId,
+          parsed.data.choice,
+        ),
+      );
+    } catch (error) {
+      return ownerFailure(c, error);
+    }
+  });
+  app.get("/api/v1/restaurants/:restaurantId/marketing", async (c) => {
+    const session = await options.getSession(c.req.raw.headers);
+    if (!session) return ownerError(c, 401, "unauthorized", "Unauthorized");
+    try {
+      return c.json(
+        await readMarketingForMember(options.prisma, session.userId, c.req.param("restaurantId")),
+      );
+    } catch (error) {
+      return ownerFailure(c, error);
+    }
+  });
+  app.post("/api/v1/restaurants/:restaurantId/marketing/:actionId/confirm", async (c) => {
+    const session = await options.getSession(c.req.raw.headers);
+    if (!session) return ownerError(c, 401, "unauthorized", "Unauthorized");
+    const body = await c.req.json().catch(() => null);
+    const parsed = MarketingConfirmSchema.safeParse(body);
+    if (!parsed.success) return ownerError(c, 400, "invalid_body", "That answer is not valid.");
+    try {
+      return c.json(
+        await confirmMarketingForMember(
+          options.prisma,
+          session.userId,
+          c.req.param("restaurantId"),
+          c.req.param("actionId"),
+          parsed.data.done,
+        ),
+      );
+    } catch (error) {
+      return ownerFailure(c, error);
+    }
+  });
   return app;
 }
 
@@ -276,7 +366,9 @@ function listQuery(c: Context, name: string): string[] | undefined {
 function ownerFailure(c: Context, error: unknown) {
   if (error instanceof RestaurantAgentError) {
     const status =
-      error.status === 404 || error.status === 422 || error.status === 409 ? error.status : 400;
+      error.status === 404 || error.status === 422 || error.status === 409 || error.status === 429
+        ? error.status
+        : 400;
     return ownerError(c, status === 409 ? 400 : status, error.code, error.message);
   }
   if (error instanceof Error && error.name === "ZodError") {
@@ -285,6 +377,11 @@ function ownerFailure(c: Context, error: unknown) {
   throw error;
 }
 
-function ownerError(c: Context, status: 400 | 401 | 403 | 404 | 422, code: string, error: string) {
+function ownerError(
+  c: Context,
+  status: 400 | 401 | 403 | 404 | 422 | 429,
+  code: string,
+  error: string,
+) {
   return c.json({ error, code }, status);
 }
