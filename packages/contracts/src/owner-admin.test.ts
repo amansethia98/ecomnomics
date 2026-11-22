@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  adminQualityNotes,
   composeAdminPanel,
   filterAdminRestaurants,
   ownerViewFromRestaurant,
   panelFromAdminRows,
 } from "./owner-admin.js";
+import type { DashReading } from "./owner-dashboard.js";
 
 const outlet = {
   name: "HSR",
@@ -131,5 +133,53 @@ describe("platform admin panel", () => {
     );
     expect(JSON.stringify(panel)).not.toContain("should-not-leak");
     expect(panel.connections[0]?.zomato).toBe("connected");
+  });
+
+  it("takes the last download from the newest stored fetch, in India time", () => {
+    const panel = composeAdminPanel({
+      openFindings: 0,
+      restaurants: [
+        {
+          restaurantId: "r1",
+          name: "Sample",
+          outlets: [outlet],
+          runs: [
+            {
+              status: "ok",
+              startedAt: "2026-11-12T00:00:00.000Z",
+              endedAt: "2026-11-12T01:00:00.000Z",
+              costPaise: 0,
+            },
+          ],
+          fetches: [{ createdAt: "2026-11-21T21:00:00.000Z", platform: "zomato" }],
+        },
+      ],
+    });
+    expect(panel.restaurants[0]?.lastDownload).toBe("2026-11-22");
+    expect(panel.health).toBe("1 restaurant updated");
+    const readings: DashReading[] = [
+      {
+        from: "2026-11-18",
+        grain: "day",
+        platform: "zomato",
+        key: "cart_builds",
+        value: 4,
+        state: "ok",
+      },
+      {
+        from: "2026-11-18",
+        grain: "day",
+        platform: "zomato",
+        key: "placed_orders",
+        value: 9,
+        state: "ok",
+      },
+    ];
+    expect(
+      adminQualityNotes({ readings, badPayouts: [{ platform: "zomato", mark: "unreadable" }] }),
+    ).toEqual([
+      "Carts and orders do not match on 2026-11-18",
+      "zomato payout mark unreadable could not be read",
+    ]);
   });
 });

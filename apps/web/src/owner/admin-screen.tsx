@@ -6,6 +6,7 @@ import {
   formatRupees,
   panelFromAdminRows,
 } from "@rakazo/contracts";
+import { Activity, IndianRupee, Link2, Mail, Moon, Shield, Store } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -27,7 +28,10 @@ export function AdminAccessDenied() {
     <div className="mx-auto max-w-md px-4 py-16">
       <div className="owner-panel p-6">
         <p className="text-label text-muted-foreground">{t`Admin`}</p>
-        <h1 className="owner-title mt-1">{t`You don't have access.`}</h1>
+        <h1 className="owner-title mt-1">{t`You don't have admin access`}</h1>
+        <a className="mt-4 inline-block text-body-sm text-primary" href="/restaurants">
+          {t`Back to the owner app`}
+        </a>
         <p className="mt-2 text-body-sm text-muted-foreground">
           {t`Admin access · never shows passwords`}
         </p>
@@ -75,7 +79,7 @@ export function AdminPanelScreen({
   return (
     <div className="flex min-h-screen">
       <nav className="flex w-56 shrink-0 flex-col gap-1 border-r border-border bg-card px-3 py-6">
-        <p className="px-2 text-label text-muted-foreground">{t`Admin`}</p>
+        <p className="px-2 py-2 text-body font-medium">{t`Ecomnomics · Admin`}</p>
         {SECTIONS.map((id) => (
           <button
             key={id}
@@ -83,11 +87,12 @@ export function AdminPanelScreen({
             aria-current={section === id ? "page" : undefined}
             className={
               section === id
-                ? "rounded-lg bg-muted px-2 py-2 text-left text-body-sm"
-                : "rounded-lg px-2 py-2 text-left text-body-sm text-muted-foreground"
+                ? "flex items-center gap-2 rounded-lg bg-muted px-2 py-2 text-left text-body-sm"
+                : "flex items-center gap-2 rounded-lg px-2 py-2 text-left text-body-sm text-muted-foreground"
             }
             onClick={() => setSection(id)}
           >
+            <SectionIcon id={id} />
             {labels[id]}
           </button>
         ))}
@@ -96,13 +101,50 @@ export function AdminPanelScreen({
         </p>
       </nav>
       <main className="min-w-0 flex-1 px-6 py-6">
-        <h1 className="text-label text-muted-foreground">{labels[section]}</h1>
+        <p className="text-label text-muted-foreground">{labels[section]}</p>
         {section === "health" ? (
           <section className="mt-4 flex flex-col gap-6">
-            <h2 className="owner-title">{panel.health}</h2>
-            {!panel.needsYou && panel.health.startsWith("All ") ? (
-              <p>{t`Nothing needs you`}</p>
-            ) : null}
+            <h2 className="text-heading1 font-semibold">{panel.health}</h2>
+            <p className="text-body-sm text-muted-foreground">
+              {t`Last night's run`}
+              {" · "}
+              {panel.restaurants.length === 1
+                ? t`1 restaurant`
+                : t`${panel.restaurants.length} restaurants`}
+            </p>
+            <div className="grid gap-3 sm:grid-cols-4">
+              <Stat
+                label={t`Downloads OK`}
+                value={`${panel.runs.filter((run) => run.state === "done").length}/${panel.runs.length}`}
+              />
+              <Stat label={t`Briefs sent`} value="—" />
+              <Stat
+                label={t`Swiggy pending`}
+                value={String(
+                  panel.connections.filter((row) => row.swiggy === "not_connected").length,
+                )}
+              />
+              <Stat
+                label={t`Cost this month`}
+                value={panel.costsPaise == null ? "—" : formatRupees(panel.costsPaise)}
+              />
+            </div>
+            {panel.needsYou ? (
+              <section className="owner-panel p-4">
+                <h3 className="text-label text-muted-foreground">{t`Needs a person`}</h3>
+                <ul>
+                  {panel.runs
+                    .filter((run) => run.state !== "done")
+                    .map((run) => (
+                      <li key={run.restaurant} className="border-t border-border py-2">
+                        {run.restaurant} · {stateLabel[run.state]}
+                      </li>
+                    ))}
+                </ul>
+              </section>
+            ) : (
+              <p className="owner-pill owner-pill-good w-fit">{t`Nothing needs you`}</p>
+            )}
             <ul>
               {panel.runs.map((run) => (
                 <li
@@ -126,6 +168,7 @@ export function AdminPanelScreen({
             <input
               type="search"
               aria-label={t`Search restaurants`}
+              placeholder={t`Search restaurants`}
               className="h-9 max-w-sm rounded-lg border border-border bg-background px-2"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -199,19 +242,31 @@ export function AdminPanelScreen({
         ) : null}
         {section === "runs" ? (
           <section className="mt-4">
-            <h2 className="owner-title">{panel.health}</h2>
+            <h2 className="text-heading1 font-semibold">
+              {t`${panel.runs.filter((run) => run.state === "done").length} of ${panel.runs.length} downloads OK last night`}
+            </h2>
             <table className="mt-4 w-full text-body-sm">
               <thead>
                 <tr className="text-left text-label text-muted-foreground">
                   <th className="py-2 font-medium">{t`Restaurant`}</th>
                   <th className="py-2 font-medium">{t`Result`}</th>
+                  <th className="py-2 font-medium">{t`Tries`}</th>
+                  <th className="py-2 font-medium">{t`Rows`}</th>
+                  <th className="py-2 font-medium">{t`Time`}</th>
+                  <th className="py-2 font-medium">{t`AI cost`}</th>
                 </tr>
               </thead>
               <tbody>
                 {panel.runs.map((run) => (
                   <tr key={run.restaurant} className="border-t border-border">
                     <td className="py-3">{run.restaurant}</td>
-                    <td className="py-3">{stateLabel[run.state]}</td>
+                    <td className="py-3">
+                      <span className="owner-pill">{stateLabel[run.state]}</span>
+                    </td>
+                    <td className="py-3">—</td>
+                    <td className="py-3">—</td>
+                    <td className="py-3">—</td>
+                    <td className="py-3">—</td>
                   </tr>
                 ))}
               </tbody>
@@ -238,16 +293,71 @@ export function AdminPanelScreen({
             </ul>
           </section>
         ) : null}
-        {section === "messages" ? <p className="mt-4">{panel.messages}</p> : null}
-        {section === "costs" ? (
-          <p className="owner-title mt-4">
-            {panel.costsPaise == null ? "—" : formatRupees(panel.costsPaise)}
-          </p>
+        {section === "messages" ? (
+          <div className="owner-panel mt-4 p-4">
+            <h2 className="text-heading1 font-semibold">{t`Messages sent`}</h2>
+            <p className="mt-2 text-body-sm text-muted-foreground">{panel.messages}</p>
+          </div>
         ) : null}
-        {section === "rules" ? <p className="mt-4">{panel.rules}</p> : null}
+        {section === "costs" ? (
+          <section className="mt-4 flex flex-col gap-4">
+            <h2 className="text-heading1 font-semibold">
+              {panel.costsPaise == null
+                ? "—"
+                : t`${formatRupees(panel.costsPaise)} so far this month`}
+            </h2>
+            <table className="w-full text-body-sm">
+              <tbody>
+                {panel.restaurants.map((row) => (
+                  <tr key={row.restaurantId} className="border-t border-border">
+                    <td className="py-2">{row.name}</td>
+                    <td className="py-2">
+                      {row.costPaise == null ? "—" : formatRupees(row.costPaise)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        ) : null}
+        {section === "rules" ? (
+          <section className="owner-panel mt-4 p-4">
+            <p className="text-body-sm text-muted-foreground">{t`Confirmed in the rules file`}</p>
+            <p className="mt-2">{panel.rules}</p>
+            {panel.quality.length > 0 ? (
+              <ul className="mt-3">
+                {panel.quality.map((note) => (
+                  <li key={note} className="border-t border-border py-2 text-body-sm">
+                    {note}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
+        ) : null}
       </main>
     </div>
   );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="owner-panel p-3">
+      <p className="text-label text-muted-foreground">{label}</p>
+      <p className="text-heading3 font-medium">{value}</p>
+    </div>
+  );
+}
+
+function SectionIcon({ id }: { id: AdminSection }) {
+  const className = "size-4 shrink-0";
+  if (id === "health") return <Activity aria-hidden="true" className={className} />;
+  if (id === "restaurants") return <Store aria-hidden="true" className={className} />;
+  if (id === "runs") return <Moon aria-hidden="true" className={className} />;
+  if (id === "connections") return <Link2 aria-hidden="true" className={className} />;
+  if (id === "messages") return <Mail aria-hidden="true" className={className} />;
+  if (id === "costs") return <IndianRupee aria-hidden="true" className={className} />;
+  return <Shield aria-hidden="true" className={className} />;
 }
 
 export function PlatformAdminPage() {

@@ -35,6 +35,7 @@ export interface PlatformAdminRestaurant {
     zomato: { resId: string; commissionPct: number | null } | null;
     swiggy: { rid: string; commissionPct: number | null } | null;
   }>;
+  fetches: Array<{ createdAt: string; platform: string }>;
   jobRuns: Array<{
     runId: string;
     skill: string;
@@ -85,6 +86,7 @@ function present(row: {
   timezone: string;
   outlets: OutletRow[];
   jobRuns: JobRow[];
+  fetches: Array<{ createdAt: Date; platform: string }>;
 }): PlatformAdminRestaurant {
   return {
     restaurantId: row.id,
@@ -102,6 +104,10 @@ function present(row: {
       swiggy: outlet.swiggyRid
         ? { rid: outlet.swiggyRid, commissionPct: asNumber(outlet.swiggyCommissionPct) }
         : null,
+    })),
+    fetches: row.fetches.map((fetch) => ({
+      createdAt: fetch.createdAt.toISOString(),
+      platform: fetch.platform,
     })),
     jobRuns: row.jobRuns.map((job) => ({
       runId: job.runId,
@@ -135,6 +141,11 @@ const restaurantSelect = {
       swiggyRid: true,
       swiggyCommissionPct: true,
     },
+  },
+  fetches: {
+    orderBy: { createdAt: "desc" as const },
+    take: 14,
+    select: { createdAt: true, platform: true },
   },
   jobRuns: {
     orderBy: { startedAt: "desc" as const },
