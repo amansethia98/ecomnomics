@@ -141,6 +141,7 @@ function Message({
   restaurantId: string;
   onChoose: (actionId: string, choice: "approve" | "change" | "not_now") => void;
 }) {
+  const { t } = useLingui();
   const mine = message.role === "owner";
   const opening = message.blocks.find((block) => block.kind === "text");
   const older =
