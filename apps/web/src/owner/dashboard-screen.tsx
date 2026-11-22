@@ -142,10 +142,10 @@ export function OwnerDashboard({
             <PlotFigure key={plot.id} plot={plot} />
           ))}
         {model.pins.length > 0 ? (
-          <ol className="flex flex-wrap gap-3 text-body-sm text-muted-foreground">
+          <ol className="flex flex-nowrap gap-3 overflow-x-auto text-body-sm whitespace-nowrap text-muted-foreground">
             {model.pins.map((pin) => (
               <li key={`${pin.week}-${pin.kind}`}>
-                {pin.n} <PinLabel kind={pin.kind} />
+                {pin.n} <PinLabel kind={pin.kind} label={pin.label} />
               </li>
             ))}
           </ol>
@@ -169,12 +169,7 @@ export function OwnerDashboard({
         </div>
         <div>
           <h2 className="text-label text-muted-foreground">{t`How customers find you`}</h2>
-          {model.funnelLine ? (
-            <p className="mt-1 font-medium text-destructive">
-              <span aria-hidden="true">● </span>
-              {model.funnelLine}
-            </p>
-          ) : null}
+          {model.funnelLine ? <FunnelLine text={model.funnelLine} /> : null}
           {(["menu", "cart", "order"] as const).map((step) => (
             <div key={step}>
               <p className="text-body-sm">
@@ -226,13 +221,11 @@ export function Answer({ model }: { model: OwnerDashboardModel }) {
     model.answer.dipped == null ? null : `${formatPct1(Math.abs(model.answer.dipped.pct))}%`;
   const dip = dipPct
     ? model.answer.unit === "day"
-      ? model.answer.festival
-        ? t`The last day dipped ${dipPct} vs ${model.answer.dipped?.against ?? "the day before"} after a festival week`
-        : t`The last day dipped ${dipPct} vs ${model.answer.dipped?.against ?? "the day before"}`
-      : model.answer.festival
-        ? t`Last week (${model.answer.dipped?.against ?? ""}) dipped ${dipPct} after a festival week`
-        : t`Last week (${model.answer.dipped?.against ?? ""}) dipped ${dipPct}`
+      ? t`The last day dipped ${dipPct} vs ${model.answer.dipped?.against ?? "the day before"}`
+      : t`Last week (${model.answer.dipped?.against ?? ""}) dipped ${dipPct}`
     : null;
+  const festival =
+    model.answer.festival || model.tiles.some((tile) => tile.festival) ? t`festival week` : null;
   const pending =
     model.answer.pendingPlatform === "swiggy"
       ? t`Swiggy pending`
@@ -243,7 +236,7 @@ export function Answer({ model }: { model: OwnerDashboardModel }) {
     <div>
       <h2 className="owner-title">{lead}</h2>
       <p className="text-body-sm text-muted-foreground">
-        {[flat, dip, pending].filter(Boolean).join(" · ")}
+        {[flat, dip, festival, pending].filter(Boolean).join(" · ")}
       </p>
     </div>
   );
@@ -276,9 +269,9 @@ function Notes({ model }: { model: OwnerDashboardModel }) {
   );
 }
 
-function PinLabel({ kind }: { kind: "festival" | "discount" | "offline" }) {
+function PinLabel({ kind, label }: { kind: "festival" | "discount" | "offline"; label: string }) {
   const { t } = useLingui();
-  if (kind === "festival") return t`Festival`;
+  if (kind === "festival") return label;
   if (kind === "discount") return t`Discount ended`;
   return t`Offline`;
 }
@@ -328,6 +321,25 @@ function sparkPlot(tile: OwnerDashboardModel["tiles"][number]): OwnerPlot {
   };
 }
 
+function FunnelLine({ text }: { text: string }) {
+  const match = /^(.*?)(down \d+ weeks in a row)$/.exec(text);
+  return (
+    <p className="mt-1 font-medium text-foreground">
+      <span aria-hidden="true" className="text-destructive">
+        ●{" "}
+      </span>
+      {match ? (
+        <>
+          {match[1]}
+          <span className="text-destructive">{match[2]}</span>
+        </>
+      ) : (
+        text
+      )}
+    </p>
+  );
+}
+
 function PlotFigure({ plot }: { plot: OwnerPlot }) {
   const host = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
@@ -347,6 +359,9 @@ function PlotFigure({ plot }: { plot: OwnerPlot }) {
           setFailed(true);
           return;
         }
+        svg.setAttribute("font-size", "12");
+        const drawn = svg.getAttribute("width");
+        if (drawn) svg.style.minWidth = `${drawn}px`;
         host.current.append(svg);
         setFailed(false);
       } catch (error) {

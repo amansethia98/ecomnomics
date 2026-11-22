@@ -44,10 +44,15 @@
   background: var(--owner-zomato);
 }
 
+.ecomnomics .owner-plot {
+  overflow-x: auto;
+}
+
 .ecomnomics .owner-plot svg {
-  width: 100%;
-  max-width: 100%;
+  width: auto;
+  max-width: none;
   height: auto;
+  font-size: 12px;
 }
 
 .ecomnomics .owner-dot-swiggy {

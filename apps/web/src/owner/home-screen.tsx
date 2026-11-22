@@ -132,6 +132,11 @@ export function OwnerHomeScreen({
               change={home.sales.changePct}
               pending={home.sales.pendingPlatform}
               compare={weekday}
+              splits={(home.sales.splits ?? []).map((split) => ({
+                platform: split.platform,
+                value: split.value != null ? formatRupees(split.value) : "—",
+                change: split.changePct,
+              }))}
             />
             <HeadlineNumber
               label={t`Delivered orders`}
@@ -141,6 +146,11 @@ export function OwnerHomeScreen({
               change={home.delivered.changePct}
               pending={home.delivered.pendingPlatform}
               compare={weekday}
+              splits={(home.delivered.splits ?? []).map((split) => ({
+                platform: split.platform,
+                value: split.value != null ? formatCount(split.value) : "—",
+                change: split.changePct,
+              }))}
             />
             <div>
               <p className="text-label text-muted-foreground">{t`Last week's payout`}</p>
@@ -277,12 +287,14 @@ function HeadlineNumber({
   change,
   pending,
   compare,
+  splits = [],
 }: {
   label: string;
   value: string;
   change: number | null;
   pending: "zomato" | "swiggy" | null;
   compare: string | null;
+  splits?: Array<{ platform: "zomato" | "swiggy"; value: string; change: number | null }>;
 }) {
   const { t } = useLingui();
   const pendingLabel =
@@ -306,6 +318,24 @@ function HeadlineNumber({
             direction={change < 0 ? "down" : "up"}
             label={`${formatSignedPct(change)} ${t`vs last`} ${compare}`}
           />
+        ) : null}
+        {splits.length > 1 ? (
+          <p className="mt-1 flex flex-col gap-0.5 text-body-sm text-muted-foreground">
+            {splits.map((split) => (
+              <span key={split.platform} className="inline-flex items-center gap-1">
+                <span
+                  className={
+                    split.platform === "zomato"
+                      ? "owner-dot owner-dot-zomato"
+                      : "owner-dot owner-dot-swiggy"
+                  }
+                  aria-hidden="true"
+                />
+                {split.value}
+                {split.change != null ? ` ${formatSignedPct(split.change)}` : ""}
+              </span>
+            ))}
+          </p>
         ) : null}
       </div>
     </div>

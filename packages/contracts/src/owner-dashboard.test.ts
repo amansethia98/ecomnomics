@@ -117,7 +117,13 @@ it("draws two sales panels, each with its own trend line, and shades the last we
   expect(salesPlot?.marks.filter((mark) => mark.type === "lineY")).toHaveLength(1);
   expect(swiggyPlot?.marks.filter((mark) => mark.type === "lineY")).toHaveLength(1);
   expect(salesPlot?.marks.some((mark) => mark.type === "areaY")).toBe(true);
-  expect(salesPlot?.marks.some((mark) => mark.type === "linearRegressionY")).toBe(true);
+  const trend = salesPlot?.marks.find((mark) => mark.type === "linearRegressionY");
+  expect(trend?.options?.ci).toBe(0);
+  const shade = salesPlot?.marks.find((mark) => mark.type === "rect");
+  expect(JSON.stringify(shade?.data)).toContain("2026-11-09");
+  expect(JSON.stringify(shade?.data)).toContain("2026-11-16");
+  const domain = salesPlot?.x?.domain as string[] | undefined;
+  expect((domain?.[1] ?? "") >= "2026-11-16").toBe(true);
   expect(salesPlot?.y?.domain).not.toEqual(swiggyPlot?.y?.domain);
   expect(salesPlot?.marks.some((mark) => mark.type === "rect")).toBe(true);
   expect(salesPlot?.y?.format).toBe("inr");
@@ -152,13 +158,14 @@ it("numbers festival, discount, and offline weeks", () => {
   ];
   const dash = composeOwnerDashboard(
     input(readings, {
-      holidays: ["2026-10-28"],
+      holidays: ["2026-11-08"],
       range: "12w",
       from: "2026-08-26",
       to: "2026-11-17",
     }),
   );
   expect(dash.pins.map((pin) => pin.kind)).toEqual(["festival", "discount", "offline"]);
+  expect(dash.pins[0]?.label).toBe("Diwali");
   expect(dash.pins.map((pin) => pin.n)).toEqual([1, 2, 3]);
   expect(dash.tiles.find((tile) => tile.id === "sales")?.festival).toBe(true);
   const marked = dashboardPlots(dash).flatMap((plot) =>
@@ -169,6 +176,65 @@ it("numbers festival, discount, and offline weeks", () => {
     ),
   );
   expect(marked).toEqual(expect.arrayContaining(["1", "2", "3"]));
+});
+
+it("combines both apps for the last day's dip", () => {
+  const readings = [
+    day("2026-11-13", "zomato", "ops_sales_paise", 200),
+    day("2026-11-13", "swiggy", "swiggy_net_sales_paise", 200),
+    day("2026-11-20", "zomato", "ops_sales_paise", 180),
+    day("2026-11-20", "swiggy", "swiggy_net_sales_paise", 40),
+  ];
+  const dash = composeOwnerDashboard(
+    input(readings, { today: "2026-11-21", from: "2026-11-14", to: "2026-11-21" }),
+  );
+  expect(dash.answer.dipped?.pct).toBeCloseTo(-45);
+  expect(dash.answer.dipped?.against).toBe("last Friday");
+});
+
+it("shows the weekly menu headline on a short range and a long one", () => {
+  const starts = ["2026-10-19", "2026-10-26", "2026-11-02", "2026-11-09"];
+  const opens = [400, 300, 200, 100];
+  const readings = starts.flatMap((start, index) => [
+    week(start, "zomato", "ops_sales_paise", 1000),
+    week(start, "zomato", "impressions", 1000),
+    week(start, "zomato", "menu_opens", opens[index] ?? 100),
+    week(start, "zomato", "cart_builds", 50),
+    week(start, "zomato", "placed_orders", 20),
+  ]);
+  const shared = {
+    platform: "zomato" as const,
+    today: "2026-11-22",
+    from: "2026-10-26",
+    to: "2026-11-23",
+  };
+  const four = composeOwnerDashboard(input(readings, { ...shared, range: "4w" }));
+  const twelve = composeOwnerDashboard(
+    input(readings, { ...shared, range: "12w", from: "2026-08-31" }),
+  );
+  expect(four.funnelLine).toContain("down 4 weeks in a row");
+  expect(twelve.funnelLine).toBe(four.funnelLine);
+});
+
+it("calls a rating rise of a few tenths improving", () => {
+  const readings = [
+    ...salesWeeks(
+      "zomato",
+      Array.from({ length: 12 }, () => 100),
+    ),
+    ...weeks.map((from) => week(from, "zomato", "rating", from < "2026-10-12" ? 4 : 4.4)),
+  ];
+  const dash = composeOwnerDashboard(
+    input(readings, {
+      platform: "zomato",
+      range: "12w",
+      from: "2026-08-26",
+      to: "2026-11-17",
+    }),
+  );
+  const rating = dash.tiles.find((tile) => tile.id === "rating");
+  expect((rating?.changePct ?? 0) >= 0.1).toBe(true);
+  expect(rating?.word).toBe("improving");
 });
 
 it("says when the menu step falls three weeks in a row", () => {

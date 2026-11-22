@@ -478,6 +478,46 @@ it("uses the last complete day when yesterday is not in yet", () => {
   expect(home.questions).toEqual([]);
 });
 
+it("splits the last complete day by app against the same weekday", () => {
+  const home = composeOwnerHome(
+    input({
+      brief: { ...input().brief!, form: "no_data", sales: null, delivered: null, statusText: "" },
+      lastComplete: {
+        date: "2026-11-18",
+        salesPaise: 600,
+        delivered: 12,
+        salesChangePct: -25,
+        ordersChangePct: -20,
+        onlyPlatform: null,
+        apps: [
+          {
+            platform: "zomato",
+            salesPaise: 400,
+            salesChangePct: -10,
+            delivered: 8,
+            ordersChangePct: -5,
+          },
+          {
+            platform: "swiggy",
+            salesPaise: 200,
+            salesChangePct: -40,
+            delivered: 4,
+            ordersChangePct: -30,
+          },
+        ],
+      },
+    }),
+  );
+  expect(home.sales.splits).toEqual([
+    { platform: "zomato", value: 400, changePct: -10 },
+    { platform: "swiggy", value: 200, changePct: -40 },
+  ]);
+  expect(home.delivered.splits).toEqual([
+    { platform: "zomato", value: 8, changePct: -5 },
+    { platform: "swiggy", value: 4, changePct: -30 },
+  ]);
+});
+
 it("labels a one-app last complete day and its weekday change", () => {
   const home = composeOwnerHome(
     input({
