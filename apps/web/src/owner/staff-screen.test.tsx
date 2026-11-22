@@ -71,6 +71,12 @@ it("shows the counter only in the thread it was given, and the metric with the o
   expect(host.textContent).toContain("₹1,12,480");
   expect(host.textContent).toContain("Approve this offer");
   expect(host.textContent).toContain("What needs me today?");
+  expect(host.firstElementChild?.className).toContain("overflow-x-clip");
+  expect(host.textContent).toContain("nothing changes without your OK");
+  const caption = [...host.querySelectorAll("p")].find((node) =>
+    node.textContent?.includes("nothing changes without your OK"),
+  );
+  expect(caption?.className).toContain("break-words");
 });
 
 it("hides the starters and disables the question when the day is used up", () => {

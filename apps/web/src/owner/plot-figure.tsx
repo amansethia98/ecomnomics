@@ -27,8 +27,7 @@ export function PlotFigure({ plot }: { plot: OwnerPlot }) {
           if (node.textContent?.includes("⚠")) node.remove();
         }
         svg.setAttribute("font-size", "12");
-        const drawn = Number(svg.getAttribute("width") ?? plot.width ?? 0);
-        if (drawn > 400) svg.style.minWidth = `${drawn}px`;
+        svg.style.maxWidth = "100%";
         host.current.append(svg);
         setFailed(false);
       } catch (error) {

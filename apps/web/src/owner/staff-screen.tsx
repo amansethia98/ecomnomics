@@ -42,14 +42,14 @@ export function StaffScreen({
     setText("");
   };
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-4">
+    <div className="mx-auto flex min-w-0 max-w-3xl flex-col gap-4 overflow-x-clip">
       <header className="flex items-center gap-3">
         <span className="flex size-9 items-center justify-center rounded-full bg-background">
           <Sparkles aria-hidden="true" className="size-4" />
         </span>
         <div className="min-w-0 flex-1">
           <p className="font-medium">{t`Chief of staff`}</p>
-          <p className="text-body-sm text-muted-foreground">
+          <p className="break-words text-body-sm text-muted-foreground">
             {t`Knows your Zomato & Swiggy numbers · nothing changes without your OK`}
           </p>
         </div>
@@ -152,8 +152,8 @@ function Message({
       <div
         className={
           mine
-            ? "max-w-[80%] rounded-2xl bg-primary px-3 py-2 text-primary-foreground"
-            : "max-w-[80%] rounded-2xl bg-background px-3 py-2"
+            ? "min-w-0 max-w-[80%] break-words rounded-2xl bg-primary px-3 py-2 text-primary-foreground"
+            : "min-w-0 max-w-[80%] break-words rounded-2xl bg-background px-3 py-2"
         }
       >
         {message.older ? (
