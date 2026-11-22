@@ -654,6 +654,16 @@ export async function readOwnerHomeForMember(
   });
 }
 
+interface PayoutTileRow {
+  id: string;
+  platform: "zomato" | "swiggy";
+  from: string;
+  to: string;
+  bankBasis: "paid" | "net" | "missing";
+  paidAmountPaise: number | null;
+  expectedPaise: number | null;
+}
+
 async function payoutTile(
   db: PrismaClient,
   scope: Pick<RestaurantScope, "restaurantId" | "spaceId">,
@@ -681,8 +691,8 @@ async function payoutTile(
       },
       select: { cycleId: true, outletId: true, platform: true, amountPaise: true },
     });
-    const rows = cycles.flatMap((cycle) => {
-      const platform =
+    const rows: PayoutTileRow[] = cycles.flatMap((cycle) => {
+      const platform: PayoutTileRow["platform"] | null =
         cycle.platform === "zomato" || cycle.platform === "swiggy" ? cycle.platform : null;
       if (!platform) return [];
       const adjustmentPaise = adjustments
@@ -713,7 +723,9 @@ async function payoutTile(
     });
     const period = paymentPeriods(rows)[0];
     if (!period) return empty;
-    return labeledPayoutTotals([period.zomato, period.swiggy].filter((row) => row != null));
+    return labeledPayoutTotals(
+      [period.zomato, period.swiggy].filter((row): row is PayoutTileRow => row != null),
+    );
   } catch {
     return empty;
   }
