@@ -393,7 +393,8 @@ function parseZomato(
       tcsPaise: tcs,
       cvPaise: cv,
       gstCollectedPaise: gstCollected,
-      gstDeductionPaise: null,
+      // The restaurant-payable GST cell. A blank cell is not in the report.
+      gstDeductionPaise: listedGst,
       complaintsCancellationChargesPaise: complaints,
       netPayoutPaise: printed,
       paidAmountPaise: rupeesToPaise(cell(row, paidCol)),
@@ -415,6 +416,16 @@ function parseZomato(
   if (summaryReference) cycle.utrLast4 = summaryReference;
   const adjustments = zomatoAdjustments(sheets.get("addition deductions details") ?? [], book);
   const totals = zomatoTotals(sheets.get("payout breakup") ?? [], book);
+  fillMissingZomatoTotals(totals, orders, adjustments, {
+    sales: subtotalCol != null || packagingCol != null,
+    discounts: promoCol != null || otherDiscountCol != null,
+    commission: serviceFeeCol != null,
+    fees: paymentCol != null,
+    taxes: taxesCol != null,
+    tds: tdsCol != null,
+    tcs: tcsCols.length > 0,
+    gst: gstCollectedCol != null,
+  });
   applyPaidTotal(totals, orders, summaryPaid(summary));
   const observed = withPeriod(identity.observed, cycle.cycleStart, cycle.cycleEnd);
   const labels = watchedPayoutLabels("zomato", "payout", book, head, [
@@ -1203,6 +1214,56 @@ function zomatoAdjustments(rows: string[][], book?: LabelBook): ParsedAdjustment
     });
   }
   return stampAdjustmentKeys(found, "addition deductions");
+}
+
+/** Breakup cells win. A missing order column stays null instead of becoming zero. */
+function fillMissingZomatoTotals(
+  totals: ParsedCycleTotals,
+  orders: ParsedPayoutOrder[],
+  adjustments: ParsedAdjustment[],
+  present: {
+    sales: boolean;
+    discounts: boolean;
+    commission: boolean;
+    fees: boolean;
+    taxes: boolean;
+    tds: boolean;
+    tcs: boolean;
+    gst: boolean;
+  },
+): void {
+  const sum = (pick: (order: ParsedPayoutOrder) => number | null) =>
+    orders.reduce((total, order) => total + (pick(order) ?? 0), 0);
+  const fill = (
+    field:
+      | "grossSalesPaise"
+      | "discountPaise"
+      | "commissionPaise"
+      | "platformFeesPaise"
+      | "taxesPaise"
+      | "tdsPaise"
+      | "tcsPaise"
+      | "gstCollectedPaise",
+    known: boolean,
+    pick: (order: ParsedPayoutOrder) => number | null,
+  ) => {
+    if (!known || totals[field] != null) return;
+    totals[field] = sum(pick);
+  };
+  fill("grossSalesPaise", present.sales, (order) => order.grossSalesPaise);
+  fill("discountPaise", present.discounts, (order) => order.discountPaise);
+  fill("commissionPaise", present.commission, (order) => order.commissionPaise);
+  fill("platformFeesPaise", present.fees, (order) => order.platformFeesPaise);
+  fill("taxesPaise", present.taxes, (order) => order.taxesPaise);
+  fill("tdsPaise", present.tds, (order) => order.tdsPaise);
+  fill("tcsPaise", present.tcs, (order) => order.tcsPaise);
+  fill("gstCollectedPaise", present.gst, (order) => order.gstCollectedPaise);
+  if (totals.adSpendPaise == null) {
+    const ads = adjustments.filter((row) => isAds(row.type));
+    if (ads.length > 0) {
+      totals.adSpendPaise = ads.reduce((total, row) => total + row.amountPaise, 0);
+    }
+  }
 }
 
 function zomatoTotals(rows: string[][], book?: LabelBook): ParsedCycleTotals {
