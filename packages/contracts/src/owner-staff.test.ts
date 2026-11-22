@@ -300,6 +300,37 @@ it("labels a week answer that is not Monday to Sunday", () => {
   expect(olderWeekLabel("Sat 16 Nov vs Sat 9 Nov")).toBe(true);
   expect(olderWeekLabel("16–21 Nov vs 9–14 Nov")).toBe(true);
   expect(olderWeekLabel("9–15 Nov vs 2–8 Nov")).toBe(false);
+  expect(olderWeekLabel("Here is the latest week I can measure.")).toBe(true);
+});
+
+it("marks the latest measurable week as an older answer", () => {
+  const thread = composeStaffThread({
+    restaurantName: "Kesar Kitchen",
+    hasHistory: true,
+    brief: null,
+    messages: [
+      {
+        id: "week",
+        role: "staff",
+        date: "2026-11-22",
+        counted: true,
+        failed: false,
+        blocks: [
+          { kind: "text", text: "Here is the latest week I can measure." },
+          {
+            kind: "metric",
+            label: "Net sales",
+            paise: 2_934_700,
+            changePct: -54.5,
+            compare: "16 Nov",
+            pending: null,
+          },
+        ],
+      },
+    ],
+    askedToday: 0,
+  });
+  expect(thread.messages[0]?.older).toBe(true);
 });
 
 it("drops the status emoji and the raw metric line from a brief", () => {
@@ -340,14 +371,45 @@ it("keeps a later question that uses the same words after the minute", () => {
     ],
     askedToday: 2,
   });
-  expect(thread.messages.map((message) => message.id)).toEqual([
-    "q1",
-    "a1",
-    "q2",
-    "a2",
-    "q3",
-    "a3",
-  ]);
+  expect(thread.messages.map((message) => message.id)).toEqual(["q1", "a1", "q3"]);
+});
+
+it("keeps an empty bubble and does not fold a question into its answer", () => {
+  const empty: StaffMessage = {
+    id: "empty",
+    role: "owner",
+    date: "2026-11-16",
+    blocks: [{ kind: "text", text: "   " }],
+    counted: false,
+    failed: false,
+  };
+  const thread = composeStaffThread({
+    restaurantName: "Kesar Kitchen",
+    hasHistory: true,
+    brief: null,
+    messages: [
+      empty,
+      { ...empty, id: "empty-2" },
+      {
+        id: "q",
+        role: "owner",
+        date: "2026-11-16",
+        blocks: [{ kind: "text", text: "How were sales last week?" }],
+        counted: true,
+        failed: false,
+      },
+      {
+        id: "a",
+        role: "staff",
+        date: "2026-11-16",
+        blocks: [{ kind: "text", text: "How were sales last week?" }],
+        counted: false,
+        failed: false,
+      },
+    ],
+    askedToday: 1,
+  });
+  expect(thread.messages.map((message) => message.id)).toEqual(["empty", "empty-2", "q", "a"]);
 });
 
 it("offers an action once, and records the owner's choice in words", () => {
