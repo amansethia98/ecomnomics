@@ -67,13 +67,12 @@ it("shows the Thursday check on a payout and not a match", () => {
   expect(host.textContent).toContain("Net in file");
   expect(host.textContent).toContain("—");
   expect(host.querySelector("select[aria-label='Week']")).not.toBeNull();
-  expect(host.textContent).toContain("net in the payout file");
+  expect(host.textContent).toContain("3–8 Nov");
   expect(host.textContent).toContain("Where your money went");
   expect(host.textContent).toContain("₹800");
   expect(host.textContent).not.toContain("Matches");
-  expect(host.textContent).toContain("o-1");
-  expect(host.textContent).toContain("Ad credit");
-  expect(host.textContent).toContain(formatRupees(-500));
+  expect(host.textContent).not.toContain("o-1");
+  expect(host.textContent).not.toContain("Ad credit");
   expect(formatRupees(-500)).not.toBe(formatRupees(500));
 });
 
@@ -95,6 +94,12 @@ it("asks for a licence date and reminds inside seven days", () => {
     />,
   );
   expect(empty.querySelector("input[type='date']")).toBeNull();
+  expect(empty.querySelector("input[placeholder='DD MMM YYYY']")).toBeNull();
+  act(() => {
+    [...empty.querySelectorAll("button")]
+      .find((item) => item.textContent === "Add expiry")
+      ?.click();
+  });
   expect(empty.querySelector("input[placeholder='DD MMM YYYY']")).not.toBeNull();
   expect(empty.textContent).toContain("Add your FSSAI licence expiry");
   expect(empty.textContent).toContain("Daily briefs");
@@ -160,8 +165,8 @@ it("says menu editing is coming soon and names a missing app", () => {
   expect(host.textContent).toContain("Not in reports");
   expect(host.textContent).toContain("80%");
   expect(host.textContent).toContain("0%");
-  expect(host.textContent).toContain("1 item not on one app");
-  expect(host.textContent).toContain("Soup");
+  expect(host.textContent).toContain("Zomato doesn't share menu scores in its reports.");
+  expect(host.textContent).not.toContain("Soup");
   expect(host.querySelector("button")).toBeNull();
 });
 
@@ -205,10 +210,10 @@ it("copies a review reply and does not post it", () => {
   expect(host.textContent).not.toContain("Post");
   expect(host.textContent).toContain("Not in Swiggy's reports yet");
   expect(host.textContent).toContain("Reviews and replies are on the way");
-  expect(host.textContent).toContain("Poorly rated orders —");
+  expect(host.textContent).toContain("Poorly rated orders 0");
   expect(host.textContent).toContain("Not in reports");
   expect(host.textContent).toContain("★ 4.20");
-  const bars = host.querySelectorAll("span.bg-primary");
+  const bars = host.querySelectorAll("span.bg-destructive");
   expect(bars).toHaveLength(1);
   act(() => {
     button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));

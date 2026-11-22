@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { formatExclusiveRange } from "./ops/format.js";
 import type { PaymentCycle } from "./owner-desk.js";
 import {
   composeOwnerDocuments,
@@ -50,7 +51,6 @@ describe("owner payments", () => {
     expect(screen.selectedId).toBe("newer");
     expect(screen.orders.map((order) => order.orderId)).toEqual(["o-1"]);
     expect(screen.adjustments).toHaveLength(1);
-    expect(screen.deductions.map((row) => row.id)).toEqual(["commission", "ads"]);
     expect(screen.payouts[0]?.bankBasis).toBe("net");
     expect(screen.breakdown.map((row) => row.id)).toEqual([
       "sales",
@@ -58,16 +58,55 @@ describe("owner payments", () => {
       "commission",
       "ads",
       "tax",
-      "deductions",
+      "complaints",
+      "other",
       "net",
     ]);
     expect(screen.breakdown.find((row) => row.id === "discounts")?.paise).toBeNull();
     expect(screen.breakdown.find((row) => row.id === "net")).toMatchObject({
-      paise: 80_000,
+      paise: 80_500,
       basis: "net",
     });
-    expect(screen.plot?.marks[0]?.type).toBe("rectY");
+    expect(screen.plot).toBeNull();
     expect(JSON.stringify(screen)).not.toContain("Matches");
+  });
+
+  it("nets adjustments and leaves GST collected out of the tax line", () => {
+    const screen = composeOwnerPayments({
+      cycles: [
+        cycle("c", "2026-11-16", {
+          from: "2026-11-09",
+          paidAmountPaise: 11_600,
+          grossSalesPaise: 20_000,
+          discountsPaise: 2_000,
+          commissionPaise: 3_000,
+          feesPaise: 1_000,
+          adsPaise: 2_000,
+          taxesPaise: 500,
+          tdsPaise: 100,
+          gstPaise: 700,
+          complaintsPaise: 200,
+          netPayoutPaise: 10_000,
+        }),
+      ],
+      orders: [],
+      adjustments: [{ cycleId: "c", label: "Credit", amountPaise: -400 }],
+      selectedId: null,
+    });
+    const tax = screen.breakdown.find((row) => row.id === "tax")?.paise;
+    expect(tax).toBe(600);
+    expect(formatExclusiveRange("2026-11-09", "2026-11-16")).toBe("9–15 Nov");
+    expect(formatExclusiveRange("2026-11-08", "2026-11-15")).toBe("8–14 Nov");
+    const signed = (id: string) => screen.breakdown.find((row) => row.id === id)?.paise ?? 0;
+    const reached =
+      signed("sales") -
+      signed("discounts") -
+      signed("commission") -
+      signed("ads") -
+      signed("tax") -
+      signed("complaints") +
+      signed("other");
+    expect(Math.abs(reached - 11_600)).toBeLessThanOrEqual(100);
   });
 
   it("is empty when no payout has arrived", () => {
@@ -225,10 +264,10 @@ describe("owner menu and ratings", () => {
     expect(told.apps.find((app) => app.platform === "swiggy")).toMatchObject({
       rating: null,
       ratingState: "not_in_report",
-      poorRatedOrders: null,
+      poorRatedOrders: 0,
     });
     expect(told.apps.find((app) => app.platform === "swiggy")?.complaints[0]).toMatchObject({
-      count: null,
+      count: 0,
     });
     const reported = composeOwnerRatings({
       rating: null,

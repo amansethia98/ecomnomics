@@ -4,9 +4,20 @@ import { formatCivilDay } from "@rakazo/contracts";
 import { PlatformDot } from "./marks";
 
 export function reportedPoor(app: OwnerRatings["apps"][number]): number | null {
-  if (app.poorRatedOrders == null) return null;
-  if (app.poorRatedOrders === 0 && app.complaints.every((row) => row.count == null)) return null;
   return app.poorRatedOrders;
+}
+
+export function TopComplaint({ apps }: { apps: OwnerRatings["apps"] }) {
+  const { t } = useLingui();
+  let top: { label: string; count: number } | null = null;
+  for (const app of apps) {
+    for (const row of app.complaints) {
+      if (row.count == null || row.count <= 0) continue;
+      if (!top || row.count > top.count) top = { label: row.label, count: row.count };
+    }
+  }
+  if (!top) return null;
+  return <p className="text-body-sm">{t`Most complaints: ${top.label}`}</p>;
 }
 
 export function RatingsScreen({ screen }: { screen: OwnerRatings }) {
@@ -17,23 +28,29 @@ export function RatingsScreen({ screen }: { screen: OwnerRatings }) {
         <p className="text-label text-primary">{t`Coming soon`}</p>
         <h2 className="owner-title">{t`Reviews and replies are on the way`}</h2>
         <p className="mt-2 text-body-sm text-muted-foreground">
-          {t`Soon you'll read every review here, with a reply drafted for you to approve. Until then, here is what the ratings and complaints already say. Copy reply never posts.`}
+          {t`Soon you'll read every review here, with a reply drafted for you to approve. Until then, here is what the ratings and complaints already say.`}
         </p>
       </div>
-      {(screen.apps ?? []).map((app) => (
-        <section key={app.platform}>
-          <p className="flex items-center gap-2 font-medium">
-            <PlatformDot platform={app.platform} />
-            {app.ratingState === "not_in_report" ? (
-              <span className="text-body-sm font-normal text-muted-foreground">
-                {app.platform === "swiggy" ? t`Not in Swiggy's reports yet` : t`Not in reports`}
+      <div className="grid grid-cols-3 gap-3">
+        {(screen.apps ?? []).map((app) => (
+          <p key={app.platform} className="flex flex-col gap-1">
+            <span className="flex items-center gap-2 font-medium">
+              <PlatformDot platform={app.platform} />
+              {app.platform === "zomato" ? t`Zomato` : t`Swiggy`}
+            </span>
+            {app.ratingState === "not_in_report" || app.rating == null ? (
+              <span className="text-body-sm text-muted-foreground">
+                {app.platform === "swiggy" ? t`Not in Swiggy's reports yet` : "—"}
               </span>
-            ) : app.rating != null ? (
-              <span>★ {app.rating.toFixed(2)}</span>
             ) : (
-              <span className="text-body-sm font-normal text-muted-foreground">{t`Not in reports`}</span>
+              <span>★ {app.rating.toFixed(2)}</span>
             )}
           </p>
+        ))}
+      </div>
+      <TopComplaint apps={screen.apps ?? []} />
+      {(screen.apps ?? []).map((app) => (
+        <section key={app.platform}>
           <p className="text-body-sm text-muted-foreground">
             {t`Poorly rated orders`}{" "}
             {reportedPoor(app) == null ? (
@@ -64,7 +81,7 @@ export function RatingsScreen({ screen }: { screen: OwnerRatings }) {
                     <span className="flex items-center gap-2">
                       {row.count > 0 ? (
                         <span
-                          className="block h-1.5 bg-primary"
+                          className={`block h-1.5 ${row.id === "complaints_missing" ? "bg-destructive" : "bg-warning"}`}
                           style={{ width: `${Math.max(8, (row.count / max) * 64)}px` }}
                         />
                       ) : null}
@@ -77,9 +94,7 @@ export function RatingsScreen({ screen }: { screen: OwnerRatings }) {
           </ul>
         </section>
       ))}
-      {screen.reviews.length === 0 ? (
-        <p>{t`No reviews are in yet.`}</p>
-      ) : (
+      {screen.reviews.length === 0 ? null : (
         <ul>
           {screen.reviews.map((review) => (
             <li key={review.id} className="border-t border-border py-3">

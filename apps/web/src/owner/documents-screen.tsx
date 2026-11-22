@@ -20,7 +20,7 @@ export function DocumentsScreen({
   onDirty: (dirty: boolean) => void;
 }) {
   const { t } = useLingui();
-  const [editing, setEditing] = useState(screen.expiresOn == null);
+  const [editing, setEditing] = useState(false);
   const [reportFilter, setReportFilter] = useState<"all" | "daily" | "weekly" | "payout">("all");
   const [reference, setReference] = useState(screen.reference ?? "");
   const [expiresOn, setExpiresOn] = useState(
@@ -32,7 +32,7 @@ export function DocumentsScreen({
     setReference(screen.reference ?? "");
     setExpiresOn(screen.expiresOn ? formatCivilDay(screen.expiresOn) : "");
     setGstin(screen.gstin ?? "");
-    setEditing(screen.expiresOn == null);
+    setEditing(false);
   }, [screen]);
 
   useEffect(() => {
@@ -96,6 +96,13 @@ export function DocumentsScreen({
         <div className="owner-panel p-4">
           <p className="text-label text-muted-foreground">{t`Documents`}</p>
           <h2 className="owner-title mt-1">{t`Add your FSSAI licence expiry`}</h2>
+          <button
+            type="button"
+            className="mt-3 text-body-sm text-primary"
+            onClick={() => setEditing(true)}
+          >
+            {t`Add expiry`}
+          </button>
         </div>
       )}
       {editing ? (
@@ -177,7 +184,7 @@ export function DocumentsScreen({
                     : "owner-pill"
               }
             >
-              {screen.expiresOn ? (screen.reminder ? t`Renew soon` : t`Valid`) : t`Add expiry`}
+              {screen.expiresOn ? (screen.reminder ? t`Renew soon` : t`Valid`) : t`Missing`}
             </span>
           </li>
         </ul>
@@ -189,7 +196,7 @@ export function DocumentsScreen({
             [
               ["all", t`All`],
               ["daily", t`Daily briefs`],
-              ["weekly", t`Weekly`],
+              ["weekly", t`Weekly reviews`],
               ["payout", t`Payout checks`],
             ] as const
           ).map(([id, label]) => (
@@ -224,8 +231,9 @@ export function DocumentsScreen({
                           : t`Report`}
                   </span>
                   <span className="ml-2 text-body-sm text-muted-foreground">
-                    {formatCivilDay(report.from)} – {formatCivilDay(report.to)}
+                    {formatCivilDay(report.createdOn)}
                   </span>
+                  <span className="owner-pill bg-muted text-muted-foreground">{t`Sent`}</span>
                 </li>
               ))}
           </ul>

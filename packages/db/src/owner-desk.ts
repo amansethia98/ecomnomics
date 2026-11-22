@@ -1,5 +1,6 @@
 import type { PaymentAdjustment, PaymentCycle, PaymentOrder } from "@rakazo/contracts";
 import {
+  addIsoDays,
   civilDateOrNull,
   composeOwnerDocuments,
   composeOwnerMenu,
@@ -259,14 +260,14 @@ export async function readRatingsForMember(
     const facts = await latestFacts(db, restaurant, keys, outletId);
     const app = (platform: "zomato" | "swiggy") => ({
       platform,
-      rating: facts.get(`${platform}|rating`) ?? null,
-      poorRatedOrders: facts.get(`${platform}|poor_rated_orders`) ?? null,
+      rating: facts.values.get(`${platform}|rating`) ?? null,
+      poorRatedOrders: facts.values.get(`${platform}|poor_rated_orders`) ?? null,
       complaints: Object.fromEntries(
-        COMPLAINT_KEYS.map((key) => [key, facts.get(`${platform}|${key}`) ?? null]),
+        COMPLAINT_KEYS.map((key) => [key, facts.values.get(`${platform}|${key}`) ?? null]),
       ),
     });
     return composeOwnerRatings({
-      rating: facts.get("zomato|rating") ?? null,
+      rating: facts.values.get("zomato|rating") ?? null,
       reviews: [],
       apps: [app("zomato"), app("swiggy")],
     });
@@ -293,14 +294,49 @@ async function swiggyMenuFacts(
   outletId: string | undefined,
 ) {
   const facts = await latestFacts(db, restaurant, MENU_FACT_KEYS, outletId);
-  const present = MENU_FACT_KEYS.some((key) => facts.has(`swiggy|${key}`));
+  const present = MENU_FACT_KEYS.some((key) => facts.values.has(`swiggy|${key}`));
   if (!present) return null;
+  const photo = facts.values.get("swiggy|menu_photo_pct") ?? null;
+  const description = facts.values.get("swiggy|menu_desc_pct") ?? null;
   return {
-    score: facts.get("swiggy|menu_score") ?? null,
-    photoPct: facts.get("swiggy|menu_photo_pct") ?? null,
-    descriptionPct: facts.get("swiggy|menu_desc_pct") ?? null,
-    top5RevenuePaise: facts.get("swiggy|top5_items_revenue_paise") ?? null,
+    score: facts.values.get("swiggy|menu_score") ?? null,
+    scoreAsOf: facts.dates.get("swiggy|menu_score") ?? null,
+    photoPct: photo == null ? null : Math.round(photo),
+    descriptionPct: description == null ? null : Math.round(description),
+    top5RevenuePaise: facts.values.get("swiggy|top5_items_revenue_paise") ?? null,
+    top5SharePct: await top5Share(db, restaurant, outletId),
   };
+}
+
+async function top5Share(
+  db: PrismaClient,
+  restaurant: { restaurantId: string; spaceId: string },
+  outletId: string | undefined,
+): Promise<number | null> {
+  const since = utcMidnight(addIsoDays(indiaCivilDate(new Date()), -84));
+  const rows = await db.metricValue.findMany({
+    where: {
+      restaurantId: restaurant.restaurantId,
+      spaceId: restaurant.spaceId,
+      platform: "swiggy",
+      state: "ok",
+      supersededAt: null,
+      rowRole: "fact",
+      key: { in: ["top5_items_revenue_paise", "swiggy_net_sales_paise"] },
+      periodStart: { gte: since },
+      ...(outletId ? { outletId } : {}),
+    },
+    select: { key: true, value: true },
+  });
+  let top = 0;
+  let sales = 0;
+  for (const row of rows) {
+    if (row.value == null) continue;
+    if (row.key === "top5_items_revenue_paise") top += Number(row.value);
+    if (row.key === "swiggy_net_sales_paise") sales += Number(row.value);
+  }
+  if (sales <= 0 || top <= 0) return null;
+  return Math.round((top / sales) * 100);
 }
 
 async function latestFacts(
@@ -320,16 +356,19 @@ async function latestFacts(
       ...(outletId ? { outletId } : {}),
     },
     orderBy: { periodStart: "desc" },
-    select: { key: true, platform: true, value: true },
-    take: 400,
+    select: { key: true, platform: true, value: true, periodStart: true },
+    take: 800,
   });
   const kept = new Map<string, number | null>();
+  const dates = new Map<string, string>();
   for (const row of rows) {
+    if (row.value == null) continue;
     const id = `${row.platform}|${row.key}`;
     if (kept.has(id)) continue;
-    kept.set(id, row.value == null ? null : Number(row.value));
+    kept.set(id, Number(row.value));
+    dates.set(id, indiaCivilDate(row.periodStart));
   }
-  return kept;
+  return { values: kept, dates };
 }
 
 /** The newest menu window for each outlet and app. A later window on one app does not drop the other. */
