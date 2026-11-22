@@ -6,6 +6,7 @@ import {
   briefBlocks,
   choiceReply,
   composeStaffThread,
+  olderWeekLabel,
   presentMarketing,
   repeatQuestion,
   staffQuota,
@@ -216,6 +217,36 @@ it("keeps a stored brief closing on the day it was sent", () => {
   );
   expect(text.join(" ")).toContain("Sun 15 Nov");
   expect(text.join(" ")).not.toContain("22 Nov");
+});
+
+it("turns a stored brief into an urgent count and the first act-now line", () => {
+  const thread = composeStaffThread({
+    restaurantName: "Kesar Kitchen",
+    hasHistory: true,
+    brief: {
+      date: "2026-11-15",
+      text: [
+        "Sun 15 Nov vs Sun 8 Nov · 🔴 Act now (1) · 🟡 Watch (2)",
+        "Net sales ₹1,200 (−10.0%)",
+        "🔴 Packing was late. Fix: pack the top dish first.",
+      ].join("\n"),
+    },
+    messages: [],
+    askedToday: 0,
+  });
+  const metric = thread.messages[0]?.blocks.find((block) => block.kind === "metric");
+  expect(metric?.kind === "metric" ? metric.label : null).toBe("1 urgent");
+  expect(metric?.kind === "metric" ? metric.paise : null).toBe(120_000);
+  const text = thread.messages.flatMap((message) =>
+    message.blocks.flatMap((block) => (block.kind === "text" ? [block.text] : [])),
+  );
+  expect(text.some((line) => line.startsWith("Most urgent: Packing was late."))).toBe(true);
+});
+
+it("labels a week answer that is not Monday to Sunday", () => {
+  expect(olderWeekLabel("Sat 16 Nov vs Sat 9 Nov")).toBe(true);
+  expect(olderWeekLabel("16–21 Nov vs 9–14 Nov")).toBe(true);
+  expect(olderWeekLabel("9–15 Nov vs 2–8 Nov")).toBe(false);
 });
 
 it("drops the status emoji and the raw metric line from a brief", () => {

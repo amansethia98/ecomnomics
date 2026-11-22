@@ -186,6 +186,44 @@ export const MarketingConfirmSchema = z.object({
   done: z.boolean(),
 });
 
+/** A week label that is not a Monday–Sunday span. A Saturday treated as a week is one of these. */
+export function olderWeekLabel(text: string): boolean {
+  const ranges = [...text.matchAll(/(\d{1,2})–(\d{1,2})/g)];
+  if (ranges.length > 0) {
+    return ranges.some((match) => Number(match[2]) - Number(match[1]) !== 6);
+  }
+  return /\b(?:Tue|Wed|Thu|Fri|Sat|Sun)\b/.test(text);
+}
+
+/** Counts and the first act-now line, read from the brief we already store. */
+export function briefCard(text: string): StaffBlock[] {
+  const act = text.match(/Act now \((\d+)\)/);
+  const urgent = act ? Number(act[1]) : null;
+  const sales = text.match(/Net sales ₹([\d,]+) \(([+−-][\d.]+)%\)/);
+  const paise = sales?.[1] ? Math.round(Number(sales[1].replace(/,/g, "")) * 100) : null;
+  const changePct = sales?.[2] ? Number(sales[2].replace("−", "-")) : null;
+  const versus = text.match(/vs ([^·\n]+)/);
+  const red = text
+    .split("\n")
+    .find((line) => line.includes("🔴") && !line.includes("Act now"))
+    ?.replace(/🔴/g, "")
+    .replace(/\s*Fix:.*$/, "")
+    .trim();
+  const blocks: StaffBlock[] = [];
+  if (urgent != null) {
+    blocks.push({
+      kind: "metric",
+      label: urgent === 1 ? "1 urgent" : `${urgent} urgent`,
+      paise,
+      changePct,
+      compare: versus?.[1]?.trim() ?? null,
+      pending: /swiggy[^\n]*pending/i.test(text) ? "swiggy" : null,
+    });
+  }
+  if (red) blocks.push({ kind: "text", text: `Most urgent: ${red}` });
+  return blocks;
+}
+
 /** Split a stored brief into chat blocks. Asterisks are headings, not visible marks. */
 export function briefBlocks(text: string): StaffTextBlock[] {
   const dated = text.replace(/\b(\d{4}-\d{2}-\d{2})\b/g, (iso) => formatCivilDay(iso));
@@ -231,7 +269,7 @@ export function composeStaffThread(input: {
         id: `brief-${input.brief.date}`,
         role: "brief",
         date: input.brief.date,
-        blocks: briefBlocks(input.brief.text),
+        blocks: [...briefCard(input.brief.text), ...briefBlocks(input.brief.text)],
         counted: false,
         failed: false,
       }
