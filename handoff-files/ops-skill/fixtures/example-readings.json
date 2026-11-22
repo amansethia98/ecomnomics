@@ -1,0 +1,88 @@
+{
+  "weeks": {
+    "this_week": {"start": "2026-11-02", "end": "2026-11-08", "label": "Week 45 / 2 - 8 Nov"},
+    "last_week": {"start": "2026-10-26", "end": "2026-11-01", "label": "Week 44 / 26 Oct - 1 Nov"}
+  },
+  "readings": [
+    {
+      "platform": "zomato",
+      "outlet_id": "10001",
+      "outlet_name": "Example Kitchen",
+      "area": "Example Area, City",
+      "this_week": {
+        "sales": "100000.00",
+        "delivered_orders": 200,
+        "aov": "500.00",
+        "rating": "4.20",
+        "bad_orders_pct": "5.00",
+        "rejected": 2,
+        "delayed": 4,
+        "poor_rated": 3,
+        "bad_order_complaints": 1,
+        "complaints": 2,
+        "lost_sales": "800.00",
+        "online_pct": "95.00",
+        "kpt_minutes": "14.0",
+        "offline_time": null,
+        "for_accuracy": null
+      },
+      "last_week": {
+        "sales": "100000.00",
+        "delivered_orders": 200,
+        "aov": "500.00",
+        "rating": "4.20",
+        "bad_orders_pct": "5.00",
+        "rejected": 2,
+        "delayed": 4,
+        "poor_rated": 3,
+        "bad_order_complaints": 1,
+        "complaints": 2,
+        "lost_sales": "800.00",
+        "online_pct": "95.00",
+        "kpt_minutes": "14.0",
+        "offline_time": null,
+        "for_accuracy": null
+      }
+    },
+    {
+      "platform": "swiggy",
+      "outlet_id": "20002",
+      "outlet_name": "Example Kitchen",
+      "area": "Example Area, City",
+      "this_week": {
+        "sales": "120000.00",
+        "delivered_orders": 240,
+        "aov": "500.00",
+        "cancelled_orders": 4,
+        "cancelled_order_loss": "900.00",
+        "poor_rated_orders": 3,
+        "complaints": 1,
+        "online_pct": "96.00",
+        "kpt_minutes": "13.5",
+        "food_ready_accuracy": "94.00",
+        "delayed_orders": 10,
+        "lag_banner": false,
+        "rating": null,
+        "offline_time": null,
+        "rejected": null
+      },
+      "last_week": {
+        "sales": "120000.00",
+        "delivered_orders": 240,
+        "aov": "500.00",
+        "cancelled_orders": 4,
+        "cancelled_order_loss": "900.00",
+        "poor_rated_orders": 3,
+        "complaints": 1,
+        "online_pct": "96.00",
+        "kpt_minutes": "13.5",
+        "food_ready_accuracy": "94.00",
+        "delayed_orders": 10,
+        "lag_banner": false,
+        "rating": null,
+        "offline_time": null,
+        "rejected": null
+      }
+    }
+  ]
+}

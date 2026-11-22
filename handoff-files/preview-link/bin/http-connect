@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+"""HTTP CONNECT proxycommand. Usage: http-connect host port"""
+import socket, sys, os
+proxy = os.environ.get("CONNECT_PROXY", "127.0.0.1:8791")
+ph, pp = proxy.rsplit(":", 1)
+host, port = sys.argv[1], sys.argv[2]
+s = socket.create_connection((ph, int(pp)), timeout=15)
+req = f"CONNECT {host}:{port} HTTP/1.1\r\nHost: {host}:{port}\r\n\r\n".encode()
+s.sendall(req)
+buf = b""
+while b"\r\n\r\n" not in buf:
+    chunk = s.recv(4096)
+    if not chunk:
+        break
+    buf += chunk
+header = buf.split(b"\r\n\r\n", 1)[0].decode("iso-8859-1", "replace")
+status = header.split("\r\n", 1)[0]
+if " 200 " not in status:
+    sys.stderr.write(header + "\n")
+    sys.exit(1)
+# leftover after headers, if any, is already tunnel data; keep it on the socket by
+# sending leftover back is hard; assume no leftover (usual).
+leftover = buf.split(b"\r\n\r\n", 1)[1] if b"\r\n\r\n" in buf else b""
+# Simple bidirectional splice
+import select
+stdin = sys.stdin.buffer
+stdout = sys.stdout.buffer
+if leftover:
+    stdout.write(leftover); stdout.flush()
+try:
+    while True:
+        r, _, _ = select.select([s, stdin], [], [])
+        if s in r:
+            data = s.recv(65536)
+            if not data:
+                break
+            stdout.write(data); stdout.flush()
+        if stdin in r:
+            data = stdin.read(65536)
+            if not data:
+                break
+            s.sendall(data)
+finally:
+    s.close()

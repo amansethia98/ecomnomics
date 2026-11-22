@@ -1,0 +1,140 @@
+{
+  "schema": 1,
+  "platform": "zomato",
+  "report": "weekly",
+  "current": {
+    "anchor": "z1_range",
+    "steps": [
+      {
+        "op": "click",
+        "role": "generic",
+        "text": "Weekly",
+        "nth": 0,
+        "count": 1
+      },
+      {
+        "op": "click",
+        "role": "generic",
+        "text": "Custom",
+        "nth": 0,
+        "count": 2
+      },
+      {
+        "op": "click",
+        "role": "generic",
+        "text": "Select weeks",
+        "nth": 0,
+        "count": 2
+      },
+      {
+        "op": "click",
+        "role": "generic",
+        "text": "{range_dmy}",
+        "nth": 0,
+        "count": 2
+      },
+      {
+        "op": "click",
+        "role": "generic",
+        "text": "{*} Current week",
+        "nth": 0,
+        "count": 1
+      }
+    ],
+    "submit": {
+      "role": "generic",
+      "text": "Generate",
+      "nth": 0,
+      "count": 1
+    },
+    "problem": null,
+    "run_id": "nightly-20261116-0749-fc45e7-aifb-live",
+    "window": "2026-11-09..2026-11-16",
+    "version": 2,
+    "learned_at": "2026-11-16T07:55:38+05:30",
+    "evidence": {
+      "window": "2026-11-09..2026-11-16",
+      "presubmit": "ok",
+      "identity": "ok",
+      "upload": "stored",
+      "fetchId": "${FETCH_ID}",
+      "raw_sha12": "${RAW_SHA12}",
+      "ai_cost_inr": 7.66,
+      "ai_calls": 6,
+      "promoted_from": "candidate v1 (candidate_literal_date)",
+      "promoted_by": "E32 wildcard rule; all checks had passed on that run"
+    },
+    "uses": 1,
+    "fails": 0,
+    "status": "promoted",
+    "last_used": "2026-11-16T07:57:11+05:30",
+    "last_run": "nightly-20261116-0755-91797a-aifb-learned"
+  },
+  "candidates": [
+    {
+      "anchor": "z1_range",
+      "steps": [
+        {
+          "op": "click",
+          "role": "generic",
+          "text": "Weekly",
+          "nth": 0,
+          "count": 1
+        },
+        {
+          "op": "click",
+          "role": "generic",
+          "text": "Custom",
+          "nth": 0,
+          "count": 2
+        },
+        {
+          "op": "click",
+          "role": "generic",
+          "text": "Select weeks",
+          "nth": 0,
+          "count": 2
+        },
+        {
+          "op": "click",
+          "role": "generic",
+          "text": "{range_dmy}",
+          "nth": 0,
+          "count": 2
+        },
+        {
+          "op": "click",
+          "role": "generic",
+          "text": "16 - 15 Nov 2026 Current week",
+          "nth": 0,
+          "count": 1
+        }
+      ],
+      "submit": {
+        "role": "generic",
+        "text": "Generate",
+        "nth": 0,
+        "count": 1
+      },
+      "problem": "literal_date",
+      "run_id": "nightly-20261116-0749-fc45e7-aifb-live",
+      "window": "2026-11-09..2026-11-16",
+      "version": 1,
+      "learned_at": "2026-11-16T07:54:02+05:30",
+      "evidence": {
+        "window": "2026-11-09..2026-11-16",
+        "presubmit": "ok",
+        "identity": "ok",
+        "upload": "stored",
+        "fetchId": "${FETCH_ID}",
+        "raw_sha12": "${RAW_SHA12}",
+        "ai_cost_inr": 7.66,
+        "ai_calls": 6
+      },
+      "uses": 0,
+      "fails": 0,
+      "status": "candidate_literal_date"
+    }
+  ],
+  "history": []
+}

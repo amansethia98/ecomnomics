@@ -1,0 +1,9 @@
+{
+  "note": "Copy to budget-limits.json only after Aman approves a live budget. This example file does not authorise any spend.",
+  "conversion_inr_per_usd": 85,
+  "per_run_inr": 90,
+  "suite_cap_inr": 500,
+  "no_new_run_above_inr": 420,
+  "model": "x-ai/grok-4.7",
+  "never_gemini": true
+}

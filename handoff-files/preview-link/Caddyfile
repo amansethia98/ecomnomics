@@ -1,0 +1,103 @@
+{
+	admin off
+}
+
+:8787 {
+	bind 127.0.0.1
+
+	basic_auth {
+		aman ${BASIC_AUTH_BCRYPT}
+	}
+
+	@admin path /admin /admin/*
+	handle @admin {
+		respond 404
+	}
+
+	@signup path /api/auth/sign-up /api/auth/sign-up/*
+	handle @signup {
+		respond 403
+	}
+
+	# API (same-origin). Origin rewritten to the API's trusted web origin.
+	handle /api/* {
+		reverse_proxy 127.0.0.1:3100 {
+			header_up Host 127.0.0.1:3100
+
+		header_up Origin http://127.0.0.1:5173
+		header_up Referer http://127.0.0.1:5173
+		header_up X-Forwarded-Host {http.request.host}
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-Ssl on
+		header_up -Authorization
+		# Brief tsx/watch restarts close :3100; retry instead of returning 502.
+		lb_try_duration 15s
+		lb_try_interval 250ms
+		}
+		# Public link is always HTTPS. Better Auth's baseURL is http://127.0.0.1:5173,
+		# so it does not set Secure by itself; add it for the browser.
+		header {
+			defer
+			Set-Cookie "(.+)" "$1; Secure"
+		}
+	}
+	handle /rpc* {
+		reverse_proxy 127.0.0.1:3100 {
+			header_up Host 127.0.0.1:3100
+
+		header_up Origin http://127.0.0.1:5173
+		header_up Referer http://127.0.0.1:5173
+		header_up X-Forwarded-Host {http.request.host}
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-Ssl on
+		header_up -Authorization
+		# Brief tsx/watch restarts close :3100; retry instead of returning 502.
+		lb_try_duration 15s
+		lb_try_interval 250ms
+		}
+	}
+	handle /.well-known/apple-app-site-association {
+		reverse_proxy 127.0.0.1:3100 {
+			header_up Host 127.0.0.1:3100
+
+		header_up Origin http://127.0.0.1:5173
+		header_up Referer http://127.0.0.1:5173
+		header_up X-Forwarded-Host {http.request.host}
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-Ssl on
+		header_up -Authorization
+		# Brief tsx/watch restarts close :3100; retry instead of returning 502.
+		lb_try_duration 15s
+		lb_try_interval 250ms
+		}
+	}
+	handle /.well-known/assetlinks.json {
+		reverse_proxy 127.0.0.1:3100 {
+			header_up Host 127.0.0.1:3100
+
+		header_up Origin http://127.0.0.1:5173
+		header_up Referer http://127.0.0.1:5173
+		header_up X-Forwarded-Host {http.request.host}
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-Ssl on
+		header_up -Authorization
+		# Brief tsx/watch restarts close :3100; retry instead of returning 502.
+		lb_try_duration 15s
+		lb_try_interval 250ms
+		}
+	}
+
+	# Direct loads of the old chat shell go to the owner dashboard picker/Home.
+	@app path /app /app/*
+	handle @app {
+		redir * /restaurants 302
+	}
+
+	# Production SPA. No Vite dev server, no HMR, no Host allow-list.
+	handle {
+		root * /workspace/preview-link/web-dist
+		encode gzip
+		try_files {path} /index.html
+		file_server
+	}
+}

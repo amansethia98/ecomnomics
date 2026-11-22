@@ -1,0 +1,14 @@
+{
+  "slug": "example-restaurant",
+  "fetch_bot_id": "${FETCH_BOT_ID}",
+  "team_home": "${TEAM_HOME}",
+  "token_env": "${STACK_TOKEN_ENV_FILE}",
+  "session_file": "${SESSION_FILE}",
+  "logins": {
+    "swiggy": {
+      "auto": true,
+      "username_env": "SWIGGY_USERNAME",
+      "password_env": "SWIGGY_PASSWORD"
+    }
+  }
+}

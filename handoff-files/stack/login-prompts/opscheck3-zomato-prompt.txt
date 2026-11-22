@@ -1,0 +1,8 @@
+Owner-approved READ-ONLY check on Zomato business reports. NOT a payout task: do not read any skill, do not run agent-v1-post. Native browser tools only. Be brief: short narration, avoid extra snapshots.
+
+1. Reuse this computer's browser profile. Open https://www.zomato.com/partners/onlineordering/reporting/?selected_tab=tab_daily&selected_view=view_business_reports&business_reports_type=table
+2. If a sign-in page appears instead of the dashboard: STOP immediately and say SIGNED_OUT. Do not log in, do not request any code.
+3. If an outlet dialog appears, choose the configured outlet (outlet_id in ~/.local/share/payout-reconciliation/zomato-settings.json) and Apply; never another outlet. If a Spark/support drawer covers the page, close it via its Close control. Never click the Online toggle, ads, settings or feedback.
+4. On the Business reports tab click "Generate report" (the report generator panel, not the table date picker). Choose view "Daily" and a custom date range 2 Oct 2026 to 31 Oct 2026 (30 days). Verify the selections actually changed. Click "Generate". It should download a CSV automatically; do not email, share or request extra reports.
+5. Confirm with: ls -la ~/Downloads. Then stop.
+Final answer: exact file path(s) and size(s) in ~/Downloads. Do not summarise figures, names or ids.

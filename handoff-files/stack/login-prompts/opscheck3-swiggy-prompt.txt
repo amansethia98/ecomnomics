@@ -1,0 +1,9 @@
+Owner-approved READ-ONLY check on Swiggy business metrics. NOT a payout task: do not read any skill, do not run agent-v1-post. Native browser tools only. Be brief: short narration, avoid extra snapshots, prefer one browser_act with several steps where safe.
+
+1. Open https://partner.swiggy.com/food/business-metrics (reuse this computer's browser profile).
+2. Only if a sign-in page appears: request a private run-only login card for the exact HTTPS origin with Username (the phone number) and Password fields. The coordinator supplies both privately; never ask for plaintext values. Use browser_act fill_secret for Username and submit. The site then shows Enter OTP boxes: IGNORE them. Click "Login with Password". NEVER click Resend OTP and never request or enter any OTP. Use browser_act fill_secret for Password and submit once. If the password fails, STOP without retry. After login, open the business-metrics URL again.
+3. Outlet: read the configured outlet_id and outlet_name from ~/.local/share/payout-reconciliation/swiggy-settings.json. In the outlet filter make sure ONLY that outlet is selected (search by the outlet id; do not use Select All).
+4. Date: choose Custom, Monday 2 Nov 2026 to Sunday 8 Nov 2026, Confirm/Apply.
+5. Use the page's download/export option to download the file DIRECTLY to ~/Downloads. If it offers a choice of report type or granularity, prefer the most detailed (order-level, else daily). Never email, SMS, share, or report-to-mail; if the only option emails, stop and say so.
+6. Confirm the file exists with: ls -la ~/Downloads. Then stop.
+Final answer: the exact file path(s) and size(s) in ~/Downloads, the label of the download option and any granularity choices you saw. Do not open or summarise the file; no figures, names, phone numbers or ids.

@@ -1,0 +1,6 @@
+Owner-approved READ-ONLY check on Swiggy, second short attempt. NOT a payout task: do not read any skill, do not run agent-v1-post. Native browser tools only. Be brief; avoid extra snapshots.
+
+The browser may already be on https://partner.swiggy.com/food/business-metrics with the configured outlet selected (RID in ~/.local/share/payout-reconciliation/swiggy-settings.json). If not, open that page (already signed in; if a sign-in page appears, STOP and say so: no login, no OTP this time).
+1. Ensure only the configured outlet is selected. Date: Custom, Monday 2 Nov 2026 to Sunday 8 Nov 2026, Confirm, Apply.
+2. Use the page's download/export option to download the file DIRECTLY to ~/Downloads. Never email, SMS, share or report-to-mail; if the only option emails, stop and say so.
+3. Stop. Final answer: the exact file path(s) and size(s) in ~/Downloads and the label of the download option. Do not open the file; no figures, names, phone numbers or ids.

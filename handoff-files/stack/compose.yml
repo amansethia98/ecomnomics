@@ -1,0 +1,98 @@
+x-env: &env
+  NODE_ENV: production
+  DATABASE_URL: postgres://rakazo_app:${POSTGRES_APP_PASSWORD}@postgres:5432/agentv1
+  DATA_DIR: /data
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+  CONTENT_ENCRYPTION: 'off'
+  SECRET_STORE: encrypted
+  WAKEUP_DRIVER: graphile
+  AGENT_RUNTIME: pi
+  API_URL: http://172.17.0.1:3321
+  PI_DEFAULT_PROVIDER: openrouter
+  PI_DEFAULT_MODEL: x-ai/grok-4.7
+  OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+  RAKAZO_LIVE_MODEL_CATALOG: 'off'
+  MAX_TOOL_CALLS_PER_TURN: '100'
+  MODEL_STREAM_MAX_RETRIES: '0'
+  SANDBOX_PROVIDER: docker
+  SANDBOX_SUPERVISOR_URL: http://supervisor:7091
+  SANDBOX_SUPERVISOR_TOKEN: ${SANDBOX_SUPERVISOR_TOKEN}
+  SANDBOX_IDLE_MS: '900000'
+  RESTAURANT_COMPUTER_ENABLED: 'true'
+  RESTAURANT_STARTER_BOTS_ENABLED: 'true'
+  USER_DEVICES_ENABLED: 'false'
+  LOG_LEVEL: warn
+  WELCOME_EMAIL_ENABLED: 'false'
+  INBOUND_EMAIL_DOMAIN: ''
+  EMAIL_PROVIDER: ''
+  EXA_API_KEY: ''
+  FIRECRAWL_API_KEY: ''
+  TELEMETRY_ENABLED: 'false'
+  RAKAZO_GIT_SHA: f68c554a3c82ecfa48fa8ad9db6e3b17e3dd5b70
+services:
+  postgres:
+    image: postgres:16
+    environment: {POSTGRES_USER: postgres, POSTGRES_PASSWORD: '${POSTGRES_PASSWORD}', POSTGRES_DB: agentv1}
+    volumes: ['/workspace/live-agentv1/pgdata:/var/lib/postgresql/data']
+    ports: ['127.0.0.1:55450:5432']
+    healthcheck: {test: [CMD-SHELL, pg_isready -U postgres -d agentv1], interval: 2s, timeout: 3s, retries: 30}
+  migrate:
+    image: ecomnomics/main-app:bbfd54de8
+    working_dir: /app/apps/api
+    command: [pnpm, db:deploy]
+    environment:
+      DATABASE_URL: postgres://rakazo_app:${POSTGRES_APP_PASSWORD}@postgres:5432/agentv1
+      DATABASE_MIGRATION_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/agentv1
+    depends_on: {postgres: {condition: service_healthy}}
+  supervisor:
+    image: ecomnomics/main-supervisor:571b069c4
+    user: root
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /data
+      SUPERVISOR_HOST: 0.0.0.0
+      SUPERVISOR_PORT: '7091'
+      DOCKER_SOCKET: /var/run/docker.sock
+      RAKAZO_COMPUTER_IMAGE: ecomnomics/main-computer:bbfd54de8
+      RAKAZO_COMPUTER_MEMORY: 3g
+      RAKAZO_COMPUTER_CPUS: '2'
+      SANDBOX_SUPERVISOR_TOKEN: ${SANDBOX_SUPERVISOR_TOKEN}
+      SANDBOX_SCREEN_NETWORK: isolated
+      LOG_LEVEL: warn
+    volumes: ['/var/run/docker.sock:/var/run/docker.sock', '/workspace/live-agentv1/data:/data']
+  api:
+    image: ecomnomics/main-app:bbfd54de8
+    user: 1000:1000
+    volumes: ['/workspace/live-agentv1/data:/data']
+    working_dir: /app/apps/api
+    command: [node, --enable-source-maps, dist/index.js]
+    environment:
+      <<: *env
+      API_HOST: 0.0.0.0
+      API_PORT: '3100'
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      BETTER_AUTH_URL: http://127.0.0.1:5523
+      WEB_ORIGIN: http://127.0.0.1:5523
+      SCREEN_PROXY_SECRET: ${SCREEN_PROXY_SECRET}
+      SIGNUPS_ENABLED: 'true'
+      SIGNUP_ALLOWLIST: ''
+      AUTH_PASSWORD_ENABLED: 'true'
+      AUTH_BREACHED_PASSWORD_CHECK_ENABLED: 'false'
+    ports: ['127.0.0.1:3320:3100', '172.17.0.1:3321:3100']
+    depends_on: {migrate: {condition: service_completed_successfully}}
+  worker:
+    image: ecomnomics/main-app:bbfd54de8
+    user: 1000:1000
+    volumes: ['/workspace/live-agentv1/data:/data']
+    working_dir: /app/apps/worker
+    command: [node, --enable-source-maps, dist/index.js]
+    environment: *env
+    depends_on: [api, supervisor]
+  web:
+    image: ecomnomics/main-app:bbfd54de8
+    user: root
+    working_dir: /app/apps/web
+    command: [node_modules/.bin/vite, preview, --host, 0.0.0.0, --port, '5173']
+    environment: {API_PROXY_TARGET: 'http://api:3100', SCREEN_PROXY_SECRET: '${SCREEN_PROXY_SECRET}', RAKAZO_HOST: localhost}
+    ports: ['127.0.0.1:5523:5173']
+    depends_on: [api]
