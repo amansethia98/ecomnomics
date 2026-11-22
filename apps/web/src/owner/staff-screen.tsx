@@ -4,6 +4,7 @@ import {
   formatCivilDay,
   formatRupees,
   formatSignedPct,
+  olderWeekLabel,
   STAFF_QUESTION_LIMIT,
 } from "@rakazo/contracts";
 import { Button } from "@rakazo/ui-web";
@@ -141,6 +142,9 @@ function Message({
   onChoose: (actionId: string, choice: "approve" | "change" | "not_now") => void;
 }) {
   const mine = message.role === "owner";
+  const opening = message.blocks.find((block) => block.kind === "text");
+  const older =
+    message.role === "staff" && opening?.kind === "text" && olderWeekLabel(opening.text);
   return (
     <div className={mine ? "mt-2 flex justify-end" : "mt-2 flex items-start gap-2"}>
       {mine ? null : (
@@ -155,6 +159,7 @@ function Message({
             : "max-w-[80%] rounded-2xl bg-background px-3 py-2"
         }
       >
+        {older ? <p className="text-label text-muted-foreground">{t`older answer`}</p> : null}
         {message.blocks.map((block, index) => (
           <Block
             key={`${message.id}-${index}`}
