@@ -3,6 +3,7 @@ import type { AdminPanel, AdminRestaurantFilter } from "@rakazo/contracts";
 import {
   filterAdminRestaurants,
   formatCivilDay,
+  formatIstClock,
   formatRupees,
   panelFromAdminRows,
 } from "@rakazo/contracts";
@@ -107,11 +108,35 @@ export function AdminPanelScreen({
             <h2 className="text-heading1 font-semibold">{panel.health}</h2>
             <p className="text-body-sm text-muted-foreground">
               {t`Last night's run`}
+              {panel.night ? (
+                <>
+                  {" · "}
+                  {formatIstClock(new Date(panel.night.startedAt))}
+                  {" – "}
+                  {panel.night.endedAt
+                    ? formatIstClock(new Date(panel.night.endedAt))
+                    : t`Still running`}
+                </>
+              ) : null}
               {" · "}
               {panel.restaurants.length === 1
                 ? t`1 restaurant`
                 : t`${panel.restaurants.length} restaurants`}
             </p>
+            {panel.freshness.length === 0 ? (
+              <p className="text-body-sm text-muted-foreground">{t`No downloads in this view.`}</p>
+            ) : (
+              <ol className="grid grid-cols-7 gap-2">
+                {panel.freshness.map((day) => (
+                  <li key={day.day} className="text-center text-body-sm">
+                    <span className="block text-muted-foreground">{formatCivilDay(day.day)}</span>
+                    <span className={day.downloads > 0 ? "font-medium" : "text-muted-foreground"}>
+                      {day.downloads}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            )}
             <div className="grid gap-3 sm:grid-cols-4">
               <Stat
                 label={t`Downloads OK`}
@@ -245,6 +270,37 @@ export function AdminPanelScreen({
             <h2 className="text-heading1 font-semibold">
               {t`${panel.runs.filter((run) => run.state === "done").length} of ${panel.runs.length} downloads OK last night`}
             </h2>
+            {panel.nights.length === 0 ? (
+              <p className="mt-3 text-body-sm text-muted-foreground">{t`No nights are stored.`}</p>
+            ) : (
+              <ul className="mt-4 flex h-16 items-end gap-1">
+                {panel.nights.map((night) => {
+                  const max = Math.max(...panel.nights.map((item) => item.runs), 1);
+                  return (
+                    <li
+                      key={night.day}
+                      className="flex-1 bg-foreground"
+                      style={{ height: `${Math.max(8, (night.runs / max) * 100)}%` }}
+                      title={formatCivilDay(night.day)}
+                    />
+                  );
+                })}
+              </ul>
+            )}
+            {panel.night ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <p className="owner-panel p-3">
+                  <span className="block text-label text-muted-foreground">{t`Started`}</span>
+                  {formatIstClock(new Date(panel.night.startedAt))}
+                </p>
+                <p className="owner-panel p-3">
+                  <span className="block text-label text-muted-foreground">{t`Ended`}</span>
+                  {panel.night.endedAt
+                    ? formatIstClock(new Date(panel.night.endedAt))
+                    : t`Still running`}
+                </p>
+              </div>
+            ) : null}
             <table className="mt-4 w-full text-body-sm">
               <thead>
                 <tr className="text-left text-label text-muted-foreground">
@@ -306,6 +362,24 @@ export function AdminPanelScreen({
                 ? "—"
                 : t`${formatRupees(panel.costsPaise)} so far this month`}
             </h2>
+            {panel.dailyCosts.length === 0 ? (
+              <p className="text-body-sm text-muted-foreground">{t`No cost is stored for these nights.`}</p>
+            ) : (
+              <ul className="flex h-16 items-end gap-1">
+                {panel.dailyCosts.map((day) => {
+                  const max = Math.max(...panel.dailyCosts.map((item) => item.costPaise), 1);
+                  return (
+                    <li
+                      key={day.day}
+                      className="flex-1 bg-foreground"
+                      style={{ height: `${Math.max(8, (day.costPaise / max) * 100)}%` }}
+                      title={`${formatCivilDay(day.day)} · ${formatRupees(day.costPaise)}`}
+                    />
+                  );
+                })}
+              </ul>
+            )}
+            <p className="text-body-sm text-muted-foreground">{t`No cap is set.`}</p>
             <table className="w-full text-body-sm">
               <tbody>
                 {panel.restaurants.map((row) => (
@@ -323,6 +397,7 @@ export function AdminPanelScreen({
         {section === "rules" ? (
           <section className="owner-panel mt-4 p-4">
             <p className="text-body-sm text-muted-foreground">{t`Confirmed in the rules file`}</p>
+            <p className="text-body-sm text-muted-foreground">{t`Not confirmed by a person yet.`}</p>
             <p className="mt-2">{panel.rules}</p>
             {panel.quality.length > 0 ? (
               <ul className="mt-3">
@@ -332,7 +407,9 @@ export function AdminPanelScreen({
                   </li>
                 ))}
               </ul>
-            ) : null}
+            ) : (
+              <p className="mt-3 text-body-sm text-muted-foreground">{t`No data-quality rows in this view.`}</p>
+            )}
           </section>
         ) : null}
       </main>

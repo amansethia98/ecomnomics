@@ -1,6 +1,6 @@
 /** Read-only platform admin. Nothing here is a login, a token, or a secret. */
 
-import { indiaCivilDate } from "./metric-dates.js";
+import { addIsoDays, indiaCivilDate } from "./metric-dates.js";
 import type { DashReading } from "./owner-dashboard.js";
 import { incomparableFunnelDays } from "./owner-dashboard.js";
 
@@ -98,6 +98,14 @@ export interface AdminPanel {
   rules: string;
   /** Days a rate cannot be computed, plus payout rows a parser could not read. */
   quality: string[];
+  /** Earliest start and latest end of the newest night that has a stored run. */
+  night: { startedAt: string; endedAt: string | null } | null;
+  /** Seven civil days ending on the newest stored download. Empty when nothing was stored. */
+  freshness: Array<{ day: string; downloads: number }>;
+  /** Nights that have a stored run, at most fourteen. */
+  nights: Array<{ day: string; runs: number; costPaise: number }>;
+  /** Days that have a stored cost. Empty when no run recorded one. */
+  dailyCosts: Array<{ day: string; costPaise: number }>;
 }
 
 export function ownerViewFromRestaurant(row: {
@@ -172,8 +180,14 @@ export function composeAdminPanel(input: {
       costsPaise: null,
       rules: rulesLine(input.openFindings),
       quality: [],
+      night: null,
+      freshness: [],
+      nights: [],
+      dailyCosts: [],
     };
   }
+  const runs = restaurants.flatMap((restaurant) => restaurant.runs);
+  const fetches = restaurants.flatMap((restaurant) => restaurant.fetches ?? []);
   const rows = restaurants.map((restaurant) => ({
     restaurant,
     latest: latestRun(restaurant.runs),
@@ -227,7 +241,83 @@ export function composeAdminPanel(input: {
     costsPaise: costs.length === 0 ? null : costs.reduce((sum, value) => sum + value, 0),
     rules: rulesLine(input.openFindings),
     quality: [...(input.quality ?? [])],
+    night: adminNight(runs),
+    freshness: adminFreshness(fetches),
+    nights: adminNights(runs),
+    dailyCosts: adminDailyCosts(runs),
   };
+}
+
+/** The newest night's first start and last finish. An open run has no end. */
+export function adminNight(
+  runs: readonly AdminRun[],
+): { startedAt: string; endedAt: string | null } | null {
+  const newest = latestRun(runs);
+  if (!newest) return null;
+  const day = indiaCivilDate(new Date(newest.startedAt));
+  const same = runs.filter((run) => indiaCivilDate(new Date(run.startedAt)) === day);
+  const startedAt = same.map((run) => run.startedAt).sort()[0] ?? newest.startedAt;
+  if (same.some((run) => run.endedAt == null)) return { startedAt, endedAt: null };
+  const endedAt =
+    same
+      .map((run) => run.endedAt ?? "")
+      .sort()
+      .at(-1) ?? null;
+  return { startedAt, endedAt };
+}
+
+/** Seven days ending on the newest stored download, including days with none. */
+export function adminFreshness(
+  fetches: readonly AdminFetch[],
+): Array<{ day: string; downloads: number }> {
+  const counts = new Map<string, number>();
+  for (const row of fetches) {
+    const day = indiaCivilDate(new Date(row.createdAt));
+    if (day.length !== 10) continue;
+    counts.set(day, (counts.get(day) ?? 0) + 1);
+  }
+  const end = [...counts.keys()].sort().at(-1);
+  if (!end) return [];
+  const days: Array<{ day: string; downloads: number }> = [];
+  for (let offset = 6; offset >= 0; offset -= 1) {
+    const day = addIsoDays(end, -offset);
+    days.push({ day, downloads: counts.get(day) ?? 0 });
+  }
+  return days;
+}
+
+/** Stored nights, oldest first, capped at fourteen. A night with no run is left out. */
+export function adminNights(
+  runs: readonly AdminRun[],
+): Array<{ day: string; runs: number; costPaise: number }> {
+  const byDay = new Map<string, { runs: number; costPaise: number }>();
+  for (const run of runs) {
+    const day = indiaCivilDate(new Date(run.startedAt));
+    const current = byDay.get(day) ?? { runs: 0, costPaise: 0 };
+    current.runs += 1;
+    current.costPaise += run.costPaise ?? 0;
+    byDay.set(day, current);
+  }
+  return [...byDay.entries()]
+    .sort((left, right) => left[0].localeCompare(right[0]))
+    .slice(-14)
+    .map(([day, row]) => ({ day, runs: row.runs, costPaise: row.costPaise }));
+}
+
+/** Days a run recorded a cost. Days with no cost are absent. */
+export function adminDailyCosts(
+  runs: readonly AdminRun[],
+): Array<{ day: string; costPaise: number }> {
+  const byDay = new Map<string, number>();
+  for (const run of runs) {
+    if (run.costPaise == null) continue;
+    const day = indiaCivilDate(new Date(run.startedAt));
+    byDay.set(day, (byDay.get(day) ?? 0) + run.costPaise);
+  }
+  return [...byDay.entries()]
+    .sort((left, right) => left[0].localeCompare(right[0]))
+    .slice(-14)
+    .map(([day, costPaise]) => ({ day, costPaise }));
 }
 
 function rulesLine(openFindings: number): string {

@@ -55,6 +55,10 @@ const panel: AdminPanel = {
   costsPaise: null,
   rules: "No rule placeholders left.",
   quality: [],
+  night: null,
+  freshness: [],
+  nights: [],
+  dailyCosts: [],
 };
 
 function render(node: React.ReactNode) {
