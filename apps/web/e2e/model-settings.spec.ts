@@ -87,12 +87,8 @@ test("model settings cleanup frames", { tag: "@nightly" }, async ({ page }, test
   const search = page.getByRole("combobox", { name: "Search models" });
   await expect(search).toBeFocused();
   await search.fill("gpt");
-  const firstModel = await options
-    .getByRole("option")
-    .first()
-    .locator("span")
-    .first()
-    .textContent();
+  const firstModel =
+    (await options.getByRole("option").first().locator("span").first().textContent()) ?? "";
   await search.press("Home");
   await search.press("Enter");
   await expect(popup).toBeHidden();
@@ -111,7 +107,7 @@ test("model settings cleanup frames", { tag: "@nightly" }, async ({ page }, test
   await expect(options).toBeVisible();
   await captureScreenshot(page, testInfo, "model-settings-cleanup-4-backup-menu-open");
   const backupItem = options.getByRole("option").first();
-  const backupLabel = (await backupItem.textContent()).trim();
+  const backupLabel = ((await backupItem.textContent()) ?? "").trim();
   await backupItem.click();
   await expect(options).toBeHidden();
   await expect(mainList.getByTestId("model-role-row-2")).toContainText(backupLabel);
