@@ -82,7 +82,10 @@ it("shows the Thursday check on a payout and not a match", () => {
   expect(host.textContent).toContain("—");
   const options = [...host.querySelectorAll("option")].map((option) => option.textContent);
   expect(options.slice(0, 2)).toEqual(["15–21 Nov", "8–14 Nov"]);
-  expect(host.textContent).toContain("3–8 Nov");
+  const weekLine = host.querySelector("[data-testid='payout-week']")?.textContent ?? "";
+  expect(weekLine.match(/\d+–\d+ \w+/g)).toEqual(["15–21 Nov"]);
+  expect(weekLine).not.toContain("3–8 Nov");
+  expect(weekLine).not.toContain("9–15 Nov");
   expect(host.textContent).toContain("Where your money went");
   expect(host.textContent).toContain("₹800");
   expect(host.textContent).not.toContain("Matches");
@@ -268,6 +271,9 @@ it("copies a review reply and does not post it", () => {
   expect(host.textContent).toContain("Not in Swiggy's reports yet");
   expect(host.textContent).toContain("Reviews and replies are on the way");
   expect(host.textContent).toContain("Poorly rated orders 0");
+  const appGrid = host.querySelector("section");
+  expect(appGrid?.className).toContain("grid-cols-1");
+  expect(appGrid?.className).toContain("md:grid-cols-3");
   expect(host.textContent).toContain("25%");
   expect(host.textContent).toContain("Most complaints: Missing items · Swiggy");
   expect(host.textContent).toContain("Not in reports");

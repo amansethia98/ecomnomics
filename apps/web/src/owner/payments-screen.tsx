@@ -30,6 +30,8 @@ export function PaymentsScreen({
     return <p>{t`This week's payout file isn't out yet (usually Thursday morning).`}</p>;
   }
   const weekFrom = week.split("|")[0] ?? "";
+  const chosen = weeks.find((item) => `${item.from}|${item.to}` === week);
+  const weekLabel = chosen ? formatExclusiveRange(chosen.from, chosen.to) : "";
   const heroRows = weekFrom ? paymentsHeroRows(screen.payouts, weekFrom, today) : screen.payouts;
   const shown = heroRows.length > 0 ? heroRows : screen.payouts;
   const heroPaise = heroRows.reduce((total, payout) => {
@@ -37,25 +39,22 @@ export function PaymentsScreen({
     return amount == null ? total : total + amount;
   }, 0);
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-8">
+    <div className="mx-auto flex min-w-0 max-w-3xl flex-col gap-8 overflow-x-clip">
       {heroRows.length > 0 ? (
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-label text-muted-foreground">{t`Latest payouts · Zomato and Swiggy`}</p>
             <h2 className="owner-title">{formatRupees(heroPaise)}</h2>
-            <p className="text-body-sm text-muted-foreground">
+            <p data-testid="payout-week" className="text-body-sm text-muted-foreground">
+              {weekLabel}
               {heroRows.map((payout, index) => {
                 const amount = payoutAmount(payout);
                 const name = payout.platform === "zomato" ? t`Zomato` : t`Swiggy`;
-                const when = formatExclusiveRange(payout.from, payout.to);
                 const how = payout.bankBasis === "paid" ? t`paid` : t`expected`;
-                const text =
-                  amount == null
-                    ? `${name} ${when}`
-                    : `${name} ${formatRupees(amount)} ${how} ${when}`;
+                const text = amount == null ? name : `${name} ${formatRupees(amount)} ${how}`;
                 return (
                   <span key={payout.id}>
-                    {index > 0 ? " · " : ""}
+                    {index > 0 || weekLabel ? " · " : ""}
                     <span
                       className={
                         payout.platform === "zomato"

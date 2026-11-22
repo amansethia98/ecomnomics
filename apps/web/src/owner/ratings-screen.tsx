@@ -26,7 +26,7 @@ export function TopComplaint({ apps }: { apps: OwnerRatings["apps"] }) {
 export function RatingsScreen({ screen }: { screen: OwnerRatings }) {
   const { t } = useLingui();
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+    <div className="mx-auto flex min-w-0 max-w-3xl flex-col gap-6 overflow-x-clip">
       <div className="owner-panel p-4">
         <p className="text-label text-primary">{t`Coming soon`}</p>
         <h2 className="owner-title">{t`Reviews and replies are on the way`}</h2>
@@ -55,7 +55,7 @@ export function RatingsScreen({ screen }: { screen: OwnerRatings }) {
       {(screen.apps ?? []).map((app) => (
         <section
           key={app.platform}
-          className="grid grid-cols-3 items-start gap-3 border-t border-border py-3"
+          className="grid grid-cols-1 items-start gap-3 border-t border-border py-3 md:grid-cols-3"
         >
           <div>
             <PlatformDot platform={app.platform} />
