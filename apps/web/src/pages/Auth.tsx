@@ -216,10 +216,10 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
             disableRedirect,
             provider: "oidc",
             newUserCallbackURL: callbackURL(newAccountDestination(next)),
-            callbackURL: callbackURL(next ?? "/app"),
+            callbackURL: callbackURL(next ?? "/restaurants"),
             errorCallbackURL: callbackURL("/sign-in"),
           }),
-        ["/app", "/onboarding", "/integrations/setup", "/sign-in", ...(next ? [next] : [])],
+        ["/restaurants", "/onboarding", "/integrations/setup", "/sign-in", ...(next ? [next] : [])],
       );
       if (result.error) setError(authErrorText(result.error, t`Could not continue`));
     } catch {

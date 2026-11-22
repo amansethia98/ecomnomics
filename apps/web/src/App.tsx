@@ -185,7 +185,7 @@ function SessionApp() {
                 path="/"
                 element={
                   <Navigate
-                    to={user ? "/app" : hasSignedInBefore() ? "/sign-in" : "/sign-up"}
+                    to={user ? "/restaurants" : hasSignedInBefore() ? "/sign-in" : "/sign-up"}
                     replace
                   />
                 }
@@ -193,7 +193,7 @@ function SessionApp() {
               <Route
                 path="/sign-in"
                 element={
-                  user ? <Navigate to={next ?? "/app"} replace /> : <AuthPage key="in" mode="in" />
+                  user ? <Navigate to={next ?? "/restaurants"} replace /> : <AuthPage key="in" mode="in" />
                 }
               />
               <Route
@@ -209,7 +209,7 @@ function SessionApp() {
               <Route
                 path="/forgot-password"
                 element={
-                  user ? <Navigate to="/app" replace /> : <AuthPage key="forgot" mode="forgot" />
+                  user ? <Navigate to="/restaurants" replace /> : <AuthPage key="forgot" mode="forgot" />
                 }
               />
               <Route path="/reset-password" element={<PasswordResetPage />} />
@@ -307,15 +307,10 @@ function SessionApp() {
                   )
                 }
               >
-                <Route path="/app" element={<ShellPage />} />
-                <Route path="/app/g/:groupId" element={<ShellPage />} />
-                <Route path="/app/:botId" element={<ShellPage />} />
+                <Route path="/app" element={<Navigate to="/restaurants" replace />} />
+                <Route path="/app/*" element={<Navigate to="/restaurants" replace />} />
                 <Route element={<CallLayout />}>
                   <Route path="/onboarding/:step?" element={<OnboardingPage />} />
-                  <Route path="/app/artifacts" element={<ArtifactsPage />} />
-                  <Route path="/app/artifacts/:artifactId" element={<ArtifactsPage />} />
-                  {ticketBoardEnabled ? <Route path="/app/board" element={<BoardPage />} /> : null}
-                  <Route path="/app/x/:linkId" element={<NavLinkPage />} />
                 </Route>
               </Route>
               <Route path="*" element={<NotFoundPage />} />
