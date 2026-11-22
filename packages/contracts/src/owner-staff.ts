@@ -193,6 +193,7 @@ export const MarketingConfirmSchema = z.object({
 
 /** A week label that is not a Monday–Sunday span. A Saturday treated as a week is one of these. */
 export function olderWeekLabel(text: string): boolean {
+  if (/latest week I can measure/i.test(text)) return true;
   const ranges = [...text.matchAll(/(\d{1,2})–(\d{1,2})/g)];
   if (ranges.length > 0) {
     return ranges.some((match) => Number(match[2]) - Number(match[1]) !== 6);
@@ -259,20 +260,26 @@ export function briefBlocks(text: string): StaffTextBlock[] {
   return blocks.length > 0 ? blocks : [{ kind: "text", text: dated.trim() }];
 }
 
-/** Marks a non-Monday week answer, and keeps one copy of an identical older answer. */
+function messageText(message: StaffMessage): string {
+  return message.blocks
+    .flatMap((block) => {
+      if (block.kind === "text") return [block.text];
+      if (block.kind === "metric" && block.compare) return [block.compare];
+      return [];
+    })
+    .join("\n");
+}
+
+/** Marks a non-Monday week answer, and keeps one copy of an identical bubble. */
 export function foldStaffMessages(messages: readonly StaffMessage[]): StaffMessage[] {
   const seen = new Set<string>();
   const kept: StaffMessage[] = [];
   for (const message of messages) {
-    const text = message.blocks
-      .flatMap((block) => (block.kind === "text" ? [block.text] : []))
-      .join("\n");
+    const text = messageText(message).trim();
     const older = message.role === "staff" && olderWeekLabel(text);
-    if (older) {
-      const key = text.trim();
-      if (seen.has(key)) continue;
-      seen.add(key);
-    }
+    const key = `${message.role}\n${text}`;
+    if (text && seen.has(key)) continue;
+    if (text) seen.add(key);
     kept.push({ ...message, older });
   }
   return kept;
@@ -297,12 +304,15 @@ export function composeStaffThread(input: {
   askedToday: number;
 }): StaffThread {
   const quota = staffQuota(input.askedToday);
+  const card = input.brief ? briefCard(input.brief.text) : [];
   const briefMessage: StaffMessage | null = input.brief
     ? {
         id: `brief-${input.brief.date}`,
         role: "brief",
         date: input.brief.date,
-        blocks: [...briefCard(input.brief.text), ...briefBlocks(input.brief.text)],
+        blocks: card.some((block) => block.kind === "metric")
+          ? card
+          : briefBlocks(input.brief.text),
         counted: false,
         failed: false,
       }
