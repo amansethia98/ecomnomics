@@ -54,6 +54,7 @@ vi.mock("./components/SubscriptionGate", () => ({
   SubscriptionGate: ({ children }: { children: ReactNode }) => children,
 }));
 vi.mock("./pages/Shell", () => ({ ShellPage: () => <div>Shell</div> }));
+vi.mock("./owner/page", () => ({ OwnerPage: () => <div>Owner</div> }));
 vi.mock("./components/call/CallLayout", async () => {
   const { Outlet } = await import("react-router-dom");
   return { CallLayout: () => <Outlet /> };
@@ -104,7 +105,7 @@ it.each([
   },
 );
 
-it("loads the board chunk only after bootstrap enables the route", async () => {
+it("sends a signed-in /app/board visit to the owner dashboard without loading the board chunk", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const container = document.createElement("div");
   const root = createRoot(container);
@@ -114,17 +115,10 @@ it("loads the board chunk only after bootstrap enables the route", async () => {
     </MemoryRouter>
   );
   try {
-    await act(async () => root.render(render()));
-    expect(container.textContent).toBe("Shell");
-    expect(capability.screen).toHaveBeenCalledExactlyOnceWith({ screen: "board", surface: "web" });
-    expect(capability.boardLoaded).not.toHaveBeenCalled();
     capability.enabled = true;
-    await act(async () => {
-      root.render(render());
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    expect(capability.boardLoaded).toHaveBeenCalledOnce();
-    expect(container.textContent).toBe("Board page");
+    await act(async () => root.render(render()));
+    expect(container.textContent).toBe("Owner");
+    expect(capability.boardLoaded).not.toHaveBeenCalled();
   } finally {
     await act(async () => root.unmount());
     vi.unstubAllGlobals();
@@ -182,7 +176,7 @@ it.each(["throw", "reject"])(
           </MemoryRouter>,
         ),
       );
-      expect(container.textContent).toBe("Shell");
+      expect(container.textContent).toBe("Owner");
     } finally {
       await act(async () => root.unmount());
       vi.unstubAllGlobals();

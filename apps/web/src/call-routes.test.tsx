@@ -93,9 +93,12 @@ vi.mock("./components/markdown-link-prompt", () => ({
   MarkdownLinkPrompt: ({ children }: { children: ReactNode }) => children,
 }));
 vi.mock("./pages/Shell", () => ({
-  ShellPage: () => <Link to="/app/artifacts">Artifacts</Link>,
+  ShellPage: () => <Link to="/onboarding">Onboarding</Link>,
 }));
-vi.mock("./pages/Artifacts", () => ({ ArtifactsPage: () => <div>Artifacts page</div> }));
+vi.mock("./owner/page", () => ({
+  OwnerPage: () => <Link to="/onboarding">Onboarding</Link>,
+}));
+vi.mock("./pages/Onboarding", () => ({ OnboardingPage: () => <div>Onboarding page</div> }));
 
 import { App } from "./App";
 import { endCall, startCall } from "./lib/call-session";
@@ -161,10 +164,10 @@ afterEach(async () => {
 
 it("keeps an ongoing call in reach after leaving the shell", async () => {
   startCall({ botId: "bot-1", botName: "Test bot" });
-  await render("/app/bot-1");
-  await act(async () => find('a[href="/app/artifacts"]')?.click());
+  await render("/restaurants");
+  await act(async () => find('a[href="/onboarding"]')?.click());
   await settle();
-  expect(container.textContent).toContain("Artifacts page");
+  expect(container.textContent).toContain("Onboarding page");
   expect(find('[data-testid="call-view"]')).not.toBeNull();
   expect(button("Mute")).not.toBeNull();
 
@@ -192,8 +195,8 @@ it("rings for an incoming call on a page outside the shell", async () => {
       },
     } as Bot,
   ];
-  await render("/app/artifacts");
-  expect(container.textContent).toContain("Artifacts page");
+  await render("/onboarding");
+  expect(container.textContent).toContain("Onboarding page");
   expect(find('[data-testid="incoming-call"]')?.getAttribute("aria-label")).toBe(
     "Test bot is calling you",
   );
