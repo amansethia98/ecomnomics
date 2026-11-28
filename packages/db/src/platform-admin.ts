@@ -1,3 +1,4 @@
+import { funnelGapLines, indiaCivilDate, ownerViewFromRestaurant } from "@rakazo/contracts";
 import type { PrismaClient } from "./client.js";
 import type { LabelRejectMode } from "./metric-label-admin.js";
 import {
@@ -34,6 +35,16 @@ export interface PlatformAdminRestaurant {
     zomato: { resId: string; commissionPct: number | null } | null;
     swiggy: { rid: string; commissionPct: number | null } | null;
   }>;
+  fetches: Array<{
+    createdAt: string;
+    platform: string;
+    status: string;
+    runId: string;
+    attemptCount: number;
+    periodStart: string;
+  }>;
+  reports: Array<{ kind: string | null; on: string; createdAt?: string }>;
+  quality: string[];
   jobRuns: Array<{
     runId: string;
     skill: string;
@@ -84,6 +95,16 @@ function present(row: {
   timezone: string;
   outlets: OutletRow[];
   jobRuns: JobRow[];
+  fetches: Array<{
+    createdAt: Date;
+    platform: string;
+    status: string;
+    runId: string;
+    attemptCount: number;
+    requestedPeriodStart: Date;
+  }>;
+  reports: Array<{ kind: string | null; businessDate: Date | null; createdAt: Date }>;
+  quality?: string[];
 }): PlatformAdminRestaurant {
   return {
     restaurantId: row.id,
@@ -102,6 +123,20 @@ function present(row: {
         ? { rid: outlet.swiggyRid, commissionPct: asNumber(outlet.swiggyCommissionPct) }
         : null,
     })),
+    fetches: row.fetches.map((fetch) => ({
+      createdAt: fetch.createdAt.toISOString(),
+      platform: fetch.platform,
+      status: fetch.status,
+      runId: fetch.runId,
+      attemptCount: fetch.attemptCount,
+      periodStart: indiaCivilDate(fetch.requestedPeriodStart),
+    })),
+    reports: row.reports.map((report) => ({
+      kind: report.kind,
+      on: indiaCivilDate(report.createdAt),
+      createdAt: report.createdAt.toISOString(),
+    })),
+    quality: row.quality ?? [],
     jobRuns: row.jobRuns.map((job) => ({
       runId: job.runId,
       skill: job.skill,
@@ -135,6 +170,23 @@ const restaurantSelect = {
       swiggyCommissionPct: true,
     },
   },
+  fetches: {
+    orderBy: { createdAt: "desc" as const },
+    take: 40,
+    select: {
+      createdAt: true,
+      platform: true,
+      status: true,
+      runId: true,
+      attemptCount: true,
+      requestedPeriodStart: true,
+    },
+  },
+  reports: {
+    orderBy: { createdAt: "desc" as const },
+    take: 8,
+    select: { kind: true, businessDate: true, createdAt: true },
+  },
   jobRuns: {
     orderBy: { startedAt: "desc" as const },
     take: 20,
@@ -157,6 +209,51 @@ const restaurantSelect = {
  * Reads through the platform-admin connection. The select list has no token
  * hashes, secrets, passwords, report files, or job error text.
  */
+async function qualityByRestaurant(
+  db: PrismaClient,
+  restaurantIds: string[],
+): Promise<Map<string, string[]>> {
+  if (restaurantIds.length === 0) return new Map();
+  const since = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000);
+  const values = await db.metricValue.findMany({
+    where: {
+      restaurantId: { in: restaurantIds },
+      key: { in: ["cart_builds", "placed_orders", "swiggy_funnel_orders"] },
+      state: "ok",
+      supersededAt: null,
+      granularity: "day",
+      periodStart: { gte: since },
+    },
+    select: { restaurantId: true, platform: true, key: true, value: true, periodStart: true },
+    take: 500,
+  });
+  const grouped = new Map<
+    string,
+    Array<{
+      from: string;
+      grain: "day";
+      platform: "zomato" | "swiggy";
+      key: string;
+      value: number | null;
+      state: "ok";
+    }>
+  >();
+  for (const row of values) {
+    const platform = row.platform === "swiggy" ? "swiggy" : "zomato";
+    const list = grouped.get(row.restaurantId) ?? [];
+    list.push({
+      from: indiaCivilDate(row.periodStart),
+      grain: "day",
+      platform,
+      key: row.key,
+      value: row.value == null ? null : Number(row.value),
+      state: "ok",
+    });
+    grouped.set(row.restaurantId, list);
+  }
+  return new Map([...grouped].map(([id, readings]) => [id, funnelGapLines(readings)]));
+}
+
 export function createPlatformAdminStore(db: PrismaClient) {
   return {
     async listRestaurants(audit: PlatformAdminAudit): Promise<PlatformAdminRestaurant[]> {
@@ -166,7 +263,21 @@ export function createPlatformAdminStore(db: PrismaClient) {
           orderBy: { name: "asc" },
           select: restaurantSelect,
         });
-        return rows.map(present);
+        const quality = await qualityByRestaurant(
+          db,
+          rows.map((row) => row.id),
+        );
+        return rows.map((row) => present({ ...row, quality: quality.get(row.id) ?? [] }));
+      });
+    },
+    async viewAsOwner(restaurantId: string, audit: PlatformAdminAudit) {
+      return runAsPlatformAdmin(audit.adminUserId, async () => {
+        await db.adminAuditLog.create({ data: { ...audit, ip: audit.ip?.slice(0, 64) ?? null } });
+        const row = await db.restaurant.findUnique({
+          where: { id: restaurantId },
+          select: restaurantSelect,
+        });
+        return row ? ownerViewFromRestaurant(present(row)) : null;
       });
     },
     async readRestaurant(

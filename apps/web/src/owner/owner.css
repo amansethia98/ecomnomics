@@ -64,3 +64,29 @@
   z-index: 50;
   pointer-events: auto;
 }
+
+[data-testid="admin-page"] table,
+[data-testid="admin-page"] thead,
+[data-testid="admin-page"] tbody,
+[data-testid="admin-page"] tr,
+[data-testid="admin-page"] th,
+[data-testid="admin-page"] td {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 767px) {
+  [data-testid="admin-page"] table,
+  [data-testid="admin-page"] thead,
+  [data-testid="admin-page"] tbody,
+  [data-testid="admin-page"] tr,
+  [data-testid="admin-page"] th,
+  [data-testid="admin-page"] td {
+    display: block;
+    width: 100%;
+  }
+
+  [data-testid="admin-page"] thead {
+    display: none;
+  }
+}

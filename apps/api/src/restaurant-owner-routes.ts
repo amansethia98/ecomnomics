@@ -38,6 +38,16 @@ export interface RestaurantOwnerRouteOptions {
 /** Session route for the owner dashboard. No agent token. */
 export function restaurantOwnerRoutes(options: RestaurantOwnerRouteOptions) {
   const app = new Hono();
+  app.use("/api/v1/restaurants/:restaurantId/*", async (c, next) => {
+    if (
+      c.req.method !== "GET" &&
+      c.req.method !== "HEAD" &&
+      c.req.header("x-owner-view") === "readonly"
+    ) {
+      return ownerError(c, 403, "read_only", "This view cannot change the restaurant.");
+    }
+    return next();
+  });
   app.get("/api/v1/restaurants", async (c) => {
     const session = await options.getSession(c.req.raw.headers);
     if (!session) return ownerError(c, 401, "unauthorized", "Unauthorized");

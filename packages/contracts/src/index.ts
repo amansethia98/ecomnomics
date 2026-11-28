@@ -40,6 +40,7 @@ export * from "./nav-links.js";
 export * from "./network-host.js";
 export * from "./openai-compatible-ui.js";
 export * from "./ops/index.js";
+export * from "./owner-admin.js";
 export * from "./owner-app.js";
 export * from "./owner-desk.js";
 export * from "./pages.js";

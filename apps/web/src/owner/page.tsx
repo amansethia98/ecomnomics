@@ -16,8 +16,10 @@ interface RestaurantList {
   restaurants: { id: string; name: string }[];
 }
 
-async function ownerJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, { ...init, credentials: "include" });
+async function ownerJson<T>(path: string, init?: RequestInit, readOnly = false): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (readOnly) headers.set("x-owner-view", "readonly");
+  const response = await fetch(path, { ...init, headers, credentials: "include" });
   if (!response.ok) throw new Error(String(response.status));
   return response.json() as Promise<T>;
 }
@@ -26,6 +28,7 @@ export function OwnerPage() {
   const { t } = useLingui();
   const { restaurantId, screen: screenParam } = useParams();
   const [params] = useSearchParams();
+  const readOnly = params.get("readonly") === "1";
   const navigate = useNavigate();
   const today = indiaCivilDate(new Date());
   const [restaurants, setRestaurants] = useState<RestaurantList | null>(null);
@@ -37,7 +40,7 @@ export function OwnerPage() {
 
   useEffect(() => {
     let live = true;
-    ownerJson<RestaurantList>("/api/v1/restaurants")
+    ownerJson<RestaurantList>("/api/v1/restaurants", undefined, readOnly)
       .then((list) => {
         if (live) setRestaurants(list);
       })
@@ -47,13 +50,13 @@ export function OwnerPage() {
     return () => {
       live = false;
     };
-  }, []);
+  }, [readOnly]);
 
   useEffect(() => {
     if (!restaurantId) return;
     let live = true;
     setProfile(null);
-    ownerJson<OwnerProfile>(`/api/v1/restaurants/${restaurantId}/profile`)
+    ownerJson<OwnerProfile>(`/api/v1/restaurants/${restaurantId}/profile`, undefined, readOnly)
       .then((next) => {
         if (live) setProfile(next);
       })
@@ -63,7 +66,7 @@ export function OwnerPage() {
     return () => {
       live = false;
     };
-  }, [restaurantId]);
+  }, [restaurantId, readOnly]);
 
   const confirmLeave = useDiscardGuard(dirty, t`Leave without saving?`);
 
@@ -106,7 +109,9 @@ export function OwnerPage() {
   if (!profile) return null;
   const screen: OwnerScreenId = isOwnerScreen(screenParam) ? screenParam : "home";
   if (!isOwnerScreen(screenParam)) {
-    return <Navigate to={`/restaurants/${restaurantId}/home`} replace />;
+    return (
+      <Navigate to={`/restaurants/${restaurantId}/home${readOnly ? "?readonly=1" : ""}`} replace />
+    );
   }
   const view = effectiveView(parseOwnerView(params, today), profile);
   const setView = (next: OwnerView) => {
@@ -114,6 +119,7 @@ export function OwnerPage() {
     params.set("range", next.range);
     params.set("platform", next.platform);
     if (next.outlet !== "all") params.set("outlet", next.outlet);
+    if (readOnly) params.set("readonly", "1");
     if (next.range === "custom") {
       params.set("from", next.from);
       params.set("to", next.to);
@@ -121,6 +127,7 @@ export function OwnerPage() {
     navigate({ search: `?${params.toString()}` });
   };
   const save = async (draft: ProfileDraft) => {
+    if (readOnly) return;
     setSaving(true);
     setSaveError(false);
     const previousLocale = profile.owner.locale;
@@ -155,15 +162,20 @@ export function OwnerPage() {
       view={view}
       today={today}
       onView={setView}
+      readOnly={readOnly}
       confirmLeave={confirmLeave}
     >
       {screen === "settings" ? (
-        <>
-          <SettingsProfile profile={profile} saving={saving} onSave={save} onDirty={setDirty} />
-          {saveError ? (
-            <p className="mt-3 text-body-sm text-destructive">{t`Couldn't save. Try again.`}</p>
-          ) : null}
-        </>
+        readOnly ? (
+          <p>{t`Read only. This view cannot change the restaurant.`}</p>
+        ) : (
+          <>
+            <SettingsProfile profile={profile} saving={saving} onSave={save} onDirty={setDirty} />
+            {saveError ? (
+              <p className="mt-3 text-body-sm text-destructive">{t`Couldn't save. Try again.`}</p>
+            ) : null}
+          </>
+        )
       ) : profile.outlets.length === 0 && screen === "home" ? (
         <MetricState kind="empty" />
       ) : (

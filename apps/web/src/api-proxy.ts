@@ -42,6 +42,9 @@ export function apiProxy(
   });
   return {
     "/api": options(false),
+    // The platform admin API is /admin/v1. The prefix stops there: /admin/access and
+    // /admin/plugins are pages this web app serves itself.
+    "/admin/v1": options(false),
     // A user's own computer keeps its device socket open here, the API's only upgrade. Vite
     // matches other keys as prefixes, so this one is anchored to the exact path.
     [DEVICE_SOCKET]: options(true),

@@ -52,6 +52,22 @@ export function platformAdminRoutes(options: PlatformAdminRouteOptions) {
     ),
   );
 
+  app.post("/admin/v1/restaurants/:restaurantId/view", (c) => {
+    const restaurantId = c.req.param("restaurantId");
+    return readAdmin(
+      c,
+      options,
+      restaurantId,
+      "view_as_owner",
+      `/admin/v1/restaurants/${restaurantId}/view`,
+      async (store, audit) => {
+        const view = await store.viewAsOwner(restaurantId, audit);
+        if (!view) return null;
+        return { view };
+      },
+    );
+  });
+
   app.get("/admin/v1/restaurants/:restaurantId", (c) => {
     const restaurantId = c.req.param("restaurantId");
     return readAdmin(
