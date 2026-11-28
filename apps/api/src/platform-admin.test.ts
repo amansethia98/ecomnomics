@@ -24,6 +24,15 @@ function recordingStore() {
       audits.push(audit);
       return [];
     },
+    async viewAsOwner(restaurantId, audit) {
+      audits.push(audit);
+      return {
+        restaurantId,
+        name: "Sample",
+        readOnly: true as const,
+        outlets: [],
+      };
+    },
     async readRestaurant(_id, audit) {
       audits.push(audit);
       return null;
@@ -133,6 +142,9 @@ describe("platform admin routes", () => {
   it("does not return data when the audit write fails", async () => {
     const seen = { lookups: 0 };
     const store: PlatformAdminStore = {
+      async viewAsOwner() {
+        return null;
+      },
       async listRestaurants() {
         throw new Error('relation "admin_audit_log" permission denied');
       },
@@ -153,6 +165,30 @@ describe("platform admin routes", () => {
     const body = await response.json();
     expect(body).toEqual({ error: "Admin access is not available", code: "admin_unavailable" });
     expect(JSON.stringify(body)).not.toContain("permission denied");
+  });
+
+  it("audits a read-only view and returns no platform id", async () => {
+    const seen = { lookups: 0 };
+    const { store, audits } = recordingStore();
+    const response = await admin(
+      store,
+      { id: "admin-1", email: "owner@example.com", emailVerified: true },
+      seen,
+    ).request("/admin/v1/restaurants/r1/view", { method: "POST" });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.view.readOnly).toBe(true);
+    expect(JSON.stringify(body)).not.toMatch(/password|token|secret|resId/i);
+    expect(audits[0]).toEqual(
+      expect.objectContaining({ action: "view_as_owner", restaurantId: "r1" }),
+    );
+    const refused = await admin(
+      store,
+      { id: "u", email: "other@example.com", emailVerified: true },
+      seen,
+    ).request("/admin/v1/restaurants/r1/view", { method: "POST" });
+    expect(refused.status).toBe(403);
+    expect(audits).toHaveLength(1);
   });
 
   it("stays unavailable when no admin database is configured", async () => {

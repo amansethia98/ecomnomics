@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { Link, NavLink, useNavigate } from "react-router-dom";
 import { PlatformDot } from "./marks";
 
 export const OWNER_SCREENS = [
@@ -62,6 +62,7 @@ export function OwnerFrame({
   today,
   onView,
   confirmLeave,
+  readOnly = false,
   children,
 }: {
   restaurantId: string;
@@ -71,6 +72,7 @@ export function OwnerFrame({
   today: string;
   onView: (next: OwnerView) => void;
   confirmLeave: () => boolean;
+  readOnly?: boolean;
   children: ReactNode;
 }) {
   const { t } = useLingui();
@@ -108,7 +110,7 @@ export function OwnerFrame({
         {OWNER_SCREENS.map((item) => (
           <NavItem
             key={item.id}
-            to={`${base}/${item.id}${windowSearch(view)}`}
+            to={`${base}/${item.id}${windowSearch(view, readOnly)}`}
             icon={item.icon}
             label={labels[item.id]}
             soon={"soon" in item}
@@ -181,6 +183,14 @@ export function OwnerFrame({
             </div>
           ) : null}
         </header>
+        {readOnly ? (
+          <p className="border-b border-border bg-card px-4 py-2 text-body-sm md:px-8">
+            {t`Viewing ${profile.restaurant.name} as owner · read only ·`}{" "}
+            <Link className="text-primary" to="/admin">
+              {t`Exit`}
+            </Link>
+          </p>
+        ) : null}
         <main className="relative z-0 min-w-0 flex-1 overflow-x-clip px-4 pb-24 md:px-8 md:pb-10">
           {children}
         </main>
@@ -193,7 +203,7 @@ export function OwnerFrame({
           return (
             <NavLink
               key={id}
-              to={`${base}/${id}${windowSearch(view)}`}
+              to={`${base}/${id}${windowSearch(view, readOnly)}`}
               onClick={(event) => {
                 if (!confirmLeave()) event.preventDefault();
               }}
@@ -228,7 +238,7 @@ export function OwnerFrame({
                   className="rounded-md px-2 py-2 text-left text-body-sm text-foreground"
                   onClick={() => {
                     if (!confirmLeave()) return;
-                    const path = `${base}/${item.id}${windowSearch(view)}`;
+                    const path = `${base}/${item.id}${windowSearch(view, readOnly)}`;
                     queueMicrotask(() => {
                       setMoreOpen(false);
                       queueMicrotask(() => navigate(path));
@@ -355,11 +365,12 @@ function civilIso(date: Date): string {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
-function windowSearch(view: OwnerView): string {
+function windowSearch(view: OwnerView, readOnly: boolean): string {
   const params = new URLSearchParams();
   params.set("range", view.range);
   params.set("platform", view.platform);
   if (view.outlet !== "all") params.set("outlet", view.outlet);
+  if (readOnly) params.set("readonly", "1");
   if (view.range === "custom") {
     params.set("from", view.from);
     params.set("to", view.to);

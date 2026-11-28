@@ -18,6 +18,17 @@ describe("owner profile routes", () => {
     }
   });
 
+  it("refuses a write from a read-only owner view", async () => {
+    const app = appFor("user-1");
+    const response = await app.request("/api/v1/restaurants/r1/profile", {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "x-owner-view": "readonly" },
+      body: JSON.stringify({ ownerName: "A" }),
+    });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ code: "read_only" });
+  });
+
   it("refuses a profile save that carries a credential or a platform id", async () => {
     const app = appFor("user-1");
     for (const body of [{ password: "secret" }, { zomatoResId: "100" }, { phone: "9000000000" }]) {
