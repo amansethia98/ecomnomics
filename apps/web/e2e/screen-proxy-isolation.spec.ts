@@ -266,7 +266,7 @@ for (const mode of ["development", "preview"] as const) {
       const response = await page.goto(screenUrl);
       await expect(page.locator("body")).toContainText('"socket":"ok"');
       expect(assetAttempts).toBeGreaterThanOrEqual(2);
-      const result = JSON.parse(await page.locator("body").innerText());
+      const result = JSON.parse((await page.locator("body").textContent()) ?? "");
       expect(await page.context().cookies(origin)).not.toContainEqual(
         expect.objectContaining({ name: "provider_auth" }),
       );
@@ -377,7 +377,7 @@ for (const mode of ["development", "preview"] as const) {
       const response = await page.goto(otherPageUrl);
       await expect(page.locator("body")).toContainText('"socket":"ok"');
       expect(response?.headers()["content-encoding"]).toBe("gzip");
-      expect(JSON.parse(await page.locator("body").innerText())).toMatchObject({
+      expect(JSON.parse((await page.locator("body").textContent()) ?? "")).toMatchObject({
         storage: "blocked",
         session: "blocked",
         webcodecs: true,
@@ -447,7 +447,7 @@ for (const mode of ["development", "preview"] as const) {
             () => (window as unknown as { screenReports: unknown[] }).screenReports,
           ),
         ).toEqual([{ rakazoScreen: "loading" }]);
-        expect(JSON.parse(await body.innerText())).toEqual({
+        expect(JSON.parse((await body.textContent()) ?? "")).toEqual({
           asset: "module loaded",
           socket: "ok",
           cookie: "blocked",

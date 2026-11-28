@@ -88,11 +88,11 @@ const HUB_SECTIONS: readonly ArticleSection[] = [
     heading: "Pricing compared",
     id: "pricing",
     paragraphs: [
-      `Every price on these pages is for one person's bots, which share one computer by default: 2 vCPU and 4 GB of memory, enough for a Linux desktop, Chromium and a terminal, running 4 hours a workday (${WORKDAY_HOURS} hours a month) or around the clock (${MONTH_HOURS} hours). Rakazo gives each person one team computer per space, plus one for each bot you give a computer of its own, so for a space where N people use bots, multiply by N. Rakazo stops or pauses a hosted computer after 10 minutes without use, so you pay for roughly the hours bots work. Where a provider or Rakazo can't use that size, the row says which size it prices.`,
-      `On Rakazo Cloud you don't pay a sandbox provider: computers run on Boat and come with the plan, and the [pricing page](/pricing/) lists the computer hours each plan includes. The table is for a self-hosted Rakazo, where you bring your own provider.`,
+      `Every price on these pages is for one person's bots, which share one computer by default: 2 vCPU and 4 GB of memory, enough for a Linux desktop, Chromium and a terminal, running 4 hours a workday (${WORKDAY_HOURS} hours a month) or around the clock (${MONTH_HOURS} hours). Ecomnomics gives each person one team computer per space, plus one for each bot you give a computer of its own, so for a space where N people use bots, multiply by N. Ecomnomics stops or pauses a hosted computer after 10 minutes without use, so you pay for roughly the hours bots work. Where a provider or Ecomnomics can't use that size, the row says which size it prices.`,
+      `On Ecomnomics Cloud you don't pay a sandbox provider: computers run on Boat and come with the plan, and the [pricing page](/pricing/) lists the computer hours each plan includes. The table is for a self-hosted Ecomnomics, where you bring your own provider.`,
     ],
     table: {
-      caption: "What a bot computer costs on each option Rakazo supports",
+      caption: "What a bot computer costs on each option Ecomnomics supports",
       columns: ["Option", "How you pay", "Free to start", `${WORKDAY_HOURS} hours a month`, "Around the clock"],
       rows: [
         {
@@ -126,7 +126,7 @@ const HUB_SECTIONS: readonly ArticleSection[] = [
           cells: [
             `Per second. Pro plan $${INSTABOX.proFee} a month, returned as usage credit`,
             "Free plan for one computer",
-            `${usd(instaboxProMonthly(WORKDAY_HOURS))} on Pro, the fee, at ${instaboxShapeLabel}, the size Rakazo uses`,
+            `${usd(instaboxProMonthly(WORKDAY_HOURS))} on Pro, the fee, at ${instaboxShapeLabel}, the size Ecomnomics uses`,
             `${usd(instaboxProMonthly(MONTH_HOURS))} on Pro`,
           ],
         },
@@ -153,7 +153,7 @@ const HUB_SECTIONS: readonly ArticleSection[] = [
           cells: [
             "Your own server",
             "Free software",
-            `A ${euro(SERVERS.hetznerCx43)} server fits Rakazo and about ${dockerComputersFit(16)} computers`,
+            `A ${euro(SERVERS.hetznerCx43)} server fits Ecomnomics and about ${dockerComputersFit(16)} computers`,
             "Same",
           ],
         },
@@ -171,23 +171,23 @@ const HUB_SECTIONS: readonly ArticleSection[] = [
           cells: ["Nothing extra", "Free", "Electricity", `${About(macMiniMonthly(MONTH_HOURS))} for a Mac mini`],
         },
       ],
-      note: `${PRICES_NOTE} Usage before free credits. Rakazo can't run Boat at 2 vCPU / 4 GB: self-hosted installs use ${BOAT_RAKAZO.vcpus} vCPU / ${BOAT_RAKAZO.gb} GB machines, which cost ${usd(boatMonthly(BOAT_RAKAZO.hour, WORKDAY_HOURS))} and ${usd(boatMonthly(BOAT_RAKAZO.hour, MONTH_HOURS))}, and larger Rakazo Cloud plans use [larger ones](/sandboxes/boat/). Each option's page shows the rates and assumptions behind its numbers.`,
+      note: `${PRICES_NOTE} Usage before free credits. Ecomnomics can't run Boat at 2 vCPU / 4 GB: self-hosted installs use ${BOAT_RAKAZO.vcpus} vCPU / ${BOAT_RAKAZO.gb} GB machines, which cost ${usd(boatMonthly(BOAT_RAKAZO.hour, WORKDAY_HOURS))} and ${usd(boatMonthly(BOAT_RAKAZO.hour, MONTH_HOURS))}, and larger Ecomnomics Cloud plans use [larger ones](/sandboxes/boat/). Each option's page shows the rates and assumptions behind its numbers.`,
     },
     bullets: [
       "For a few hours a day, per-second providers are cheapest. InstaBox has the lowest hourly rates here, just under Boat's, and a free plan for one computer, but more computers need its Pro plan. Of the providers with no plan fee, Novita has the lowest rate, and E2B and Daytona charge the same as each other.",
-      `Boat's $${BOAT.minimum} minimum covers about ${Math.floor(BOAT.minimum / BOAT_RAKAZO.hour)} hours of the bigger computer self-hosted Rakazo uses, and it covers every computer on the account, so it is cheaper than E2B or Daytona once your computers run more than about ${boatBeatsE2bHours} hours a month between them, and by far around the clock.`,
-      `InstaBox's Pro fee works the same way: the $${INSTABOX.proFee} comes back as usage credit, enough for about ${instaboxCredit} hours of the ${instaboxShapeLabel} computer Rakazo uses there, shared by every computer on the account.`,
+      `Boat's $${BOAT.minimum} minimum covers about ${Math.floor(BOAT.minimum / BOAT_RAKAZO.hour)} hours of the bigger computer self-hosted Ecomnomics uses, and it covers every computer on the account, so it is cheaper than E2B or Daytona once your computers run more than about ${boatBeatsE2bHours} hours a month between them, and by far around the clock.`,
+      `InstaBox's Pro fee works the same way: the $${INSTABOX.proFee} comes back as usage credit, enough for about ${instaboxCredit} hours of the ${instaboxShapeLabel} computer Ecomnomics uses there, shared by every computer on the account.`,
       "A server you rent for Docker costs the same whether bots work or not. It's the cheapest way to run many computers, if you're happy to look after it.",
     ],
   },
   {
-    heading: "Hosted sandboxes compared, including ones Rakazo doesn't support",
+    heading: "Hosted sandboxes compared, including ones Ecomnomics doesn't support",
     paragraphs: [
-      "Most sandboxes that come up as E2B alternatives are built for running code, not a desktop a person can watch. Modal, Vercel Sandbox, Northflank and Blaxel are good at that, and the table includes them for reference, but Rakazo doesn't support them. Rakazo also works with CreateOS and boxd, which don't have their own page here; the [computer providers guide](/docs/self-host-sandbox-providers/) covers them.",
+      "Most sandboxes that come up as E2B alternatives are built for running code, not a desktop a person can watch. Modal, Vercel Sandbox, Northflank and Blaxel are good at that, and the table includes them for reference, but Ecomnomics doesn't support them. Ecomnomics also works with CreateOS and boxd, which don't have their own page here; the [computer providers guide](/docs/self-host-sandbox-providers/) covers them.",
     ],
     table: HOSTED_SANDBOXES_TABLE,
     bullets: [
-      "None of the code-first sandboxes ships a desktop for a person to watch and take over, keeps each bot's browser logins apart, or saves a workspace that survives a switch of provider. Rakazo adds those on every provider it supports.",
+      "None of the code-first sandboxes ships a desktop for a person to watch and take over, keeps each bot's browser logins apart, or saves a workspace that survives a switch of provider. Ecomnomics adds those on every provider it supports.",
       "Session caps matter for agents. E2B's Hobby plan, Novita's free tier and Vercel's Hobby plan end a session within an hour, so a bot on a long research task needs a paid plan or a provider without a cap.",
       "Daytona closed its source in June 2026. E2B is now the main open source hosted sandbox, and Northflank the main one that runs in your own cloud.",
     ],
@@ -272,7 +272,7 @@ export const SANDBOXES_HUB = {
   h1: "Best sandboxes for AI agents in 2026",
   intro: [
     "An AI agent that only chats can't do much. To clean up an inbox, research a list of companies or fix a bug, it needs a computer: a browser it can sign in with, files it can keep, and a terminal to run things in. A sandbox is that computer, kept apart from yours so a mistake stays contained.",
-    "[Rakazo](/) is an open source app for AI teammates that do real work. You talk to each bot in chat, and each one gets its own computer. You can watch its screen and take over at any moment. Where that computer runs is your choice: a hosted sandbox, a container on your own server, a Kubernetes cluster, or your own Mac or PC. This page compares every option Rakazo supports, with prices as of November 2026, and the popular sandboxes it doesn't support, so you can see where they fit.",
+    "[Ecomnomics](/) is an open source app for AI teammates that do real work. You talk to each bot in chat, and each one gets its own computer. You can watch its screen and take over at any moment. Where that computer runs is your choice: a hosted sandbox, a container on your own server, a Kubernetes cluster, or your own Mac or PC. This page compares every option Ecomnomics supports, with prices as of November 2026, and the popular sandboxes it doesn't support, so you can see where they fit.",
   ],
   scene: {
     bot: "Inbox Manager",
@@ -293,7 +293,7 @@ export const SANDBOXES_HUB = {
   choose: [
     {
       heading: "You want it hosted",
-      text: `[Boat](/sandboxes/boat/) is what Rakazo Cloud runs its own bot computers on: full Linux VMs where every bot keeps its own Chrome logins, for a $${BOAT.minimum} monthly minimum. [E2B](/sandboxes/e2b/) is the option Rakazo's live computer tests run on, gives every computer its own microVM, and pauses idle computers instead of deleting them. [Novita](/sandboxes/novita/) pauses with memory, so a bot comes back to the same open programs, with no plan fee. [InstaBox](/sandboxes/instabox/) also pauses with memory, at low hourly rates, with a free plan for one computer. [Daytona](/sandboxes/daytona/) keeps each computer's disk, has no session cap, and suits teams already using it.`,
+      text: `[Boat](/sandboxes/boat/) is what Ecomnomics Cloud runs its own bot computers on: full Linux VMs where every bot keeps its own Chrome logins, for a $${BOAT.minimum} monthly minimum. [E2B](/sandboxes/e2b/) is the option Ecomnomics's live computer tests run on, gives every computer its own microVM, and pauses idle computers instead of deleting them. [Novita](/sandboxes/novita/) pauses with memory, so a bot comes back to the same open programs, with no plan fee. [InstaBox](/sandboxes/instabox/) also pauses with memory, at low hourly rates, with a free plan for one computer. [Daytona](/sandboxes/daytona/) keeps each computer's disk, has no session cap, and suits teams already using it.`,
     },
     {
       heading: "You want the smallest bill",
@@ -301,15 +301,15 @@ export const SANDBOXES_HUB = {
     },
     {
       heading: "You don't want a cloud account",
-      text: "[Docker](/sandboxes/docker/) is the default when you [self-host Rakazo](/self-hosted-ai-agent/): each bot gets a locked-down container with a desktop, on your own machine. [Kubernetes](/sandboxes/kubernetes/) runs one pod per computer on a cluster you already have, with gVisor or Kata if you want VM-level isolation.",
+      text: "[Docker](/sandboxes/docker/) is the default when you [self-host Ecomnomics](/self-hosted-ai-agent/): each bot gets a locked-down container with a desktop, on your own machine. [Kubernetes](/sandboxes/kubernetes/) runs one pod per computer on a cluster you already have, with gVisor or Kata if you want VM-level isolation.",
     },
     {
       heading: "You want one bill",
-      text: "[Railway](/sandboxes/railway/) runs Rakazo, its database and the bot computers from one template. The trade-off is that computers are rebuilt from saved files after they stop, so open programs don't survive.",
+      text: "[Railway](/sandboxes/railway/) runs Ecomnomics, its database and the bot computers from one template. The trade-off is that computers are rebuilt from saved files after they stop, so open programs don't survive.",
     },
     {
       heading: "You run bots for other people",
-      text: "For a public or multi-user instance, keep computers off the server that runs Rakazo and behind a VM boundary: [E2B](/sandboxes/e2b/) or [Boat](/sandboxes/boat/) hosted, or [Kubernetes](/sandboxes/kubernetes/) with gVisor or Kata on your own cluster.",
+      text: "For a public or multi-user instance, keep computers off the server that runs Ecomnomics and behind a VM boundary: [E2B](/sandboxes/e2b/) or [Boat](/sandboxes/boat/) hosted, or [Kubernetes](/sandboxes/kubernetes/) with gVisor or Kata on your own cluster.",
     },
     {
       heading: "You need Windows, or you're in mainland China",
@@ -317,18 +317,18 @@ export const SANDBOXES_HUB = {
     },
     {
       heading: "You want your bots on your real apps",
-      text: "The Rakazo desktop app can let bots use [your own computer](/sandboxes/your-computer/), with your files, apps and logins. That isn't a sandbox, so only turn it on for bots you'd trust unattended.",
+      text: "The Ecomnomics desktop app can let bots use [your own computer](/sandboxes/your-computer/), with your files, apps and logins. That isn't a sandbox, so only turn it on for bots you'd trust unattended.",
     },
   ],
   faq: [
     {
       question: "What is an AI agent sandbox?",
       answer:
-        "An isolated computer where an agent can run commands, use a browser and change files without touching your own machine. In Rakazo it's the bot's computer, which you can watch and take over.",
+        "An isolated computer where an agent can run commands, use a browser and change files without touching your own machine. In Ecomnomics it's the bot's computer, which you can watch and take over.",
     },
     {
       question: "How much does an AI agent sandbox cost?",
-      answer: `Most hosted sandboxes Rakazo supports charge about ${usd(hostedHourly[0])} to ${usd(hostedHourly[1])} an hour for 2 vCPU and 4 GB while running, as of November 2026, so a computer used 4 hours a workday costs about $${Math.round(hostedWorkday[0])} to $${Math.round(hostedWorkday[1])} a month. InstaBox charges about ${rateUsd(instaboxHourly)} an hour for the ${instaboxShapeLabel} computer Rakazo uses there. Boat has a $${BOAT.minimum} monthly minimum, and InstaBox's $${INSTABOX.proFee} Pro fee comes back as usage credit, so both cover far more hours. Self-hosting costs whatever your server does.`,
+      answer: `Most hosted sandboxes Ecomnomics supports charge about ${usd(hostedHourly[0])} to ${usd(hostedHourly[1])} an hour for 2 vCPU and 4 GB while running, as of November 2026, so a computer used 4 hours a workday costs about $${Math.round(hostedWorkday[0])} to $${Math.round(hostedWorkday[1])} a month. InstaBox charges about ${rateUsd(instaboxHourly)} an hour for the ${instaboxShapeLabel} computer Ecomnomics uses there. Boat has a $${BOAT.minimum} monthly minimum, and InstaBox's $${INSTABOX.proFee} Pro fee comes back as usage credit, so both cover far more hours. Self-hosting costs whatever your server does.`,
     },
     {
       question: "What is the cheapest sandbox for AI agents?",
@@ -340,24 +340,24 @@ export const SANDBOXES_HUB = {
       answer: `E2B's Hobby plan has no monthly fee and a one-time $${E2B_CREDIT} credit, but sessions end after an hour. See [E2B pricing](/sandboxes/e2b/).`,
     },
     {
-      question: "Does Rakazo support Modal or Vercel Sandbox?",
+      question: "Does Ecomnomics support Modal or Vercel Sandbox?",
       answer:
-        "No. Rakazo supports Boat, E2B, Daytona, Novita, InstaBox, Railway, Wuying, CreateOS, boxd, Docker, Kubernetes, Incus and your own computer. Modal and Vercel Sandbox are compared above for reference.",
+        "No. Ecomnomics supports Boat, E2B, Daytona, Novita, InstaBox, Railway, Wuying, CreateOS, boxd, Docker, Kubernetes, Incus and your own computer. Modal and Vercel Sandbox are compared above for reference.",
     },
     {
-      question: "Do I need a sandbox provider to run Rakazo?",
+      question: "Do I need a sandbox provider to run Ecomnomics?",
       answer:
         "No. When you [self-host](/self-hosted-ai-agent/), Docker computers work out of the box with no cloud account. Hosted providers are optional.",
     },
     {
       question: "Can I switch providers later?",
       answer:
-        "Yes. Rakazo keeps its own saved copy of each bot's workspace, so a new computer on another provider starts from the last saved version. Let bots finish and their computers stop before you switch, so recent changes are saved first. Software installed outside the workspace doesn't move.",
+        "Yes. Ecomnomics keeps its own saved copy of each bot's workspace, so a new computer on another provider starts from the last saved version. Let bots finish and their computers stop before you switch, so recent changes are saved first. Software installed outside the workspace doesn't move.",
     },
     {
       question: "Is Docker a real sandbox for AI agents?",
       answer:
-        "It's a real boundary but not the strongest. Rakazo's containers drop every Linux capability and cap memory, CPU and processes, but they share the host's kernel. For bots you don't fully trust, pick a provider that gives each computer its own kernel as Rakazo uses it: [E2B](/sandboxes/e2b/), [InstaBox](/sandboxes/instabox/) and CreateOS (Firecracker microVMs), boxd (microVMs), [Boat](/sandboxes/boat/) and [Railway](/sandboxes/railway/) (full VMs), or [Kubernetes](/sandboxes/kubernetes/) with Kata. gVisor on Kubernetes is a middle ground. Not every hosted sandbox qualifies: Rakazo creates [Daytona](/sandboxes/daytona/) computers as Daytona's default containers, which share the host's kernel, and Novita doesn't say what it uses.",
+        "It's a real boundary but not the strongest. Ecomnomics's containers drop every Linux capability and cap memory, CPU and processes, but they share the host's kernel. For bots you don't fully trust, pick a provider that gives each computer its own kernel as Ecomnomics uses it: [E2B](/sandboxes/e2b/), [InstaBox](/sandboxes/instabox/) and CreateOS (Firecracker microVMs), boxd (microVMs), [Boat](/sandboxes/boat/) and [Railway](/sandboxes/railway/) (full VMs), or [Kubernetes](/sandboxes/kubernetes/) with Kata. gVisor on Kubernetes is a middle ground. Not every hosted sandbox qualifies: Ecomnomics creates [Daytona](/sandboxes/daytona/) computers as Daytona's default containers, which share the host's kernel, and Novita doesn't say what it uses.",
     },
   ],
   sources: HUB_SOURCES,

@@ -4,7 +4,7 @@ export const PL_MESSAGES: Record<string, string> = {
   "Check for Updates…": "Sprawdź aktualizacje…",
   "Computer Access…": "Dostęp do komputera…",
   "Revoke Local Computer Access": "Cofnij dostęp do lokalnego komputera",
-  "Change Rakazo Server…": "Zmień serwer Rakazo…",
+  "Change Ecomnomics Server…": "Zmień serwer Ecomnomics…",
   "Stop Local Stack": "Zatrzymaj lokalne usługi",
   "Hide {name}": "Ukryj {name}",
   "Hide Others": "Ukryj pozostałe",
@@ -38,12 +38,13 @@ export const PL_MESSAGES: Record<string, string> = {
   "Bring All to Front": "Przenieś wszystkie na wierzch",
 
   // Updates
-  "Rakazo {version} is ready to install.": "Rakazo {version} jest gotowe do zainstalowania.",
+  "Ecomnomics {version} is ready to install.":
+    "Ecomnomics {version} jest gotowe do zainstalowania.",
   Restart: "Uruchom ponownie",
   Later: "Później",
   "Could not install the update.": "Nie udało się zainstalować aktualizacji.",
   "Could not check for updates.": "Nie udało się sprawdzić aktualizacji.",
-  "Rakazo is up to date.": "Rakazo jest aktualne.",
+  "Ecomnomics is up to date.": "Ecomnomics jest aktualne.",
   "Version {version}": "Wersja {version}",
   "Automatic updates are turned off for this install.":
     "Automatyczne aktualizacje są wyłączone w tej instalacji.",
@@ -51,12 +52,12 @@ export const PL_MESSAGES: Record<string, string> = {
     "Automatyczne aktualizacje działają tylko w zainstalowanej aplikacji.",
   "No desktop releases are published for this build yet.":
     "Dla tej kompilacji nie opublikowano jeszcze wersji desktopowej.",
-  "Move Rakazo to Applications to install updates.":
-    "Przenieś Rakazo do folderu Aplikacje, aby instalować aktualizacje.",
+  "Move Ecomnomics to Applications to install updates.":
+    "Przenieś Ecomnomics do folderu Aplikacje, aby instalować aktualizacje.",
   "Free up disk space to install updates.":
     "Zwolnij miejsce na dysku, aby zainstalować aktualizacje.",
-  "This update could not be verified. Reinstall Rakazo from a trusted download.":
-    "Nie udało się zweryfikować aktualizacji. Zainstaluj Rakazo ponownie z zaufanego źródła.",
+  "This update could not be verified. Reinstall Ecomnomics from a trusted download.":
+    "Nie udało się zweryfikować aktualizacji. Zainstaluj Ecomnomics ponownie z zaufanego źródła.",
   "The update could not be completed. Try again later.":
     "Nie udało się dokończyć aktualizacji. Spróbuj ponownie później.",
   "Could not reach the update server.": "Nie udało się połączyć z serwerem aktualizacji.",
@@ -79,14 +80,15 @@ export const PL_MESSAGES: Record<string, string> = {
     "Logowanie już trwa. Anuluj je i spróbuj ponownie.",
   "Could not open browser sign-in. Close other sign-in attempts and retry.":
     "Nie udało się otworzyć logowania w przeglądarce. Zamknij inne próby logowania i spróbuj ponownie.",
-  "Sign-in callback rejected. Return to Rakazo to retry.":
-    "Odrzucono odpowiedź logowania. Wróć do Rakazo i spróbuj ponownie.",
-  "You can close this tab and return to Rakazo.": "Możesz zamknąć tę kartę i wrócić do Rakazo.",
+  "Sign-in callback rejected. Return to Ecomnomics to retry.":
+    "Odrzucono odpowiedź logowania. Wróć do Ecomnomics i spróbuj ponownie.",
+  "You can close this tab and return to Ecomnomics.":
+    "Możesz zamknąć tę kartę i wrócić do Ecomnomics.",
 
   // Setup window
-  "Set up Rakazo": "Skonfiguruj Rakazo",
-  "Quit Rakazo": "Zakończ Rakazo",
-  "Welcome to Rakazo": "Witaj w Rakazo",
+  "Set up Ecomnomics": "Skonfiguruj Ecomnomics",
+  "Quit Ecomnomics": "Zakończ Ecomnomics",
+  "Welcome to Ecomnomics": "Witaj w Ecomnomics",
   "Choose which server this app should use.": "Wybierz serwer, z którego ma korzystać aplikacja.",
   Instance: "Instancja",
   "This computer": "Ten komputer",
@@ -101,14 +103,14 @@ export const PL_MESSAGES: Record<string, string> = {
   "Check again": "Sprawdź ponownie",
   Retry: "Spróbuj ponownie",
   "Getting ready…": "Przygotowywanie…",
-  "Downloading Rakazo…": "Pobieranie Rakazo…",
-  "Starting Rakazo…": "Uruchamianie Rakazo…",
+  "Downloading Ecomnomics…": "Pobieranie Ecomnomics…",
+  "Starting Ecomnomics…": "Uruchamianie Ecomnomics…",
   "Almost ready…": "Prawie gotowe…",
-  "Rakazo is ready.": "Rakazo jest gotowe.",
+  "Ecomnomics is ready.": "Ecomnomics jest gotowe.",
   "{size} downloaded": "Pobrano {size}",
   "Connecting…": "Łączenie…",
   "Checking…": "Sprawdzanie…",
-  "Rakazo answered at {url}.": "Rakazo odpowiedziało pod adresem {url}.",
+  "Ecomnomics answered at {url}.": "Ecomnomics odpowiedziało pod adresem {url}.",
   "Enter a server address first.": "Najpierw wpisz adres serwera.",
   "Could not save that address.": "Nie udało się zapisać tego adresu.",
   "Could not save that address. Try again.": "Nie udało się zapisać tego adresu. Spróbuj ponownie.",
@@ -119,8 +121,8 @@ export const PL_MESSAGES: Record<string, string> = {
   "Could not run the connection check. Try again.":
     "Nie udało się sprawdzić połączenia. Spróbuj ponownie.",
   "Setup bridge unavailable.": "Moduł konfiguracji jest niedostępny.",
-  "Setup could not start. Quit Rakazo and try again.":
-    "Nie udało się rozpocząć konfiguracji. Zamknij Rakazo i spróbuj ponownie.",
+  "Setup could not start. Quit Ecomnomics and try again.":
+    "Nie udało się rozpocząć konfiguracji. Zamknij Ecomnomics i spróbuj ponownie.",
 
   // Connecting to a server
   "Enter a server address.": "Wpisz adres serwera.",
@@ -128,10 +130,10 @@ export const PL_MESSAGES: Record<string, string> = {
   "Enter a valid server address. Public servers require HTTPS; a new local instance must use localhost.":
     "Wpisz poprawny adres serwera. Serwery publiczne wymagają HTTPS. Nowa lokalna instancja musi używać localhost.",
   "Invalid custom headers": "Nieprawidłowe nagłówki niestandardowe",
-  "That address redirects elsewhere. Enter the final Rakazo server address.":
-    "Ten adres przekierowuje w inne miejsce. Wpisz docelowy adres serwera Rakazo.",
-  "That address did not respond like a Rakazo server.":
-    "Ten adres nie odpowiedział jak serwer Rakazo.",
+  "That address redirects elsewhere. Enter the final Ecomnomics server address.":
+    "Ten adres przekierowuje w inne miejsce. Wpisz docelowy adres serwera Ecomnomics.",
+  "That address did not respond like a Ecomnomics server.":
+    "Ten adres nie odpowiedział jak serwer Ecomnomics.",
   "The server answered with HTTP {status}.": "Serwer odpowiedział kodem HTTP {status}.",
   "Timed out reaching that address.": "Przekroczono czas oczekiwania na połączenie z tym adresem.",
   "Nothing is listening at that address yet.": "Pod tym adresem nie działa jeszcze żadna usługa.",
@@ -156,8 +158,8 @@ export const PL_MESSAGES: Record<string, string> = {
     "Nie udało się zapisać konfiguracji. Przywrócono poprzednią instancję.",
   "Connected, but could not save setup for the next launch. Try Continue again.":
     "Połączono, ale nie udało się zapisać konfiguracji na następne uruchomienie. Kliknij ponownie Kontynuuj.",
-  "The app-managed Rakazo services are not ready. Retry setup.":
-    "Usługi Rakazo zarządzane przez aplikację nie są gotowe. Ponów konfigurację.",
+  "The app-managed Ecomnomics services are not ready. Retry setup.":
+    "Usługi Ecomnomics zarządzane przez aplikację nie są gotowe. Ponów konfigurację.",
 
   // Docker
   "Docker is not installed on this computer.": "Docker nie jest zainstalowany na tym komputerze.",
@@ -183,10 +185,10 @@ export const PL_MESSAGES: Record<string, string> = {
     "Docker przestał odpowiadać. Uruchom Docker i spróbuj ponownie.",
   "Docker Compose is missing. Install Docker Desktop or the docker-compose-plugin, then retry.":
     "Brakuje Docker Compose. Zainstaluj Docker Desktop lub docker-compose-plugin i spróbuj ponownie.",
-  "Downloading Rakazo images failed. Check the output below, then retry.":
-    "Nie udało się pobrać obrazów Rakazo. Sprawdź poniższe komunikaty i spróbuj ponownie.",
-  "Rakazo services did not start. Check the output below, then retry.":
-    "Usługi Rakazo nie uruchomiły się. Sprawdź poniższe komunikaty i spróbuj ponownie.",
+  "Downloading Ecomnomics images failed. Check the output below, then retry.":
+    "Nie udało się pobrać obrazów Ecomnomics. Sprawdź poniższe komunikaty i spróbuj ponownie.",
+  "Ecomnomics services did not start. Check the output below, then retry.":
+    "Usługi Ecomnomics nie uruchomiły się. Sprawdź poniższe komunikaty i spróbuj ponownie.",
   "The stack started but the web app did not answer. Retry, and check the output below.":
     "Usługi uruchomiły się, ale aplikacja webowa nie odpowiedziała. Spróbuj ponownie i sprawdź poniższe komunikaty.",
   "Could not prepare the local stack. Retry.":

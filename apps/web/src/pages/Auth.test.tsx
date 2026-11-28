@@ -112,6 +112,14 @@ async function submit() {
     host.querySelector("form")!.requestSubmit();
   });
 }
+it("signs in to Ecomnomics", async () => {
+  vi.mocked(fetchAuthCapabilities).mockResolvedValue(capabilities);
+  await render("in");
+  expect(host.textContent).toContain("Sign in to Ecomnomics");
+  expect(host.textContent).not.toContain("Rakazo");
+  expect(document.title === "" || !document.title.includes("Rakazo")).toBe(true);
+});
+
 it.each(["in", "up", "forgot"] as const)(
   "stays blank while capabilities load on %s",
   async (mode) => {

@@ -92,6 +92,35 @@ it("shares the layout across account, product and marketplace emails", async () 
   }
 });
 
+it("does not name Rakazo in a rendered email", async () => {
+  const user = { id: "user-1", name: "Alex", email: "alex@example.com" };
+  const url = "https://app.example.com/continue";
+  const locales = ["en", ...Object.keys(CATALOGS)];
+  for (const locale of locales) {
+    const messages = await Promise.all([
+      verificationEmail(user.email, url, locale),
+      signInCodeEmail(user.email, "123456", locale),
+      passwordResetEmail(user, url, locale),
+      accountDeletionEmail(user.email, "123456", locale),
+      identityCodeEmail(user.email, "123456", locale),
+      welcomeEmail(user, url, locale),
+      homeDeletionEmail(user, new Date("2030-01-15T00:00:00Z"), "plan-ended", url, locale),
+      referralEmail(user, url, url, locale),
+      pluginSubmissionReceivedEmail(user.email, locale),
+      integrationClaimConfirmEmail(user.email, url, locale),
+      pluginSubmissionReviewedEmail(
+        { email: user.email, name: "Example plugin", status: "approved", reason: null },
+        locale,
+      ),
+    ]);
+    for (const message of messages) {
+      expect(message.subject, locale).not.toContain("Rakazo");
+      expect(message.text, locale).not.toContain("Rakazo");
+      expect(message.html, locale).not.toContain("Rakazo");
+    }
+  }
+});
+
 describe("email languages", () => {
   const headers = (value: string) => new Headers({ "accept-language": value });
 
@@ -213,9 +242,9 @@ describe("email languages", () => {
 
   it("writes a code email in Spanish", async () => {
     const message = await signInCodeEmail("user@example.test", "123456", "es");
-    expect(message.subject).toBe("Tu código para iniciar sesión en Rakazo");
+    expect(message.subject).toBe("Tu código para iniciar sesión en Ecomnomics");
     expect(message.html).toContain('lang="es"');
-    expect(message.text).toContain("Introduce este código para iniciar sesión en Rakazo:");
+    expect(message.text).toContain("Introduce este código para iniciar sesión en Ecomnomics:");
     expect(message.html).toContain('dir="ltr"');
   });
 
@@ -231,9 +260,9 @@ describe("email languages", () => {
       "Hola, Ana:",
     );
     const english = await welcomeEmail(user, "https://example.test/u");
-    expect(english.subject).toBe("Welcome to Rakazo");
+    expect(english.subject).toBe("Welcome to Ecomnomics");
     expect(english.text).toContain("Hi Ana,");
-    expect(english.text).toContain("Rakazo also has apps for iPhone");
+    expect(english.text).toContain("Ecomnomics also has apps for iPhone");
   });
 
   it.each(Object.entries(CATALOGS))(

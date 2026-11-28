@@ -45,6 +45,8 @@ import {
 } from "./lib/sign-in-next";
 import { syncLogOutFailure } from "./lib/sign-out";
 import { completeSsoCallback, SSO_CALLBACK_PATH } from "./lib/sso-flow";
+import { OwnerEntry } from "./owner/owner-entry";
+import { OwnerPage } from "./owner/page";
 import { IntegrationCallbackPage } from "./pages/IntegrationCallback";
 import { IntegrationSetupPage } from "./pages/IntegrationSetup";
 import { McpOAuthCallbackPage } from "./pages/McpOAuthCallback";
@@ -62,21 +64,21 @@ const OnboardingPage = lazyComponent(() =>
 const NotFoundPage = lazyComponent(() =>
   import("./pages/NotFound").then((module) => module.NotFoundPage),
 );
-const ArtifactsPage = lazyComponent(() =>
-  import("./pages/Artifacts").then((module) => module.ArtifactsPage),
-);
-const BoardPage = lazyComponent(() => import("./pages/Board").then((module) => module.BoardPage));
 const AdminPluginsPage = lazyComponent(() =>
   import("./pages/AdminPluginsPage").then((module) => module.AdminPluginsPage),
 );
 const AdminAccessPage = lazyComponent(() =>
   import("./pages/AdminAccessPage").then((module) => module.AdminAccessPage),
 );
-const NavLinkPage = lazyComponent(() =>
-  import("./pages/NavLinkPage").then((module) => module.NavLinkPage),
-);
 const InvitePage = lazyComponent(() =>
   import("./pages/Invite").then((module) => module.InvitePage),
+);
+const ArtifactsPage = lazyComponent(() =>
+  import("./pages/Artifacts").then((module) => module.ArtifactsPage),
+);
+const BoardPage = lazyComponent(() => import("./pages/Board").then((module) => module.BoardPage));
+const NavLinkPage = lazyComponent(() =>
+  import("./pages/NavLinkPage").then((module) => module.NavLinkPage),
 );
 
 function SsoCallbackPage() {
@@ -182,16 +184,21 @@ function SessionApp() {
               <Route
                 path="/"
                 element={
-                  <Navigate
-                    to={user ? "/app" : hasSignedInBefore() ? "/sign-in" : "/sign-up"}
-                    replace
-                  />
+                  user ? (
+                    <OwnerEntry fallback={<Navigate to="/restaurants" replace />} />
+                  ) : (
+                    <Navigate to={hasSignedInBefore() ? "/sign-in" : "/sign-up"} replace />
+                  )
                 }
               />
               <Route
                 path="/sign-in"
                 element={
-                  user ? <Navigate to={next ?? "/app"} replace /> : <AuthPage key="in" mode="in" />
+                  user ? (
+                    <Navigate to={next && next !== "/" ? next : "/app"} replace />
+                  ) : (
+                    <AuthPage key="in" mode="in" />
+                  )
                 }
               />
               <Route
@@ -207,7 +214,11 @@ function SessionApp() {
               <Route
                 path="/forgot-password"
                 element={
-                  user ? <Navigate to="/app" replace /> : <AuthPage key="forgot" mode="forgot" />
+                  user ? (
+                    <Navigate to="/restaurants" replace />
+                  ) : (
+                    <AuthPage key="forgot" mode="forgot" />
+                  )
                 }
               />
               <Route path="/reset-password" element={<PasswordResetPage />} />
@@ -274,6 +285,18 @@ function SessionApp() {
                   user ? <AdminAccessPage /> : <Navigate to="/sign-in?next=/admin/access" replace />
                 }
               />
+              <Route element={<CallLayout />}>
+                <Route
+                  path="/restaurants/:restaurantId?/:screen?"
+                  element={
+                    user ? (
+                      <OwnerPage />
+                    ) : (
+                      <Navigate to={`/sign-in?next=${encodeURIComponent(pathname)}`} replace />
+                    )
+                  }
+                />
+              </Route>
               <Route
                 element={
                   user ? (
@@ -285,7 +308,7 @@ function SessionApp() {
                   )
                 }
               >
-                <Route path="/app" element={<ShellPage />} />
+                <Route path="/app" element={<OwnerEntry fallback={<ShellPage />} />} />
                 <Route path="/app/g/:groupId" element={<ShellPage />} />
                 <Route path="/app/:botId" element={<ShellPage />} />
                 <Route element={<CallLayout />}>

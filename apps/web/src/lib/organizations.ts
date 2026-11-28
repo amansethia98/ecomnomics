@@ -108,10 +108,5 @@ export function switchOrganization(
   target: Organization,
   openSpaceChat?: OpenSpaceChat,
 ): Promise<boolean> {
-  return openOrganizationSpace(
-    userId,
-    landingSpaceId(target),
-    openSpaceChat ? "/app" : "/",
-    openSpaceChat,
-  );
+  return openOrganizationSpace(userId, landingSpaceId(target), "/app", openSpaceChat);
 }

@@ -47,7 +47,7 @@ export function CreateOrganizationDialog({
       if (
         !(await openOrganizationSpace(userId, created.defaultSpaceId, "/onboarding", openSpaceChat))
       )
-        window.location.assign("/");
+        window.location.assign("/app");
     } catch (reason) {
       setError(errorText(reason));
       setSaving(false);

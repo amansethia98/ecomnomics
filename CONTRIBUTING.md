@@ -1,6 +1,6 @@
-# Contributing to Rakazo
+# Contributing to Ecomnomics
 
-Thanks for helping improve Rakazo. Keep changes focused and testable.
+Thanks for helping improve Ecomnomics. Keep changes focused and testable.
 
 ## Run locally
 

@@ -25,12 +25,12 @@ export function homepage(slug: string, provider: string, alt: string): SandboxIm
 }
 
 export const PROVIDERS_DOC: SourceLink = {
-  label: "Rakazo, computer providers",
+  label: "Ecomnomics, computer providers",
   href: `${GITHUB_URL}/blob/main/docs/self-host-sandbox-providers.md`,
 };
 
 export const RUNTIME_DOC: SourceLink = {
-  label: "Rakazo, computer runtime and isolation",
+  label: "Ecomnomics, computer runtime and isolation",
   href: `${GITHUB_URL}/blob/main/docs/computer-runtime.md`,
 };
 
@@ -121,7 +121,7 @@ export const E2B_CREDIT = 100;
 export const DAYTONA_CREDIT = 200;
 export const NOVITA_CREDIT = 100;
 
-/** E2B's stock desktop, which Rakazo falls back to before its own template is built. */
+/** E2B's stock desktop, which Ecomnomics falls back to before its own template is built. */
 export const E2B_STOCK_SIZE: ComputerShape = { vcpus: 8, gb: 8 };
 
 /** Boat prices per machine size, with a monthly minimum that counts as machine time. */
@@ -134,18 +134,18 @@ export const BOAT = {
 } as const;
 
 /**
- * The Boat machine Rakazo starts for each computer size. A computer gets the size of its
- * organization's Rakazo Cloud plan; everything else, including every self-hosted install, uses
+ * The Boat machine Ecomnomics starts for each computer size. A computer gets the size of its
+ * organization's Ecomnomics Cloud plan; everything else, including every self-hosted install, uses
  * the standard size, which is Boat's default machine.
  */
 export const BOAT_SIZES = [
   {
-    plan: "Rakazo Cloud's Standard plan and Rakazo credits, and every self-hosted install",
+    plan: "Ecomnomics Cloud's Standard plan and Ecomnomics credits, and every self-hosted install",
     machine: "default",
     ...BOAT.default,
   },
-  { plan: "The Rakazo Cloud Pro plan", machine: "large", ...BOAT.large },
-  { plan: "The Rakazo Cloud Max plan", machine: "xlarge", ...BOAT.xlarge },
+  { plan: "The Ecomnomics Cloud Pro plan", machine: "large", ...BOAT.large },
+  { plan: "The Ecomnomics Cloud Max plan", machine: "xlarge", ...BOAT.xlarge },
 ] as const;
 
 /** The standard size, which the worked examples price. */
@@ -156,7 +156,7 @@ export function boatMonthly(hourPrice: number, hours: number): number {
 }
 
 /**
- * Rakazo runs every InstaBox computer at the plan's default size. The Pro fee comes back each
+ * Ecomnomics runs every InstaBox computer at the plan's default size. The Pro fee comes back each
  * month as usage credit, so it works like a monthly minimum.
  */
 export const INSTABOX = {
@@ -168,7 +168,7 @@ export function instaboxProMonthly(hours: number, size: ComputerShape = INSTABOX
   return Math.max(INSTABOX.proFee, monthly(RATES.instabox, hours, size));
 }
 
-/** The shape Rakazo gives every InstaBox computer, such as "4 vCPU / 8 GB". */
+/** The shape Ecomnomics gives every InstaBox computer, such as "4 vCPU / 8 GB". */
 export function instaboxShape(size: ComputerShape = INSTABOX.size): string {
   return `${size.vcpus} vCPU / ${size.gb} GB`;
 }
@@ -189,7 +189,7 @@ export function vercelMonthly(hours: number, busyShare: number, size: ComputerSh
   return hours * (size.vcpus * busyShare * VERCEL.activeCpuHour + size.gb * VERCEL.gbHour);
 }
 
-/** Railway's estimate: what a desktop uses on average, and the Rakazo app and database beside it. */
+/** Railway's estimate: what a desktop uses on average, and the Ecomnomics app and database beside it. */
 export const RAILWAY_ESTIMATE = {
   computer: { vcpus: 0.5, gb: 2.5 },
   app: { vcpus: 0.1, gb: 1 },
@@ -238,7 +238,7 @@ export const SERVERS = {
   controlPlane: 0.1 * 730,
 } as const;
 
-/** Docker computers are capped at 2 GB by default; Rakazo and its database take about 4 GB. */
+/** Docker computers are capped at 2 GB by default; Ecomnomics and its database take about 4 GB. */
 export const DOCKER_MEMORY = { computerGb: 2, rakazoGb: 4 };
 export const dockerComputersFit = (serverGb: number) =>
   Math.floor((serverGb - DOCKER_MEMORY.rakazoGb) / DOCKER_MEMORY.computerGb);
@@ -276,5 +276,5 @@ export const PRICING = {
   },
   hetzner: { label: "Hetzner Cloud pricing", href: "https://www.hetzner.com/cloud/cost-optimized/" },
   digitalocean: { label: "DigitalOcean Droplet pricing", href: "https://www.digitalocean.com/pricing/droplets" },
-  rakazo: { label: "Rakazo pricing", href: `${SITE_URL}/pricing/` },
+  rakazo: { label: "Ecomnomics pricing", href: `${SITE_URL}/pricing/` },
 } satisfies Record<string, SourceLink>;

@@ -146,7 +146,7 @@ function OrganizationSettings({
               organizationId: organization.id,
             });
             if (!selectSpace(activeSpaceId)) clearSpaceSelection();
-            window.location.assign("/");
+            window.location.assign("/app");
           }}
         />
       ) : null}

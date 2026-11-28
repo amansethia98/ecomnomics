@@ -255,29 +255,19 @@ function chunkMissing(platform: Platform, days: readonly string[], budget: numbe
   return spans;
 }
 
-/** Both platforms share one nightly budget. Zomato is taken first on a tied day. */
+/** Each platform has its own nightly budget. Days are taken oldest first. */
 export function chunkBackfill(
   zomatoDays: readonly string[],
   swiggyDays: readonly string[],
   budget = FETCH_BACKFILL_NIGHT_DAYS,
 ): { zomato: Span[]; swiggy: Span[] } {
-  const items = [
-    ...zomatoDays.map((day) => ({ platform: "zomato" as const, day })),
-    ...swiggyDays.map((day) => ({ platform: "swiggy" as const, day })),
-  ].sort(
-    (a, b) =>
-      a.day.localeCompare(b.day) ||
-      (a.platform === b.platform ? 0 : a.platform === "zomato" ? -1 : 1),
-  );
-  const chosen: { zomato: string[]; swiggy: string[] } = { zomato: [], swiggy: [] };
-  for (const item of items) {
-    if (chosen.zomato.length + chosen.swiggy.length >= budget) break;
-    chosen[item.platform].push(item.day);
-  }
-  return {
-    zomato: chunkMissing("zomato", chosen.zomato, chosen.zomato.length),
-    swiggy: chunkMissing("swiggy", chosen.swiggy, chosen.swiggy.length),
-  };
+  const take = (platform: Platform, days: readonly string[]) =>
+    chunkMissing(
+      platform,
+      [...days].sort((left, right) => left.localeCompare(right)),
+      budget,
+    );
+  return { zomato: take("zomato", zomatoDays), swiggy: take("swiggy", swiggyDays) };
 }
 
 function dailyWindow(date: string): Span {

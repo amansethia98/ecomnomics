@@ -15,7 +15,7 @@ import type { AuthCapabilities } from "../lib/auth-capabilities";
 import { fetchAuthCapabilities } from "../lib/auth-capabilities";
 import { desktopBridge } from "../lib/desktop";
 import { clearSpaceSelection } from "../lib/rpc";
-import { newAccountDestination, signInNext } from "../lib/sign-in-next";
+import { newAccountDestination, ownerEntry, signInNext } from "../lib/sign-in-next";
 import { runSsoFlow } from "../lib/sso-flow";
 import { authErrorText, credentialIssueText } from "../lib/user-error";
 import { WindowChrome } from "./WindowChrome";
@@ -63,9 +63,9 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
     sent || codeStep ? (
       <Trans>Check your email</Trans>
     ) : mode === "in" ? (
-      <Trans>Sign in to Rakazo</Trans>
+      <Trans>Sign in to Ecomnomics</Trans>
     ) : mode === "up" ? (
-      <Trans>Create your Rakazo</Trans>
+      <Trans>Create your Ecomnomics</Trans>
     ) : (
       <Trans>Reset your password</Trans>
     );
@@ -216,10 +216,10 @@ export function AuthPage({ mode }: { mode: AuthMode }) {
             disableRedirect,
             provider: "oidc",
             newUserCallbackURL: callbackURL(newAccountDestination(next)),
-            callbackURL: callbackURL(next ?? "/app"),
+            callbackURL: callbackURL(ownerEntry(next)),
             errorCallbackURL: callbackURL("/sign-in"),
           }),
-        ["/app", "/onboarding", "/integrations/setup", "/sign-in", ...(next ? [next] : [])],
+        ["/restaurants", "/onboarding", "/integrations/setup", "/sign-in", ...(next ? [next] : [])],
       );
       if (result.error) setError(authErrorText(result.error, t`Could not continue`));
     } catch {
