@@ -1,6 +1,7 @@
 import {
   AGENT_TOKEN_PREFIX,
   isIsoDate,
+  LicencePatchSchema,
   OpsDismissSchema,
   OpsSnoozeSchema,
   OwnerMetricsQuerySchema,
@@ -15,9 +16,14 @@ import {
   listOwnerRestaurants,
   proposeOpsActionForMember,
   RestaurantAgentError,
+  readDocumentsForMember,
+  readMenuForMember,
   readOpsReportForMember,
   readOwnerMetricsForMember,
   readOwnerProfileForMember,
+  readPaymentsForMember,
+  readRatingsForMember,
+  saveLicenceForMember,
   snoozeOpsAlertForMember,
   updateOwnerProfileForMember,
 } from "@rakazo/db";
@@ -206,6 +212,89 @@ export function restaurantOwnerRoutes(options: RestaurantOwnerRouteOptions) {
         return ownerError(c, status, error.code, error.message);
       }
       throw error;
+    }
+  });
+  app.get("/api/v1/restaurants/:restaurantId/payments", async (c) => {
+    const session = await options.getSession(c.req.raw.headers);
+    if (!session) return ownerError(c, 401, "unauthorized", "Unauthorized");
+    const outletId = c.req.query("outletId");
+    try {
+      return c.json(
+        await readPaymentsForMember(
+          options.prisma,
+          session.userId,
+          c.req.param("restaurantId"),
+          outletId && outletId !== "all" ? outletId : undefined,
+          c.req.query("cycle"),
+        ),
+      );
+    } catch (error) {
+      return ownerFailure(c, error);
+    }
+  });
+  app.get("/api/v1/restaurants/:restaurantId/documents", async (c) => {
+    const session = await options.getSession(c.req.raw.headers);
+    if (!session) return ownerError(c, 401, "unauthorized", "Unauthorized");
+    try {
+      return c.json(
+        await readDocumentsForMember(options.prisma, session.userId, c.req.param("restaurantId")),
+      );
+    } catch (error) {
+      return ownerFailure(c, error);
+    }
+  });
+  app.patch("/api/v1/restaurants/:restaurantId/documents", async (c) => {
+    const session = await options.getSession(c.req.raw.headers);
+    if (!session) return ownerError(c, 401, "unauthorized", "Unauthorized");
+    const body = await c.req.json().catch(() => null);
+    const parsed = LicencePatchSchema.safeParse(body);
+    if (!parsed.success)
+      return ownerError(c, 400, "invalid_body", "That licence date is not valid.");
+    try {
+      return c.json(
+        await saveLicenceForMember(
+          options.prisma,
+          session.userId,
+          c.req.param("restaurantId"),
+          parsed.data,
+        ),
+      );
+    } catch (error) {
+      return ownerFailure(c, error);
+    }
+  });
+  app.get("/api/v1/restaurants/:restaurantId/menu", async (c) => {
+    const session = await options.getSession(c.req.raw.headers);
+    if (!session) return ownerError(c, 401, "unauthorized", "Unauthorized");
+    const outletId = c.req.query("outletId");
+    try {
+      return c.json(
+        await readMenuForMember(
+          options.prisma,
+          session.userId,
+          c.req.param("restaurantId"),
+          outletId && outletId !== "all" ? outletId : undefined,
+        ),
+      );
+    } catch (error) {
+      return ownerFailure(c, error);
+    }
+  });
+  app.get("/api/v1/restaurants/:restaurantId/ratings", async (c) => {
+    const session = await options.getSession(c.req.raw.headers);
+    if (!session) return ownerError(c, 401, "unauthorized", "Unauthorized");
+    const outletId = c.req.query("outletId");
+    try {
+      return c.json(
+        await readRatingsForMember(
+          options.prisma,
+          session.userId,
+          c.req.param("restaurantId"),
+          outletId && outletId !== "all" ? outletId : undefined,
+        ),
+      );
+    } catch (error) {
+      return ownerFailure(c, error);
     }
   });
   return app;

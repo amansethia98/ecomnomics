@@ -2785,6 +2785,7 @@ model Restaurant {
   opsAlertEvents OpsAlertEvent[]
   opsReportDeliveries OpsReportDelivery[]
   outletDayAnswers OutletDayAnswer[]
+  ownerLicence    OwnerLicence?
 
   @@unique([id, spaceId])
   @@map("restaurants")
@@ -3225,6 +3226,20 @@ model OpsAlert {
   @@index([restaurantId, status, lastSeenDate], map: "ops_alerts_status_idx")
   @@index([spaceId], map: "ops_alerts_space_idx")
   @@map("ops_alerts")
+}
+
+/// The FSSAI licence date the owner typed, plus an optional GSTIN. One row per restaurant.
+model OwnerLicence {
+  restaurantId String     @id
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  spaceId      String
+  reference    String?
+  expiresOn    DateTime?  @db.Date
+  gstin        String?
+  updatedAt    DateTime   @updatedAt
+
+  @@index([spaceId], map: "owner_licences_space_idx")
+  @@map("owner_licences")
 }
 
 /// The owner's answer for one outlet on one civil date: closed or not sure (status closed | not_sure).

@@ -199,6 +199,7 @@ export const ROW_SECURITY_MODELS: ReadonlySet<string> = new Set([
   "OpsAlertEvent",
   "OpsReportDelivery",
   "OutletDayAnswer",
+  "OwnerLicence",
   "Action",
   "ActionFile",
   "AgentToken",
