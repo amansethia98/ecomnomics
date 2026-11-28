@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { DashReading } from "./funnel-gap.js";
 import {
   adminQualityNotes,
   composeAdminPanel,
@@ -7,7 +8,6 @@ import {
   ownerViewFromRestaurant,
   panelFromAdminRows,
 } from "./owner-admin.js";
-import type { DashReading } from "./funnel-gap.js";
 
 const outlet = {
   name: "HSR",

@@ -1,9 +1,9 @@
 /** Read-only platform admin. Nothing here is a login, a token, or a secret. */
 
-import { addIsoDays, indiaCivilDate } from "./metric-dates.js";
-import { formatCivilDay, formatWeekdayShort } from "./ops/format.js";
 import type { DashReading } from "./funnel-gap.js";
 import { incomparableFunnelDays } from "./funnel-gap.js";
+import { addIsoDays, indiaCivilDate } from "./metric-dates.js";
+import { formatCivilDay, formatWeekdayShort } from "./ops/format.js";
 
 export interface AdminOutlet {
   name: string;
